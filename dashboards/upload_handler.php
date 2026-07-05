@@ -13,10 +13,14 @@ $user_id = $_SESSION['user_id'];
 $me_role = $_SESSION['role'];
 
 // Determine effective user ID for student (leader's ID if current user is member)
-$stmt_leader_check = $pdo->prepare("SELECT leader_id FROM users WHERE user_id = ?");
-$stmt_leader_check->execute([$user_id]);
-$leader_id_for_current_user = $stmt_leader_check->fetchColumn();
+$stmt_user = $pdo->prepare("SELECT leader_id, username, program FROM users WHERE user_id = ?");
+$stmt_user->execute([$user_id]);
+$user_data = $stmt_user->fetch(PDO::FETCH_ASSOC);
+$leader_id_for_current_user = $user_data["leader_id"];
 $effective_user_id = $leader_id_for_current_user ?? $user_id;
+
+$safe_username = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["username"] ?? "Student")));
+$safe_program = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["program"] ?? "")));
 
 // Handle file upload
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
@@ -54,8 +58,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
         mkdir($upload_dir, 0777, true);
     }
 
-    $new_filename = 'item_' . $item_id . '_' . $effective_user_id . '_' . time() . '.' . $ext;
+        $item_name_stmt = $pdo->prepare("SELECT item_name FROM checklist_items WHERE item_id = ?");
+    $item_name_stmt->execute([$item_id]);
+    $raw_item_name = $item_name_stmt->fetchColumn() ?: "Document";
+    $safe_item_name = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($raw_item_name)));
+
+    $year = date("Y");
+    $program_part = $safe_program ? $safe_program . "_" : "";
+    // Format: YYYY_Program_Username_ItemName.ext
+    // Note: truncate username to 40 chars to avoid overly long names
+    $short_username = substr($safe_username, 0, 40);
+    $new_filename = $year . "_" . $program_part . $short_username . "_" . $safe_item_name . "." . $ext;
     $file_path = $upload_dir . $new_filename;
+    
+    // Overwrite original name so it looks pretty in DB and UI
+    $original_name = $new_filename;
 
     if (move_uploaded_file($file['tmp_name'], $file_path)) {
         // Insert into uploads database as 'Pending'

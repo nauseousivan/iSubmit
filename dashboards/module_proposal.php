@@ -498,12 +498,13 @@ $message_type = $_GET['type'] ?? '';
 
             .item-card.wallet-active {
                 position: fixed;
-                top: 0;
+                top: 5vh;
                 left: 0;
                 right: 0;
                 bottom: 0;
                 margin-top: 0;
                 border-radius: 24px 24px 0 0;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
                 z-index: 9999 !important;
                 cursor: default;
                 background-color: white !important;
@@ -529,7 +530,7 @@ $message_type = $_GET['type'] ?? '';
             .card-body {
                 background: white;
                 flex: 1;
-                border-radius: 24px 24px 0 0;
+                border-radius: 0;
                 margin-top: -20px;
                 padding: 30px 24px;
                 display: none;
@@ -743,45 +744,39 @@ $message_type = $_GET['type'] ?? '';
             letter-spacing: -1px;
         }
 
-        /* ---- WORKFLOW STEPS ---- */
-        .workflow-steps {
+        /* ---- APPLE HIG WORKFLOW STEPS ---- */
+        .apple-workflow {
             display: flex;
             flex-direction: column;
-            gap: 0;
-            margin-bottom: 18px;
-            background: #f8fafc;
-            border-radius: 14px;
-            padding: 14px 16px;
-            border: 1px solid #e2e8f0;
+            align-items: flex-start;
+            gap: 4px;
+            margin-bottom: 20px;
+            padding: 0;
         }
-        .workflow-step {
+        .aw-step {
             display: flex;
             align-items: center;
-            gap: 12px;
-            padding: 5px 0;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #334155;
         }
-        .step-num {
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            background: #0f172a;
-            color: white;
-            font-size: 11px;
-            font-weight: 800;
+        .aw-step span {
             display: flex;
             align-items: center;
             justify-content: center;
-            flex-shrink: 0;
+            width: 18px;
+            height: 18px;
+            background: #e2e8f0;
+            color: #475569;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: 800;
         }
-        .step-text {
-            font-size: 13px;
-            color: #334155;
-            font-weight: 500;
-            line-height: 1.4;
-        }
-        .step-arrow {
-            padding-left: 4px;
-            color: #cbd5e1;
+        .aw-arrow {
+            margin-left: 5px;
+            color: #94a3b8;
+            font-size: 12px;
         }
 
         /* ---- HISTORY BUTTON ---- */
@@ -821,27 +816,21 @@ $message_type = $_GET['type'] ?? '';
             background: #e2e8f0;
         }
 
-        /* ---- SUBMISSION CARD ---- */
-        .submission-card {
+        /* ---- APPLE HIG FILE CARD ---- */
+        .apple-file-card {
             display: flex;
             align-items: center;
-            gap: 14px;
+            gap: 12px;
             background: #f8fafc;
             border: 1px solid #e2e8f0;
             border-radius: 16px;
-            padding: 14px;
+            padding: 12px;
             margin-top: 14px;
-            cursor: pointer;
-            transition: transform 0.15s, background 0.15s;
             -webkit-tap-highlight-color: transparent;
         }
-        .submission-card:active {
-            background: #f1f5f9;
-            transform: scale(0.99);
-        }
-        .file-thumb-wrap {
-            width: 52px;
-            height: 52px;
+        .afc-thumb-wrap {
+            width: 44px;
+            height: 44px;
             border-radius: 10px;
             overflow: hidden;
             flex-shrink: 0;
@@ -850,27 +839,53 @@ $message_type = $_GET['type'] ?? '';
             align-items: center;
             justify-content: center;
         }
-        .file-thumb {
+        .afc-thumb {
             width: 100%;
             height: 100%;
             object-fit: cover;
         }
-        .file-thumb-doc { background: #f1f5f9; }
-        .submission-info { flex: 1; min-width: 0; }
-        .submission-status-row {
+        .afc-info {
+            flex: 1;
+            min-width: 0;
             display: flex;
-            align-items: center;
-            gap: 4px;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .afc-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
             margin-bottom: 2px;
         }
-        .tap-preview-hint {
+        .afc-meta {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .afc-actions {
             display: flex;
             align-items: center;
-            gap: 4px;
-            font-size: 11px;
-            color: #94a3b8;
-            margin-top: 4px;
+            gap: 8px;
+            flex-shrink: 0;
         }
+        .afc-btn {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            cursor: pointer;
+            transition: background 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .afc-btn:active { background: #f1f5f9; }
+        .afc-delete { color: #dc2626; padding: 6px; }
 
         /* ---- UPLOAD SPINNER ---- */
         .upload-spinner {
@@ -917,7 +932,7 @@ $message_type = $_GET['type'] ?? '';
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.5);
+            background: rgba(0,0,0,0);
             z-index: 99998;
             align-items: flex-end;
             justify-content: center;
@@ -925,7 +940,7 @@ $message_type = $_GET['type'] ?? '';
         .dl-modal-overlay.open { display: flex; }
         .dl-modal-box {
             background: white;
-            border-radius: 24px 24px 0 0;
+            border-radius: 0;
             padding: 24px 24px 36px;
             width: 100%;
             max-width: 480px;
@@ -954,30 +969,44 @@ $message_type = $_GET['type'] ?? '';
             to { transform: translateY(0); }
         }
 
-        /* ---- HISTORY PANEL ---- */
+        /* ---- FULL PAGE HISTORY MODAL / SHEET ---- */
         .history-backdrop {
             display: none;
             position: fixed;
             inset: 0;
-            background: rgba(0,0,0,0.45);
+            background: rgba(0,0,0,0);
             z-index: 99990;
         }
         .history-backdrop.visible { display: block; }
         .history-panel {
             position: fixed;
             top: 0;
+            left: 0;
             right: 0;
             bottom: 0;
-            width: min(100vw, 380px);
+            width: 100vw;
             background: white;
             z-index: 99991;
             display: flex;
             flex-direction: column;
-            transform: translateX(100%);
+            transform: translateY(100%);
             transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1);
-            box-shadow: -8px 0 40px rgba(0,0,0,0.12);
+            box-shadow: 0 -8px 40px rgba(0,0,0,0.12);
+            border-radius: 0;
         }
-        .history-panel.open { transform: translateX(0); }
+        @media (min-width: 769px) {
+            .history-panel {
+                width: 400px;
+                left: auto;
+                top: 0;
+                transform: translateX(100%);
+                border-radius: 0;
+            }
+            .history-panel.open { transform: translateX(0); }
+        }
+        @media (max-width: 768px) {
+            .history-panel.open { transform: translateY(0); }
+        }
         .history-panel-header {
             padding: 18px 20px 16px;
             border-bottom: 1px solid #e2e8f0;
@@ -994,6 +1023,7 @@ $message_type = $_GET['type'] ?? '';
             text-transform: uppercase;
             letter-spacing: 0.02em;
         }
+        
         .history-close-btn {
             background: #f1f5f9;
             border: none;
@@ -1077,7 +1107,7 @@ $message_type = $_GET['type'] ?? '';
         body.theme-dark .history-panel { background: #1e293b; }
         body.theme-dark .history-panel-header { border-color: rgba(255,255,255,0.06); }
         body.theme-dark .history-panel-header h3 { color: #f8fafc; }
-        body.theme-dark .history-close-btn { background: rgba(255,255,255,0.08); color: #94a3b8; }
+        body.theme-dark @media (max-width: 768px) { .history-close-btn { display: none !important; } } .history-close-btn { background: rgba(255,255,255,0.08); color: #94a3b8; }
         body.theme-dark .history-item { background: #0f172a; border-color: rgba(255,255,255,0.05); }
         body.theme-dark .history-filename { color: #f1f5f9; }
         body.theme-dark .dl-modal-box { background: #1e293b; }
@@ -1261,7 +1291,7 @@ $message_type = $_GET['type'] ?? '';
 
                         <!-- Status + History button -->
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:16px;">
-                            <div class="status-pill <?= $status_class ?>"><?= $pill_text ?></div>
+                            <div class="status-pill <?= $status_class ?>" style="margin-bottom:0;"><?= $pill_text ?></div>
                             <?php if (!empty($status_data['history'])): ?>
                             <button onclick="openHistoryPanel(<?= $item['item_id'] ?>)" class="btn-history">
                                 <i data-lucide="clock" style="width:13px;height:13px;"></i> History
@@ -1271,22 +1301,38 @@ $message_type = $_GET['type'] ?? '';
 
                         <!-- Workflow steps -->
                         <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
-                        <div class="workflow-steps">
-                            <div class="workflow-step"><span class="step-num">1</span><span class="step-text">Download the blank form below</span></div>
-                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
-                            <div class="workflow-step"><span class="step-num">2</span><span class="step-text">Hand to your adviser for signature</span></div>
-                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
-                            <div class="workflow-step"><span class="step-num">3</span><span class="step-text">Capture a photo or scan the signed copy</span></div>
-                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
-                            <div class="workflow-step"><span class="step-num">4</span><span class="step-text">Upload using the button below</span></div>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
+                                Download the blank form below
+                            </div>
+                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
+                                Hand to adviser for signature
+                            </div>
+                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
+                                Capture photo or scan
+                            </div>
+                            <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">4</div>
+                                Upload using the button below
+                            </div>
                         </div>
                         <?php elseif ($item['item_id'] == 14): ?>
-                        <div class="workflow-steps">
-                            <div class="workflow-step"><span class="step-num">1</span><span class="step-text">Download the capsule template below</span></div>
-                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
-                            <div class="workflow-step"><span class="step-num">2</span><span class="step-text">Complete your capsule proposal document</span></div>
-                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
-                            <div class="workflow-step"><span class="step-num">3</span><span class="step-text">Upload your completed file below</span></div>
+                        <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
+                                Download template below
+                            </div>
+                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
+                                Complete your capsule proposal
+                            </div>
+                            <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
+                                Upload completed file below
+                            </div>
                         </div>
                         <?php endif; ?>
 
@@ -1328,15 +1374,16 @@ $message_type = $_GET['type'] ?? '';
                             <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
                             <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
                             <?php if (in_array($item['item_id'], [11, 12])): ?>
-                            <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-primary" onclick="triggerCamera(<?= $item['item_id'] ?>)">
-                                <i data-lucide="camera" style="width:18px;height:18px;"></i> Capture Photo
-                            </button>
-                            <div class="upload-divider"><span>or</span></div>
-                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-outline" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
-                                <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload Existing File
-                            </button>
+                            <div style="display:flex; gap:12px; margin-top:4px;">
+                                <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="flex:1;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                    <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                                </button>
+                                <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-outline" style="width:60px; flex-shrink:0;" onclick="triggerCamera(<?= $item['item_id'] ?>)">
+                                    <i data-lucide="camera" style="width:18px;height:18px;"></i>
+                                </button>
+                            </div>
                             <?php else: ?>
-                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="margin-top:4px;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
                                 <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
                             </button>
                             <?php endif; ?>
@@ -1351,23 +1398,26 @@ $message_type = $_GET['type'] ?? '';
                             $sub_ftime = $status_data['uploaded_at'] ? date('g:i A', strtotime($status_data['uploaded_at'])) : '';
                             $sub_ext = strtolower(pathinfo($sub_fname, PATHINFO_EXTENSION));
                             $sub_is_img = in_array($sub_ext, ['jpg','jpeg','png','gif','webp']);
+                            // Optional: Truncate long filename
+                            $display_fname = strlen($sub_fname) > 28 ? substr($sub_fname, 0, 25) . '...' : $sub_fname;
                         ?>
-                        <div class="submission-card" onclick="window.open('<?= htmlspecialchars($sub_fpath) ?>', '_blank')">
-                            <div class="file-thumb-wrap <?= $sub_is_img ? '' : 'file-thumb-doc' ?>">
+                        <div class="apple-file-card">
+                            <div class="afc-thumb-wrap">
                                 <?php if ($sub_is_img): ?>
-                                    <img src="<?= htmlspecialchars($sub_fpath) ?>" alt="Preview" class="file-thumb">
+                                    <img src="<?= htmlspecialchars($sub_fpath) ?>" alt="Preview" class="afc-thumb">
                                 <?php else: ?>
-                                    <i data-lucide="file-text" style="width:22px;height:22px;color:#64748b;"></i>
+                                    <i data-lucide="file-text" style="width:20px;height:20px;color:#64748b;"></i>
                                 <?php endif; ?>
                             </div>
-                            <div class="submission-info">
-                                <div class="submission-status-row">
-                                    <i data-lucide="check-circle" style="width:13px;height:13px;color:#059669;"></i>
-                                    <span style="font-size:11px;font-weight:800;color:#059669;text-transform:uppercase;letter-spacing:0.05em;">Uploaded</span>
-                                </div>
-                                <div class="file-name" style="margin-top:3px;"><?= htmlspecialchars($sub_fname) ?></div>
-                                <?php if ($sub_fdate): ?><div class="file-sub"><?= $sub_fdate ?> &middot; <?= $sub_ftime ?></div><?php endif; ?>
-                                <div class="tap-preview-hint"><i data-lucide="eye" style="width:11px;height:11px;"></i> Tap to Preview</div>
+                            <div class="afc-info">
+                                <div class="afc-name" title="<?= htmlspecialchars($sub_fname) ?>"><?= htmlspecialchars($display_fname) ?></div>
+                                <div class="afc-meta"><?= $sub_fdate ?> &middot; <?= $sub_ftime ?></div>
+                            </div>
+                            <div class="afc-actions">
+                                <button type="button" class="afc-btn" onclick="openDownloadModal('<?= htmlspecialchars($sub_fpath) ?>', '<?= htmlspecialchars($sub_fname) ?>'); event.stopPropagation();">View</button>
+                                <button type="button" class="afc-btn afc-delete" onclick="deleteUpload(<?= $latest_upload['upload_id'] ?? 0 ?>, 'proposal'); event.stopPropagation();">
+                                    <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                                </button>
                             </div>
                         </div>
                         <?php endif; ?>
@@ -1391,9 +1441,9 @@ $message_type = $_GET['type'] ?? '';
     <?php endif; ?>
 
     <!-- Download Preview Modal -->
-    <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal()">
+    <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal(false)">
         <div class="dl-modal-box">
-            <div class="dl-modal-handle"></div>
+            
             <div class="dl-modal-header">
                 <i data-lucide="file" style="width:18px;height:18px;color:#64748b;"></i>
                 <span id="dm-name">Document</span>
@@ -1434,8 +1484,15 @@ $message_type = $_GET['type'] ?? '';
                 $hu_date = $hu['uploaded_at'] ? date('M j, Y \a\t g:i A', strtotime($hu['uploaded_at'])) : '';
             ?>
             <div class="history-item">
-                <div class="history-item-label"><?= $hu_label ?></div>
-                <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
+                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                    <div>
+                        <div class="history-item-label"><?= $hu_label ?></div>
+                        <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
+                    </div>
+                    <button type="button" class="afc-btn afc-delete" style="padding:4px;" onclick="deleteUpload(<?= $hu['upload_id'] ?>, 'proposal'); event.stopPropagation();">
+                        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                    </button>
+                </div>
                 <div class="history-filename"><?= htmlspecialchars($hu['original_filename'] ?? 'Unknown file') ?></div>
                 <?php if ($hu_date): ?><div class="history-date"><?= $hu_date ?></div><?php endif; ?>
                 <?php if (!empty($hu['remarks'])): ?>
@@ -1469,8 +1526,14 @@ $message_type = $_GET['type'] ?? '';
             };
             document.getElementById('download-modal').classList.add('open');
             lucide.createIcons();
+            history.pushState({ modalOpen: true }, '', '#download');
         }
-        function closeDlModal() { document.getElementById('download-modal').classList.remove('open'); }
+        function closeDlModal(fromPopstate = false) { 
+            document.getElementById('download-modal').classList.remove('open'); 
+            if (!fromPopstate) {
+                history.back();
+            }
+        }
 
         // Camera / file picker
         function triggerCamera(itemId) {
@@ -1501,6 +1564,35 @@ $message_type = $_GET['type'] ?? '';
             form.querySelectorAll('button').forEach(b => { b.disabled = true; });
         }
 
+                // Delete Upload Action
+        function deleteUpload(uploadId, context) {
+            if (!confirm('Are you sure you want to delete this file?')) return;
+            const form = document.createElement('form');
+            form.method = 'POST';
+            form.action = 'upload_handler.php';
+            
+            const actionInput = document.createElement('input');
+            actionInput.type = 'hidden';
+            actionInput.name = 'action';
+            actionInput.value = 'delete_upload';
+            form.appendChild(actionInput);
+            
+            const idInput = document.createElement('input');
+            idInput.type = 'hidden';
+            idInput.name = 'upload_id';
+            idInput.value = uploadId;
+            form.appendChild(idInput);
+            
+            const contextInput = document.createElement('input');
+            contextInput.type = 'hidden';
+            contextInput.name = 'module_context';
+            contextInput.value = context;
+            form.appendChild(contextInput);
+            
+            document.body.appendChild(form);
+            form.submit();
+        }
+
         // History panel
         function openHistoryPanel(itemId) {
             const panel = document.getElementById('history-panel-' + itemId);
@@ -1510,42 +1602,92 @@ $message_type = $_GET['type'] ?? '';
             backdrop.classList.add('visible');
             document.body.style.overflow = 'hidden';
             lucide.createIcons();
+            
+            try {
+                history.pushState({ historyOpen: true }, '', '');
+            } catch(e) {}
         }
-        function closeHistoryPanel() {
+        function closeHistoryPanel(fromPopstate = false) {
             document.querySelectorAll('.history-panel.open').forEach(p => p.classList.remove('open'));
             const backdrop = document.getElementById('history-backdrop');
             if (backdrop) backdrop.classList.remove('visible');
-            document.body.style.overflow = '';
+            if (!document.querySelector('.wallet-active')) {
+                document.body.style.overflow = '';
+            }
+            if (!fromPopstate) {
+                history.back();
+            }
         }
+        
+
 
         function expandWalletCard(cardEl, event) {
             if (window.innerWidth > 768) return;
             if (cardEl.classList.contains('wallet-active')) return;
 
-
+            // 1. Create placeholder to keep the other cards still!
+            const rect = cardEl.getBoundingClientRect();
+            const placeholder = document.createElement('div');
+            placeholder.className = 'wallet-placeholder';
+            placeholder.style.height = rect.height + 'px';
+            placeholder.style.marginTop = '-85px';
+            // Also need relative position and z-index to maintain stack order if needed, but height/margin is enough for flow.
+            cardEl.parentNode.insertBefore(placeholder, cardEl);
+            // Save placeholder to card so we can remove it later
+            cardEl._walletPlaceholder = placeholder;
 
             const grid = document.querySelector('.items-grid');
+            
+            // 2. Prepare animation from bottom
+            cardEl.style.transition = 'none';
+            cardEl.style.transform = 'translateY(100vh)';
+            
             grid.classList.add('has-active-card');
             document.body.classList.add('has-active-wallet');
             cardEl.classList.add('wallet-active');
 
+            // Force reflow
+            void cardEl.offsetWidth;
+            
+            // 3. Animate to top: 5vh
+            cardEl.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.2,1)';
+            cardEl.style.transform = 'translateY(0)';
+
             // PUSH STATE LOGIC for back button
             try {
                 const correctHash = parent.document.querySelector('.fullscreen-zoom-overlay.active').id.replace('zoom-', '');
-                history.pushState({
-                    walletOpen: true
-                }, '', '#' + correctHash);
+                history.pushState({ walletOpen: true }, '', '#' + correctHash);
             } catch (e) {
-                history.pushState({
-                    walletOpen: true
-                }, '', '');
+                history.pushState({ walletOpen: true }, '', '');
             }
         }
 
 
 
-        // Listen for iframe popstate (hardware back button)
+        // Consolidated popstate listener for back button navigation
         window.addEventListener('popstate', function(event) {
+            // Priority 0: Form008 Modal
+            const form008Modal = document.getElementById('studentForm008Modal');
+            if (form008Modal && form008Modal.classList.contains('open')) {
+                window.closeForm008Modal(true);
+                return;
+            }
+
+            // Priority 1: Download Modal
+            const dlModal = document.getElementById('download-modal');
+            if (dlModal && dlModal.classList.contains('open')) {
+                closeDlModal(true);
+                return;
+            }
+            
+            // Priority 2: History Panel
+            const openHistory = document.querySelector('.history-panel.open');
+            if (openHistory) {
+                closeHistoryPanel(true);
+                return;
+            }
+
+            // Priority 3: Wallet Card
             const openCard = document.querySelector('.wallet-active');
             if (openCard) {
                 window.collapseCard(openCard, true);
@@ -1558,24 +1700,47 @@ $message_type = $_GET['type'] ?? '';
                     window.event.stopPropagation();
                 }
             } catch (e) {}
-            const grid = document.querySelector('.items-grid');
-            cardEl.classList.remove('wallet-active');
-            grid.classList.remove('has-active-card');
-            document.body.classList.remove('has-active-wallet');
+            
+            // Animate card down
+            cardEl.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.2,1)';
+            cardEl.style.transform = 'translateY(100vh)';
+            
+            setTimeout(() => {
+                const grid = document.querySelector('.items-grid');
+                cardEl.classList.remove('wallet-active');
+                cardEl.style.transition = '';
+                cardEl.style.transform = '';
+                grid.classList.remove('has-active-card');
+                document.body.classList.remove('has-active-wallet');
+                
+                // Remove the placeholder so the card snaps perfectly back into its slot
+                if (cardEl._walletPlaceholder) {
+                    cardEl._walletPlaceholder.remove();
+                    cardEl._walletPlaceholder = null;
+                }
+            }, 350);
 
             if (!fromPopstate) {
                 history.back();
             }
         };
     </script>
-    <div id="studentForm008Modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; justify-content:center; align-items:center; padding: 20px;">
-        <div style="background:white; width:100%; max-width:800px; height:90%; border-radius:24px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+    <style>
+        #studentForm008Modal {
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1);
+        }
+        #studentForm008Modal.open {
+            transform: translateY(0);
+        }
+    </style>
+    <div id="studentForm008Modal" style="display:none; position:fixed; top:5vh; left:0; right:0; bottom:0; background:white; z-index:99999; flex-direction:column; border-radius:24px 24px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.05); overflow:hidden;">
+        <div style="background:white; width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden;">
             <div style="background:#0f172a; color:white; padding:20px 25px; display:flex; justify-content:space-between; align-items:center;">
                 <div>
                     <span style="font-size:11px; font-family:'Inter', sans-serif; text-transform:uppercase; letter-spacing:0.05em; opacity:0.8;">Feedback Panel</span>
                     <h3 style="margin:0; font-family:'Inter', sans-serif; font-size:18px;">Form 008 Evaluation Sheet</h3>
                 </div>
-                <button onclick="document.getElementById('studentForm008Modal').style.display='none'" style="background:rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border:none; color:white; font-size:24px; cursor:pointer;">&times;</button>
             </div>
             <div style="flex:1; overflow-y:auto; padding:25px; background:#f8fafc; font-family:'Inter', sans-serif;">
                 <div style="display:flex; justify-content:space-between; align-items:center; background:white; padding:20px; border-radius:16px; border:1px solid #e2e8f0; margin-bottom:24px;">
@@ -1689,11 +1854,25 @@ $message_type = $_GET['type'] ?? '';
                     sectionHTML += `</div></div>`;
                     container.innerHTML += sectionHTML;
                 }
-                document.getElementById('studentForm008Modal').style.display = 'flex';
+                window.openForm008Modal();
             } catch (e) {
                 console.error(e);
                 alert("Error loading evaluation details.");
             }
+        };
+
+        window.openForm008Modal = function() {
+            const m = document.getElementById('studentForm008Modal');
+            m.style.display = 'flex';
+            setTimeout(() => m.classList.add('open'), 10);
+            history.pushState({ form008Open: true }, '', '#form008');
+        };
+
+        window.closeForm008Modal = function(fromPopstate = false) {
+            const m = document.getElementById('studentForm008Modal');
+            m.classList.remove('open');
+            setTimeout(() => { m.style.display = 'none'; }, 350);
+            if (!fromPopstate) history.back();
         };
 
         // Drag to dismiss for wallet cards

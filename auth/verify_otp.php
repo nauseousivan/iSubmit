@@ -64,17 +64,27 @@ $school_abbrev = $is_isap ? 'ISAP' : 'MCNP';
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // Resend code handler Action
     if (isset($_POST['resend_code'])) {
-        if ($email) {
-            $otp_code = strval(rand(100000, 999999));
+        if (isset($_SESSION['verify_resend_lockout']) && time() < $_SESSION['verify_resend_lockout']) {
+            $message = "Too many requests. Please try again in " . ceil(($_SESSION['verify_resend_lockout'] - time()) / 60) . " minutes.";
+            $message_type = "error";
+        } else {
+            $_SESSION['verify_resend_attempts'] = ($_SESSION['verify_resend_attempts'] ?? 0) + 1;
+            if ($_SESSION['verify_resend_attempts'] > 3) {
+                $_SESSION['verify_resend_lockout'] = time() + (30 * 60);
+                $message = "Too many requests. Please try again in 30 minutes.";
+                $message_type = "error";
+            } else {
+                if ($email) {
+                    $otp_code = strval(rand(100000, 999999));
 
-            // Delete previous OTP codes to prevent cluttering
-            $stmt_del = $pdo->prepare("DELETE FROM otp_verifications WHERE email = ?");
-            $stmt_del->execute([$email]);
+                    // Delete previous OTP codes to prevent cluttering
+                    $stmt_del = $pdo->prepare("DELETE FROM otp_verifications WHERE email = ?");
+                    $stmt_del->execute([$email]);
 
-            $stmt = $pdo->prepare("INSERT INTO otp_verifications (email, otp_code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))");
-            $stmt->execute([$email, $otp_code]);
+                    $stmt = $pdo->prepare("INSERT INTO otp_verifications (email, otp_code, expires_at) VALUES (?, ?, DATE_ADD(NOW(), INTERVAL 15 MINUTE))");
+                    $stmt->execute([$email, $otp_code]);
 
-            $email_body = '
+                    $email_body = '
                 <div style="font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif; background-color: #f7f4eb; padding: 40px 10px; text-align: center; color: #2b261f;">
                     <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 30px rgba(12,52,61,0.06); border-top: 6px solid ' . $active_accent . '; padding: 40px; text-align: left;">
                         <div style="text-align: center; margin-bottom: 30px;">
@@ -112,30 +122,46 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>';
 
-            if (sendSystemEmail($email, "Your Portal Verification Code", $email_body)) {
-                header("Location: verify_otp.php?resend_success=1");
-                exit();
-            } else {
-                $message = "Institutional MTA failed to transmit OTP packet. Review configuration.";
-                $message_type = "error";
+                    if (sendSystemEmail($email, "Your Portal Verification Code", $email_body)) {
+                        $_SESSION['verify_code_expires'] = time() + (15 * 60);
+                        $_SESSION['verify_resend_cooldown'] = time() + 60;
+                        header("Location: verify_otp.php?resend_success=1");
+                        exit();
+                    } else {
+                        $msg = "Institutional MTA failed to transmit OTP packet. Review configuration.";
+                        if ($is_ajax) {
+                            echo json_encode(['status' => 'error', 'message' => $msg]);
+                            exit;
+                        }
+                        $message = $msg;
+                        $message_type = "error";
+                    }
+                }
             }
         }
-    }
-    // Activation handler (Standard POST)
-    elseif (isset($_POST['otp_code'])) {
+    } elseif (isset($_POST['otp_code'])) {
         $entered_otp = trim($_POST['otp_code']);
+        $is_ajax = isset($_POST['ajax_verify']);
 
-        // Verify code against latest record that isn\'t expired
+        // Verify code against latest record that isn't expired
         $stmt = $pdo->prepare("SELECT * FROM otp_verifications WHERE email = ? AND otp_code = ? ORDER BY created_at DESC LIMIT 1");
         $stmt->execute([$email, $entered_otp]);
         $row = $stmt->fetch();
 
         if (!$row) {
+            if ($is_ajax) {
+                echo json_encode(['status' => 'error', 'message' => 'The confirmation credentials entered are invalid.']);
+                exit;
+            }
             $message = "The confirmation credentials entered are invalid. Verify and try again.";
             $message_type = "error";
         } else {
             $expires_at = $row['expires_at'];
             if (strtotime($expires_at) < time()) {
+                if ($is_ajax) {
+                    echo json_encode(['status' => 'error', 'message' => 'The activation key has expired.']);
+                    exit;
+                }
                 $message = "The activation key has expired. Request a temporary token replacement.";
                 $message_type = "error";
             } else {
@@ -145,19 +171,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $user_row = $stmt_dept->fetch();
                 $dept_val = $user_row ? $user_row['department'] : '';
 
-                // Activate user
-                $up = $pdo->prepare("UPDATE users SET is_verified = 1 WHERE email = ?");
-                $up->execute([$email]);
-
                 // Clean up verification tokens
                 $del = $pdo->prepare("DELETE FROM otp_verifications WHERE email = ?");
                 $del->execute([$email]);
 
-                $_SESSION['verify_success'] = true;
-                $_SESSION['verified_department'] = $dept_val;
-                unset($_SESSION['verify_email']);
-                header("Location: verify_otp.php");
-                exit();
+                $stmt_upd = $pdo->prepare("UPDATE users SET is_verified = 1 WHERE email = ?");
+                if ($stmt_upd->execute([$email])) {
+                    $_SESSION['verify_success'] = true;
+                    $_SESSION['verified_department'] = $dept_val;
+                    unset($_SESSION['verify_resend_attempts'], $_SESSION['verify_resend_lockout']);
+
+                    if ($is_ajax) {
+                        echo json_encode(['status' => 'success']);
+                        exit;
+                    }
+
+                    header("Location: verify_otp.php");
+                    exit();
+                } else {
+                    if ($is_ajax) {
+                        echo json_encode(['status' => 'error', 'message' => 'System error. Contact support.']);
+                        exit;
+                    }
+                    $message = "System error during final activation. Contact support.";
+                    $message_type = "error";
+                }
             }
         }
     }
@@ -168,598 +206,376 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Verify Registration | MCNP-ISAP Research Portal</title>
-    <!-- Display & Sans Typography -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,400&display=swap" rel="stylesheet">
-    <!-- Lucide Dynamic Icons CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>OTP Verification | iSubmit</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg">
+
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- Theme CSS -->
+    <link rel="stylesheet" href="../assets/css/theme.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="../assets/mascot/mascot.css?v=<?= time() ?>">
+
     <style>
-        :root {
-            /* Palette Setup */
-            --bg-canvas: #fbfaf7;
-            --bg-card: #ffffff;
-            --text-primary: #1a1715;
-            --text-secondary: #5c544d;
-            --text-muted: #9c9284;
-            --border-subtle: #eaddd0;
-
-            /* Institutional Colors */
-            --mcnp-blue: #1e40af;
-            --isap-red: #b91c1c;
-            --eagle-gold: #d97706;
-
-            /* Workspace settings inherited dynamically from PHP domain context */
-            --active-accent: <?php echo $active_accent; ?>;
-            --active-glow: <?php echo $active_glow; ?>;
-
-            /* Radii standard shapes */
-            --radius-viewport: 24px;
-            --radius-interactive: 14px;
-            --radius-pill: 50px;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        /* Custom premium research pencil/pen cursor */
-        body,
-        input,
-        select,
-        button,
-        textarea,
-        a,
-        span,
-        div,
-        label,
-        p,
-        h1,
-        h2,
-        h3,
-        i {
-            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%231c1917' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") 3 19, auto;
-            transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        input:focus,
-        select:focus,
-        textarea:focus {
-            cursor: text;
-        }
-
-        button,
-        a,
-        select,
-        option,
-        .btn-wizard,
-        .password-toggle-btn,
-        .back-link,
-        .btn-to-login,
-        .btn-to-register,
-        .btn-portal-submit,
-        [role='button'],
-        .add-member-trigger,
-        .member-pill i,
-        .prog-step {
-            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") 3 19, pointer !important;
-        }
-
-        /* Eagle watermark silhouette definition */
-        .eagle-watermark-bg {
-            position: absolute;
-            top: 55%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 250px;
-            height: 250px;
-            pointer-events: none;
-            z-index: 1;
-            opacity: 0.05;
-            color: #ffffff;
-            transition: color 0.6s ease, transform 0.6s ease;
-            animation: eagleDrift 30s infinite alternate ease-in-out;
-        }
-
-        @keyframes eagleDrift {
-            0% {
-                transform: translate(-50%, -50%) rotate(0deg) scale(0.95);
-            }
-
-            100% {
-                transform: translate(-47%, -53%) rotate(5deg) scale(1.05);
-            }
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-canvas);
-            color: var(--text-primary);
-            min-height: 100vh;
+        .otp-container {
             display: flex;
-            flex-direction: column;
-            align-items: center;
-            justify-content: center;
-            padding: 24px;
-            background-image:
-                radial-gradient(#e0dbc8 1.5px, transparent 1.5px),
-                linear-gradient(to right, rgba(0, 0, 0, 0.02) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
-            background-size: 32px 32px, 128px 128px, 128px 128px;
-            background-position: center;
-            position: relative;
-            overflow-x: hidden;
-        }
-
-        /* Ambient flowing canvas background filters */
-        .ambient-sphere {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(100px);
-            pointer-events: none;
-            z-index: 1;
-            opacity: 0.12;
-            animation: pulseGlow 8s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .ambient-sphere-1 {
-            width: 450px;
-            height: 450px;
-            background: radial-gradient(circle, var(--active-accent) 0%, rgba(255, 255, 255, 0) 70%);
-            top: -10%;
-            left: -10%;
-        }
-
-        .ambient-sphere-2 {
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, var(--eagle-gold) 0%, rgba(255, 255, 255, 0) 70%);
-            bottom: -15%;
-            right: -10%;
-            animation-delay: 3s;
-        }
-
-        @keyframes pulseGlow {
-            0% {
-                transform: scale(1) translate(0px, 0px);
-                opacity: 0.08;
-            }
-
-            100% {
-                transform: scale(1.15) translate(15px, -15px);
-                opacity: 0.14;
-            }
-        }
-
-        /* Verification Card Frame wrapping */
-        .verify-frame {
-            background-color: var(--bg-card);
-            width: 100%;
-            max-width: 480px;
-            border-radius: var(--radius-viewport);
-            box-shadow:
-                0 4px 6px -1px rgba(0, 0, 0, 0.01),
-                0 25px 65px -15px rgba(43, 38, 31, 0.16),
-                0 15px 30px -10px rgba(43, 38, 31, 0.08),
-                inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-            border: 1px solid var(--border-subtle);
-            padding: 50px 40px;
-            position: relative;
-            z-index: 10;
-            backdrop-filter: blur(8px);
-            text-align: center;
-            animation: cardEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes cardEntrance {
-            from {
-                opacity: 0;
-                transform: translateY(20px) scale(0.97);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        /* Branding Badges and Logos */
-        .badge-header-box {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 24px;
-            position: relative;
-        }
-
-        .brand-icon-box {
-            background: rgba(247, 245, 239, 0.7);
-            padding: 16px;
-            border-radius: 20px;
-            border: 1.5px solid var(--border-subtle);
-            color: var(--active-accent);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 8px 24px rgba(43, 38, 31, 0.04);
-            animation: bounceFloat 4s ease-in-out infinite alternate;
-        }
-
-        .brand-icon-box.success-view {
-            color: #16a34a;
-            background: #f0fdf4;
-            border-color: #bbf7d0;
-        }
-
-        @keyframes bounceFloat {
-            0% {
-                transform: translateY(0);
-            }
-
-            100% {
-                transform: translateY(-5px);
-            }
-        }
-
-        h2 {
-            font-family: 'Cambria', Georgia, serif;
-            font-size: 24px;
-            color: var(--text-primary);
-            font-weight: 800;
-            margin-bottom: 8px;
-            letter-spacing: 0.5px;
-        }
-
-        h2.activated {
-            color: #15803d;
-        }
-
-        p {
-            font-size: 14.5px;
-            color: var(--text-secondary);
-            margin-bottom: 24px;
-            line-height: 1.5;
-            font-weight: 500;
-        }
-
-        p.success-desc {
-            font-size: 15px;
-            color: var(--text-secondary);
-            line-height: 1.6;
-        }
-
-        /* Premium Form fields input design */
-        .field-box {
-            margin-bottom: 20px;
-            width: 100%;
-        }
-
-        .input-group-with-icon {
-            position: relative;
-            display: flex;
-            align-items: center;
-            width: 100%;
-        }
-
-        .input-group-with-icon .prefix-icon {
-            position: absolute;
-            left: 18px;
-            color: var(--text-muted);
-            pointer-events: none;
-            transition: all 0.2s ease;
-            z-index: 5;
-        }
-
-        .field-box input {
-            width: 100%;
-            padding: 16px 16px 16px 52px;
-            font-family: 'Inter', sans-serif;
-            font-size: 22px;
-            font-weight: 800;
-            letter-spacing: 4px;
-            text-align: center;
-            background-color: #f7f5ef;
-            border: 1.5px solid var(--border-subtle);
-            border-radius: var(--radius-interactive);
-            outline: none;
-            color: var(--text-primary);
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: inset 0 2px 4px rgba(43, 38, 31, 0.02);
-        }
-
-        .field-box input::placeholder {
-            letter-spacing: normal;
-            font-size: 16px;
-            font-weight: 500;
-            color: var(--text-muted);
-            opacity: 0.7;
-        }
-
-        .field-box input:focus {
-            border-color: var(--active-accent);
-            background-color: var(--bg-card);
-            box-shadow:
-                0 0 0 4px var(--active-glow),
-                0 6px 16px rgba(43, 38, 31, 0.04);
-        }
-
-        .field-box input:focus+.prefix-icon {
-            color: var(--active-accent);
-            transform: scale(1.05);
-        }
-
-        /* Solid buttons design */
-        .btn-submit {
-            width: 100%;
-            padding: 16px 24px;
-            background-color: var(--active-accent);
-            color: #ffffff;
-            border: none;
-            font-family: 'Inter', sans-serif;
-            font-size: 15px;
-            font-weight: 700;
-            border-radius: var(--radius-interactive);
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 8px 24px var(--active-glow);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            text-decoration: none;
-        }
-
-        .btn-submit:hover {
-            transform: translateY(-2px);
-            opacity: 0.98;
-            box-shadow: 0 10px 30px var(--active-glow);
-        }
-
-        .btn-submit.btn-success {
-            background-color: #16a34a;
-            box-shadow: 0 8px 24px rgba(22, 163, 74, 0.2);
-        }
-
-        .btn-submit.btn-success:hover {
-            box-shadow: 0 10px 30px rgba(22, 163, 74, 0.3);
-        }
-
-        /* Subtle gray buttons for secondary actions like resend code */
-        .btn-resend {
-            width: 100%;
-            padding: 14px 20px;
-            background-color: transparent;
-            color: var(--text-secondary);
-            border: 1.5px solid var(--border-subtle);
-            font-family: 'Inter', sans-serif;
-            font-size: 13.5px;
-            font-weight: 600;
-            border-radius: var(--radius-interactive);
-            cursor: pointer;
-            transition: all 0.3s ease;
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
             gap: 8px;
-            margin-top: 12px;
+            justify-content: center;
+            margin: 24px 0;
         }
 
-        .btn-resend:hover {
-            background-color: rgba(43, 38, 31, 0.03);
-            border-color: var(--text-muted);
-            color: var(--text-primary);
-        }
-
-        .btn-resend i {
-            transition: transform 0.4s ease;
-        }
-
-        .btn-resend:hover i {
-            transform: rotate(180deg);
-        }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            margin-top: 24px;
-            font-size: 14px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 700;
-            transition: all 0.2s;
-        }
-
-        .back-link:hover {
-            color: var(--active-accent);
-            transform: translateX(-2px);
-        }
-
-        /* Dynamic Visual Toast Alert */
-        .toast {
-            padding: 12px 16px;
-            border-radius: var(--radius-interactive);
-            font-size: 13.5px;
-            margin-bottom: 20px;
-            font-weight: 600;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            line-height: 1.45;
-            text-align: left;
-            animation: slideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-            border-left: 4px solid transparent;
-        }
-
-        @keyframes slideDown {
-            from {
-                transform: translateY(-12px);
-                opacity: 0;
-            }
-
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .toast.error {
-            background-color: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fca5a5;
-            border-left-color: #dc2626;
-        }
-
-        .toast.success {
-            background-color: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-            border-left-color: #16a34a;
-        }
-
-        .portal-institutional-footer {
-            margin-top: 35px;
+        .otp-input {
+            width: 48px;
+            height: 56px;
             text-align: center;
-            font-size: 10px;
-            color: var(--text-secondary);
-            letter-spacing: 1.2px;
-            line-height: 1.7;
-            text-transform: uppercase;
+            font-size: 24px;
             font-weight: 700;
-            position: relative;
-            z-index: 10;
+            border: 2px solid rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            background: #f8f9fa;
+            color: var(--primary-color);
+            transition: all 0.2s;
+            font-family: 'Poppins', sans-serif;
         }
 
-        .portal-institutional-footer br {
-            display: none;
+        .otp-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
+            outline: none;
         }
 
-        .portal-institutional-footer .footer-divider {
-            content: "•";
-            display: inline-block;
-            margin: 0 8px;
-            color: var(--text-muted);
+        .otp-input.filled {
+            border-color: var(--primary-color);
+            background: rgba(139, 92, 246, 0.02);
         }
 
-        /* Ultimate Phone & Tablet Adaptive Constraints */
-        @media (max-width: 540px) {
-            body {
-                padding: 16px;
+        .otp-input.success {
+            border-color: #22c55e !important;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1) !important;
+        }
+
+        .otp-input.error {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1) !important;
+        }
+
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
             }
 
-            .verify-frame {
-                padding: 40px 24px;
-                border-radius: var(--radius-interactive);
+            20%,
+            60% {
+                transform: translateX(-5px);
             }
 
-            .field-box input {
-                font-size: 20px;
-                letter-spacing: 3px;
-                padding: 14px 14px 14px 44px;
+            40%,
+            80% {
+                transform: translateX(5px);
+            }
+        }
+
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97) both;
+        }
+
+        /* Loader Spinner */
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid #ffffff;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
             }
 
-            .portal-institutional-footer br {
-                display: block;
-            }
-
-            .portal-institutional-footer .footer-divider {
-                display: none;
+            100% {
+                transform: rotate(360deg);
             }
         }
     </style>
 </head>
 
 <body>
-
-    <!-- Majestic Eagle Watermark Background Silhouette -->
-    <div class="eagle-watermark-bg" style="top: 50%; opacity: 0.03; z-index: 1;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" style="width:100%; height:100%;">
-            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke-dasharray="2 2" stroke-opacity="0.3" />
-            <path d="M12 6c-1.5 1-3.5 1.5-6 1.5 2.5 2.5 4.5 4 6 5.5 1.5-1.5 3.5-3 6-5.5-2.5 0-4.5-.5-6-1.5z" fill="currentColor" fill-opacity="0.08" stroke-width="0.5" />
-            <path d="M12 11.5c-.8.8-1.8 1.2-3 1.2.8.8 1.5 1.8 1.8 2.8.3-1 .8-2 1.8-2.8z" fill="currentColor" fill-opacity="0.12" />
-            <path d="M4.5 9.5c.8 1 2 2 3.5 2.5C7 11.5 6 10.5 4.5 9.5z" fill="currentColor" fill-opacity="0.06" />
-            <path d="M19.5 9.5c-.8 1-2 2-3.5 2.5 1-.5 2-1.5 3.5-2.5z" fill="currentColor" fill-opacity="0.06" />
-        </svg>
-    </div>
-
-    <!-- Ambient organic drift filters -->
-    <div class="ambient-sphere ambient-sphere-1"></div>
-    <div class="ambient-sphere ambient-sphere-2"></div>
-
-    <div class="verify-frame">
-
-        <?php if ($verify_success): ?>
-            <!-- Verification Accomplished success view -->
-            <div class="badge-header-box">
-                <div class="brand-icon-box success-view">
-                    <i data-lucide="shield-check" style="width: 44px; height: 44px;"></i>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <!-- Visual Pane -->
+            <div class="auth-visual-pane" id="brandOverlay">
+                <!-- Branding Mascot Badge -->
+                <div class="brand-icon-box" id="brandBadge" style="margin-bottom: 8px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; position: relative; z-index: 50;">
+                    <?php include '../assets/mascot/mascot.php'; ?>
+                </div>
+                <div style="text-align: center; max-width: 320px; margin: 0 auto 0;">
+                    <h1 id="brandTitle" class="brand-title" style="color: white; font-weight: 800; margin-bottom: 4px; margin-top: 0; letter-spacing: -0.5px; font-family: 'Poppins', sans-serif;">Verification</h1>
+                    <p id="brandSubLead" class="brand-sub-lead" style="color: white; opacity: 0.95; font-weight: 500; margin-top: 0; font-family: 'Plus Jakarta Sans', sans-serif;">Institutional Registration</p>
                 </div>
             </div>
-            <h2 class="activated">Account Verified!</h2>
-            <p class="success-desc">Success! Your account have been activated under <strong><?php echo htmlspecialchars($school_name); ?></strong>. The Research Office is ready to monitor your paper submissions.</p>
-            <a href="login.php" class="btn-submit btn-success">
-                <span>LOG IN</span>
-            </a>
-            <?php unset($_SESSION['verify_success']); ?>
 
-        <?php else: ?>
-            <!-- Verification pending dynamic form view -->
-            <div class="badge-header-box">
-                <div class="brand-icon-box">
-                    <i data-lucide="mail-search" style="width: 40px; height: 40px;"></i>
-                </div>
-            </div>
-            <h2>Verify Your Account</h2>
-            <p>A 6-digit verification code has been sent to <br><b style="color: var(--active-accent); font-weight: 700;"><?= htmlspecialchars($email) ?></b>.<br> Enter your credentials to register.</p>
+            <!-- Form Pane -->
+            <div class="auth-form-pane bottom-sheet">
+                <div class="drag-handle"></div>
 
-            <?php if (!empty($message)): ?>
-                <div class="toast <?php echo $message_type; ?>">
-                    <i data-lucide="<?php echo ($message_type === 'error') ? 'alert-octagon' : 'check-circle'; ?>" style="width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;"></i>
-                    <span><?php echo htmlspecialchars($message); ?></span>
-                </div>
-            <?php endif; ?>
-
-            <form method="POST" autocomplete="off">
-                <div class="field-box">
-                    <div class="input-group-with-icon">
-                        <i data-lucide="key-round" class="prefix-icon" style="width: 20px; height: 20px;"></i>
-                        <input type="text" name="otp_code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required autofocus autocomplete="one-time-code">
+                <?php if (!empty($message)): ?>
+                    <div class="mat-alert <?php echo ($message_type === 'error') ? 'mat-alert-error' : 'mat-alert-success'; ?>" style="margin-bottom: 24px;">
+                        <i data-lucide="info" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo htmlspecialchars($message); ?></span>
                     </div>
-                </div>
-                <button type="submit" class="btn-submit">
-                    <span>CONFIRM</span>
-                </button>
-            </form>
+                <?php endif; ?>
 
-            <form method="POST">
-                <button type="submit" name="resend_code" class="btn-resend">
-                    <i data-lucide="refresh-cw" style="width: 16px; height: 16px;"></i>
-                    <span>Resend Code</span>
-                </button>
-            </form>
+                <?php if ($verify_success): ?>
+                    <!-- SUCCESS VIEW -->
+                    <div style="text-align: center; padding: 24px 0;">
+                        <div style="display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px; border-radius: 50%; background: rgba(34, 197, 94, 0.1); color: #22c55e; margin-bottom: 24px;">
+                            <i data-lucide="check" style="width: 40px; height: 40px;"></i>
+                        </div>
+                        <h2 style="font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 12px; font-family: 'Poppins', sans-serif;">Verification Complete!</h2>
+                        <p style="color: var(--text-secondary); margin-bottom: 32px; font-size: 15px; line-height: 1.6;">Your email address has been successfully verified. Your account is now fully active.</p>
 
-            <a href="login.php" class="back-link">
-                <i data-lucide="chevron-left" style="width: 16px; height: 16px;"></i>
-                <span>Return to sign-in</span>
-            </a>
-        <?php endif; ?>
+                        <a href="login.php" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; text-decoration: none;">
+                            PROCEED TO LOGIN
+                        </a>
+                    </div>
+                    <?php unset($_SESSION['verify_success']); ?>
+                <?php else: ?>
+                    <!-- VERIFICATION FORM -->
+                    <div class="auth-header">
+                        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; display: block;">Verification Code</span>
+                        <h2>Confirm Access</h2>
+                        <p>Enter the 6-digit confirmation code sent to <br><strong style="color: var(--primary-color);"><?php echo htmlspecialchars($email); ?></strong></p>
+                    </div>
+
+                    <form action="" method="POST" autocomplete="off" id="otpForm">
+                        <input type="hidden" name="otp_code" id="actualOtpInput">
+
+                        <div id="timerDisplay" style="text-align: center; color: var(--primary-color); font-weight: 700; margin-bottom: 16px; font-size: 16px; display: none;"></div>
+
+                        <div class="otp-container">
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required autofocus>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                        </div>
+
+                        <button type="submit" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; margin-top: 8px;">
+                            VERIFY MY ACCOUNT
+                        </button>
+                    </form>
+
+                    <form action="" method="POST" style="text-align: center; margin-top: 24px;">
+                        <input type="hidden" name="resend_code" value="1">
+                        <button type="submit" id="resendBtn" class="mat-btn mat-btn-text" style="color: var(--text-secondary); width: 100%; justify-content: center;">
+                            <i data-lucide="refresh-cw" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+                            <span id="resendText">Resend Code</span>
+                        </button>
+                    </form>
+                <?php endif; ?>
+
+            </div>
+        </div>
     </div>
 
-    <div class="portal-institutional-footer">
-        Medical Colleges of Northern Philippines
-        <span class="footer-divider">|</span>
-        <br>
-        International School of Asia and the Pacific
-    </div>
-
+    <script src="../assets/js/bottom-sheet.js"></script>
     <script>
-        // Initialize dynamic beautiful Lucide icons
         lucide.createIcons();
+
+        // Countdown Timer Logic
+        const resendBtn = document.getElementById('resendBtn');
+        const resendText = document.getElementById('resendText');
+        const timerDisplay = document.getElementById('timerDisplay');
+        const codeExpires = <?php echo ($_SESSION['verify_code_expires'] ?? 0) * 1000; ?>;
+        const resendCooldown = <?php echo ($_SESSION['verify_resend_cooldown'] ?? 0) * 1000; ?>;
+
+        if (resendBtn && resendText) {
+            if (timerDisplay) timerDisplay.style.display = 'block';
+
+            function updateTimers() {
+                const now = new Date().getTime();
+
+                // 1. Code Expiration Timer (15 mins)
+                const codeDistance = codeExpires - now;
+                if (codeDistance > 0) {
+                    const cMins = Math.floor((codeDistance % (1000 * 60 * 60)) / (1000 * 60));
+                    const cSecs = Math.floor((codeDistance % (1000 * 60)) / 1000);
+                    if (timerDisplay) timerDisplay.textContent = `Code expires in: ${cMins < 10 ? "0"+cMins : cMins}:${cSecs < 10 ? "0"+cSecs : cSecs}`;
+                } else {
+                    if (timerDisplay) timerDisplay.textContent = 'Code expired!';
+                }
+
+                // 2. Resend Cooldown Timer (1 min)
+                const resendDistance = resendCooldown - now;
+                if (resendDistance > 0) {
+                    resendBtn.style.opacity = '0.5';
+                    resendBtn.style.pointerEvents = 'none';
+                    const rMins = Math.floor((resendDistance % (1000 * 60 * 60)) / (1000 * 60));
+                    const rSecs = Math.floor((resendDistance % (1000 * 60)) / 1000);
+                    resendText.textContent = `Wait ${rMins < 10 ? "0"+rMins : rMins}:${rSecs < 10 ? "0"+rSecs : rSecs}`;
+                } else {
+                    resendBtn.style.opacity = '1';
+                    resendBtn.style.pointerEvents = 'auto';
+                    resendText.textContent = 'Resend Code';
+                }
+
+                if (codeDistance <= 0 && resendDistance <= 0) {
+                    clearInterval(timerInterval);
+                }
+            }
+
+            updateTimers();
+            const timerInterval = setInterval(updateTimers, 1000);
+        }
+
+        // OTP Input Logic
+        const otpInputs = document.querySelectorAll('.otp-input');
+        const actualOtpInput = document.getElementById('actualOtpInput');
+        const otpForm = document.getElementById('otpForm');
+
+        if (otpInputs.length > 0) {
+            otpInputs.forEach((input, index) => {
+                input.addEventListener('input', (e) => {
+                    let val = input.value.replace(/[^0-9]/g, '');
+
+                    if (val.length > 1) {
+                        // Distribute across inputs for autocomplete/paste
+                        for (let i = 0; i < val.length && index + i < 6; i++) {
+                            otpInputs[index + i].value = val[i];
+                            otpInputs[index + i].classList.add('filled');
+                        }
+                        let nextFocus = Math.min(index + val.length, 5);
+                        otpInputs[nextFocus].focus();
+                    } else {
+                        input.value = val;
+                        if (val) {
+                            input.classList.add('filled');
+                            if (index < 5) otpInputs[index + 1].focus();
+                        } else {
+                            input.classList.remove('filled');
+                        }
+                    }
+                    updateActualOtp();
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && !input.value && index > 0) {
+                        otpInputs[index - 1].focus();
+                        otpInputs[index - 1].classList.remove('filled');
+                    }
+                });
+
+                input.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const pastedData = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+                    if (pastedData) {
+                        for (let i = 0; i < pastedData.length; i++) {
+                            if (otpInputs[i]) {
+                                otpInputs[i].value = pastedData[i];
+                                otpInputs[i].classList.add('filled');
+                            }
+                        }
+                        if (pastedData.length < 6) {
+                            otpInputs[pastedData.length].focus();
+                        } else {
+                            otpInputs[5].focus();
+                        }
+                        updateActualOtp();
+                    }
+                });
+            });
+
+            function updateActualOtp() {
+                let val = '';
+                otpInputs.forEach(inp => val += inp.value);
+                if (actualOtpInput) {
+                    actualOtpInput.value = val;
+                }
+                if (val.length === 6) {
+                    performAjaxVerify(val);
+                }
+            }
+
+            function performAjaxVerify(code) {
+                const btn = otpForm.querySelector('button[type="submit"]');
+                const btnHtml = btn.innerHTML;
+
+                // Clear previous states
+                otpInputs.forEach(inp => {
+                    inp.classList.remove('success', 'error');
+                });
+                const container = document.querySelector('.otp-container');
+                container.classList.remove('shake');
+
+                // Loading state
+                btn.style.pointerEvents = 'none';
+                btn.innerHTML = '<div class="spinner"></div>';
+
+                const formData = new FormData();
+                formData.append('otp_code', code);
+                formData.append('ajax_verify', '1');
+
+                fetch(window.location.href, {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            otpInputs.forEach(inp => inp.classList.add('success'));
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 500);
+                        } else {
+                            otpInputs.forEach(inp => inp.classList.add('error'));
+                            container.classList.add('shake');
+                            // Remove shake class so it can be re-triggered
+                            setTimeout(() => container.classList.remove('shake'), 400);
+
+                            // Restore button
+                            btn.style.pointerEvents = 'auto';
+                            btn.innerHTML = btnHtml;
+                        }
+                    })
+                    .catch(() => {
+                        // Fallback to standard form submission if network error
+                        otpForm.submit();
+                    });
+            }
+
+            if (otpForm) {
+                otpForm.addEventListener('submit', (e) => {
+                    updateActualOtp();
+                    if (actualOtpInput.value.length !== 6) {
+                        e.preventDefault();
+                        alert('Please enter the complete 6-digit verification code.');
+                    }
+                });
+            }
+        }
+        lucide.createIcons();
+        
+        // Mascot Password/OTP Interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            const handleFocus = () => { if(window.Quill) window.Quill.coverEyes(); };
+            const handleBlur = () => { if(window.Quill) window.Quill.idle(); };
+
+            const otpInputs = document.querySelectorAll('.otp-input');
+            otpInputs.forEach(input => {
+                input.addEventListener('focus', handleFocus);
+                input.addEventListener('blur', handleBlur);
+            });
+        });
     </script>
+    <script src="../assets/js/constellation.js"></script>
+    <script src="../assets/mascot/mascot.js"></script>
 </body>
 
 </html>

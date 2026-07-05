@@ -14,23 +14,14 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') {
 $user_id = $_SESSION['user_id'];
 $group_name = $_SESSION['research_group_name'] ?? 'MCNP-ISAP Research Group';
 
-$stmt = $pdo->prepare("SELECT * FROM activity_logs WHERE user_id = ? AND status_type = 'info' ORDER BY created_at DESC");
+// Use a fallback for fetching all status types, although currently the query is filtered to 'info'.
+// Assuming we want all logs, but wait, the original was "AND status_type = 'info'". 
+// I will keep the original logic but handle different status types just in case.
+$stmt = $pdo->prepare("SELECT * FROM activity_logs WHERE user_id = ? ORDER BY created_at DESC");
 $stmt->execute([$user_id]);
 $all_activities = $stmt->fetchAll();
 
-// Calculate Stats
 $total = count($all_activities);
-
-function getNotifIcon($status)
-{
-    if ($status === 'success') {
-        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><polyline points="20 6 9 17 4 12"></polyline></svg>';
-    } elseif ($status === 'warning') {
-        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path><line x1="12" y1="9" x2="12" y2="13"></line><line x1="12" y1="17" x2="12.01" y2="17"></line></svg>';
-    } else {
-        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="margin-right: 10px;"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path><polyline points="14 2 14 8 20 8"></polyline><line x1="16" y1="13" x2="8" y2="13"></line><line x1="16" y1="17" x2="8" y2="17"></line></svg>';
-    }
-}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -39,21 +30,23 @@ function getNotifIcon($status)
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Activity Ledger | MCNP-ISAP</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
         :root {
             --bg-beige: #f9f7f2;
             --bg-white: #ffffff;
-            --text-dark: #1f2937;
-            --text-muted: #6b7280;
-            --mcnp-teal: #0c343d;
-            --border-line: #e5e7eb;
-            --bubbly-app-edge: 24px;
-            --bubbly-ui-edge: 12px;
-            --color-approved: #059669;
-            --color-revision: #dc2626;
-            --color-pending: #9ca3af;
+            --text-dark: #0f172a;
+            --text-muted: #64748b;
+            --text-lighter: #94a3b8;
+            --mcnp-teal: #0f172a; /* Make primary text darker for premium feel */
+            --accent: #7c3aed; /* Purple accent */
+            --border-line: #e2e8f0;
+            --border-light: #f1f5f9;
+            --color-approved: #10b981;
+            --color-revision: #ef4444;
+            --color-pending: #3b82f6;
             --ui-sans: 'Inter', system-ui, -apple-system, sans-serif;
         }
 
@@ -64,23 +57,30 @@ function getNotifIcon($status)
         }
 
         body {
-            font-family: 'Cambria', serif;
-            background-color: var(--bg-white);
+            font-family: var(--ui-sans);
+            background: transparent;
             color: var(--text-dark);
             height: 100vh;
             display: flex;
-            padding: 20px;
+            flex-direction: column;
+            padding: 32px 40px;
             margin: 0;
             overflow: hidden;
         }
 
-        body::-webkit-scrollbar {
-            display: none;
+        /* Premium Scrollbar */
+        ::-webkit-scrollbar {
+            width: 6px;
         }
-
-        body {
-            -ms-overflow-style: none;
-            scrollbar-width: none;
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 10px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: #94a3b8;
         }
 
         .ledger-frame {
@@ -88,358 +88,396 @@ function getNotifIcon($status)
             height: 100%;
             display: flex;
             flex-direction: column;
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        /* HEADER */
+        .page-header {
+            display: flex;
+            flex-direction: column;
+            gap: 16px;
+            margin-bottom: 32px;
+            animation: fadeDown 0.4s ease forwards;
+        }
+
+        .header-title-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
         }
 
         .header-title {
-            font-family: var(--ui-sans);
-            font-size: 24px;
+            font-size: 28px;
             font-weight: 800;
-            color: var(--mcnp-teal);
-            letter-spacing: -0.025em;
-            margin-bottom: 6px;
+            color: var(--text-dark);
+            letter-spacing: -0.03em;
+        }
+
+        .activity-count-pill {
+            background: var(--border-light);
+            color: var(--text-muted);
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 13px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            border: 1px solid var(--border-line);
         }
 
         .header-desc {
-            font-size: 14px;
+            font-size: 15px;
             color: var(--text-muted);
+            line-height: 1.5;
+            max-width: 600px;
         }
 
-        .activity-controls {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin: 25px 0;
-            gap: 15px;
-            flex-wrap: wrap;
+        /* SEARCH BAR */
+        .search-container {
+            position: relative;
+            margin-bottom: 32px;
+            animation: fadeDown 0.5s ease forwards;
+        }
+
+        .search-icon {
+            position: absolute;
+            left: 16px;
+            top: 50%;
+            transform: translateY(-50%);
+            color: var(--text-lighter);
+            width: 18px;
+            height: 18px;
+            pointer-events: none;
+            transition: color 0.2s;
         }
 
         .search-input {
-            flex: 1;
-            min-width: 250px;
-            padding: 12px 18px;
-            border-radius: 12px;
-            border: 1.5px solid var(--border-line);
-            background: var(--bg-beige);
+            width: 100%;
+            padding: 14px 16px 14px 44px;
+            border-radius: 999px; /* Pill shape */
+            border: 1px solid var(--border-line);
+            background: var(--bg-white);
             font-family: var(--ui-sans);
-            font-size: 14px;
+            font-size: 15px;
+            color: var(--text-dark);
             outline: none;
-            transition: 0.2s;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.02);
+        }
+
+        .search-input::placeholder {
+            color: var(--text-lighter);
         }
 
         .search-input:focus {
-            border-color: var(--mcnp-teal);
-            background: white;
+            border-color: var(--accent);
+            box-shadow: 0 0 0 4px rgba(124, 58, 237, 0.1);
         }
 
-        .filter-btn-group {
-            display: flex;
-            gap: 8px;
+        .search-input:focus + .search-icon {
+            color: var(--accent);
         }
 
-        .filter-btn {
-            font-family: var(--ui-sans);
-            padding: 8px 16px;
-            border-radius: 20px;
-            border: 1px solid var(--border-line);
-            background: white;
-            cursor: pointer;
-            font-size: 12px;
-            font-weight: 700;
-            transition: 0.2s;
-        }
-
-        .filter-btn.active {
-            background: var(--mcnp-teal);
-            color: white;
-            border-color: var(--mcnp-teal);
-        }
-
-        .stats-summary-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 15px;
-            margin-bottom: 25px;
-        }
-
-        .summary-card {
-            padding: 18px;
-            border-radius: 16px;
-            background: var(--bg-white);
-            border: 1px solid var(--border-line);
-            text-align: center;
-            box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
-        }
-
-        .summary-card h4 {
-            font-family: var(--ui-sans);
-            font-size: 10px;
-            text-transform: uppercase;
-            font-weight: 800;
-            letter-spacing: 0.05em;
-            color: var(--text-muted);
-            margin-bottom: 5px;
-        }
-
-        .summary-card div {
-            font-family: var(--ui-sans);
-            font-size: 24px;
-            font-weight: 800;
-            color: var(--mcnp-teal);
-        }
-
-        .stream-timeline-container {
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
+        /* TIMELINE */
+        .timeline-wrapper {
             flex: 1;
             overflow-y: auto;
-            padding-right: 5px;
+            padding-right: 16px;
+            padding-bottom: 40px;
+            position: relative;
         }
 
-        .stream-timeline-container::-webkit-scrollbar {
-            display: none;
+        .timeline-container {
+            position: relative;
+            padding-left: 32px;
         }
 
-        .activity-card-row {
-            padding: 24px;
-            border-radius: 16px;
-            background-color: var(--bg-white);
-            border: 1px solid var(--border-line);
-            border-left: 5px solid var(--color-pending);
-            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
-            transition: transform 0.2s ease, box-shadow 0.2s ease;
+        /* The continuous vertical line */
+        .timeline-container::before {
+            content: '';
+            position: absolute;
+            left: 11px;
+            top: 0;
+            bottom: 0;
+            width: 2px;
+            background: var(--border-line);
+            border-radius: 2px;
         }
 
-        .activity-card-row:hover {
-            transform: translateX(4px);
-            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+        .timeline-item {
+            position: relative;
+            margin-bottom: 24px;
+            opacity: 0;
+            transform: translateY(10px);
+            animation: fadeUp 0.4s ease forwards;
         }
 
-        .activity-card-row.success {
-            border-left-color: var(--color-approved);
-            background-color: #f0fdf4;
-            border-color: #dcfce7;
-        }
-
-        .activity-card-row.warning {
-            border-left-color: var(--color-revision);
-            background-color: #fff1f2;
-            border-color: #fee2e2;
-        }
-
-        .activity-card-row h4 {
-            font-family: var(--ui-sans);
-            font-size: 16px;
-            font-weight: 700;
-            color: var(--mcnp-teal);
+        /* The Node */
+        .timeline-node {
+            position: absolute;
+            left: -32px;
+            top: 2px;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
             display: flex;
             align-items: center;
+            justify-content: center;
+            background: var(--bg-white);
+            border: 2px solid var(--border-line);
+            z-index: 2;
+            transition: all 0.2s;
         }
 
-        .activity-card-row p {
-            font-size: 14px;
+        .timeline-node i {
+            width: 12px;
+            height: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Node Status Colors */
+        .timeline-item.status-success .timeline-node {
+            border-color: var(--color-approved);
+            background: #ecfdf5;
+        }
+        .timeline-item.status-success .timeline-node i { color: var(--color-approved); }
+
+        .timeline-item.status-warning .timeline-node {
+            border-color: var(--color-revision);
+            background: #fef2f2;
+        }
+        .timeline-item.status-warning .timeline-node i { color: var(--color-revision); }
+
+        .timeline-item.status-info .timeline-node {
+            border-color: var(--color-pending);
+            background: #eff6ff;
+        }
+        .timeline-item.status-info .timeline-node i { color: var(--color-pending); }
+
+        /* The Card */
+        .timeline-card {
+            background: var(--bg-white);
+            border: 1px solid var(--border-light);
+            border-radius: 16px;
+            padding: 20px;
+            transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+            box-shadow: 0 1px 3px rgba(0,0,0,0.02);
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            gap: 16px;
+            cursor: default;
+        }
+
+        .timeline-card:hover {
+            border-color: var(--border-line);
+            box-shadow: 0 8px 16px -4px rgba(0,0,0,0.05);
+            transform: translateY(-2px);
+        }
+
+        .timeline-card:hover .timeline-node {
+            transform: scale(1.1);
+        }
+
+        .timeline-content {
+            flex: 1;
+        }
+
+        .timeline-action {
+            font-size: 15px;
+            font-weight: 700;
             color: var(--text-dark);
-            margin-top: 5px;
+            margin-bottom: 6px;
             line-height: 1.4;
         }
 
-        .activity-card-row span {
-            font-family: var(--ui-sans);
-            font-size: 10px;
-            font-weight: 700;
-            text-transform: uppercase;
+        .timeline-context {
+            font-size: 13.5px;
             color: var(--text-muted);
-            display: block;
-            margin-top: 12px;
-            opacity: 0.7;
+            line-height: 1.5;
+        }
+
+        .timeline-meta {
+            text-align: right;
+            flex-shrink: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: flex-end;
+            gap: 4px;
+        }
+
+        .timeline-time {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            background: var(--border-light);
+            padding: 4px 10px;
+            border-radius: 12px;
+        }
+
+        .timeline-date {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-lighter);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: var(--text-muted);
+        }
+
+        .empty-state i {
+            width: 48px;
+            height: 48px;
+            color: var(--border-line);
+            margin-bottom: 16px;
+        }
+
+        /* ANIMATIONS */
+        @keyframes fadeDown {
+            from { opacity: 0; transform: translateY(-10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        @keyframes fadeUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
         }
 
         /* THEME CLASSES */
-        body.theme-default,
-        body.theme-blue {
-            --bg-beige: #e8f0ff;
-            --bg-white: #ffffff;
-            --text-dark: #1c2a44;
-            --text-muted: #5f6f8a;
-            --border-line: #c6d4e9;
-            --mcnp-teal: #4a7c8c;
-        }
+        body.theme-default, body.theme-blue { --bg-canvas: #f0f4f9; --bg-white: #ffffff; --text-dark: #0f172a; --text-muted: #64748b; --border-line: #e2e8f0; --accent: #1e40af; }
+        body.theme-red { --bg-canvas: #fef2f2; --bg-white: #ffffff; --text-dark: #7f1d1d; --text-muted: #991b1b; --border-line: #fecaca; --accent: #dc2626; }
+        body.theme-dark { --bg-canvas: #090d12; --bg-white: #151c24; --text-dark: #f8fafc; --text-muted: #94a3b8; --border-line: #334155; --accent: #38bdf8; }
+        body.theme-pink, body.theme-rose { --bg-canvas: #fde8f5; --bg-white: #ffffff; --text-dark: #831843; --text-muted: #9d174d; --border-line: #fbcfe8; --accent: #db2777; }
+        body.theme-green { --bg-canvas: #e8f6ea; --bg-white: #ffffff; --text-dark: #14532d; --text-muted: #166534; --border-line: #bbf7d0; --accent: #16a34a; }
+        body.theme-purple, body.theme-lavender { --bg-canvas: #f5f3ff; --bg-white: #ffffff; --text-dark: #4c1d95; --text-muted: #6d28d9; --border-line: #ddd6fe; --accent: #7c3aed; }
+        body.theme-orange, body.theme-amber { --bg-canvas: #fffbeb; --bg-white: #ffffff; --text-dark: #78350f; --text-muted: #92400e; --border-line: #fde68a; --accent: #d97706; }
 
-        body.theme-red {
-            --bg-beige: #ffe8e8;
-            --bg-white: #ffffff;
-            --text-dark: #4c1f20;
-            --text-muted: #9d5b5c;
-            --border-line: #f2c7c7;
-            --mcnp-teal: #d65a5a;
-        }
-
-        body.theme-pink,
-        body.theme-rose {
-            --bg-beige: #fde8f5;
-            --bg-white: #ffffff;
-            --text-dark: #4c2346;
-            --text-muted: #9f628d;
-            --border-line: #f3c7dc;
-            --mcnp-teal: #c56ba8;
-        }
-
-        body.theme-green {
-            --bg-beige: #e8f6ea;
-            --bg-white: #ffffff;
-            --text-dark: #2f4a33;
-            --text-muted: #6d8b75;
-            --border-line: #c9dec9;
-            --mcnp-teal: #4a9e7b;
-        }
-
-        body.theme-purple,
-        body.theme-lavender {
-            --bg-beige: #f5f3ff;
-            --bg-white: #ffffff;
-            --text-dark: #4c1d95;
-            --text-muted: #9c9284;
-            --border-line: #ddd6fe;
-            --mcnp-teal: #6d28d9;
-        }
-
-        body.theme-orange,
-        body.theme-amber {
-            --bg-beige: #fffbeb;
-            --bg-white: #ffffff;
-            --text-dark: #78350f;
-            --text-muted: #9c9284;
-            --border-line: #fde68a;
-            --mcnp-teal: #b45309;
-        }
-
-        body.theme-dark {
-            --bg-beige: #1a1d21;
-            --bg-white: #24282d;
-            --text-dark: #e0e0e0;
-            --text-muted: #b0ada8;
-            --border-line: #3a3f45;
-            --mcnp-teal: #4e9cae;
-        }
-
-        /* MOBILE OPTIMIZATIONS (Only for mobile responsive iframe container) */
-        @media (max-width: 640px) {
-            body {
-                padding: 12px !important;
-            }
-
-            .header-title,
-            .header-desc {
-                display: none !important;
-            }
-
-            .activity-controls {
-                margin: 10px 0 15px 0 !important;
-                gap: 10px !important;
-            }
-
-            .search-input {
-                min-width: 100% !important;
-                padding: 10px 14px !important;
-                font-size: 13px !important;
-                border-radius: 10px !important;
-            }
-
-            .filter-btn-group {
-                width: 100% !important;
-                display: flex !important;
-            }
-
-            .filter-btn {
-                flex: 1 !important;
-                text-align: center !important;
-                padding: 6px 10px !important;
-                font-size: 11px !important;
-                border-radius: 8px !important;
-            }
-
-            .stats-summary-row {
-                gap: 10px !important;
-                margin-bottom: 15px !important;
-            }
-
-            .summary-card {
-                padding: 10px !important;
-                border-radius: 12px !important;
-            }
-
-            .summary-card h4 {
-                font-size: 9px !important;
-                margin-bottom: 2px !important;
-            }
-
-            .summary-card div {
-                font-size: 18px !important;
-            }
-
-            .activity-card-row {
-                padding: 14px 16px !important;
-                border-radius: 12px !important;
-                margin-bottom: 4px !important;
-            }
-
-            .activity-card-row h4 {
-                font-size: 14px !important;
-            }
-
-            .activity-card-row p {
-                font-size: 12px !important;
-                line-height: 1.35 !important;
-            }
-
-            .activity-card-row span {
-                font-size: 9px !important;
-                margin-top: 8px !important;
-            }
+        /* MOBILE OPTIMIZATIONS */
+        @media (max-width: 768px) {
+            body { padding: 20px 16px; }
+            .header-title { font-size: 24px; }
+            .timeline-card { flex-direction: column; gap: 12px; }
+            .timeline-meta { text-align: left; align-items: flex-start; flex-direction: row; align-items: center; }
         }
     </style>
 </head>
 
 <body>
     <div class="ledger-frame">
-        <h2 class="header-title">System Activity Logs</h2>
-        <p class="header-desc">Historical trail logs tracking your group account activities at MCNP-ISAP.</p>
-
-        <div class="activity-controls">
-            <input type="text" id="actSearch" class="search-input" placeholder="Search" onkeyup="filterActivities()" style="width: 100%;">
+        
+        <div class="page-header">
+            <div class="header-title-row">
+                <h1 class="header-title">Recent Activities</h1>
+                <div class="activity-count-pill">
+                    <i data-lucide="activity" style="width: 14px; height: 14px;"></i>
+                    <?= $total ?> total
+                </div>
+            </div>
+            <p class="header-desc">A complete historical trail of all actions, submissions, and approvals for your research group.</p>
         </div>
 
-        <div class="stream-timeline-container">
-            <?php if (count($all_activities) > 0): ?>
-                <?php foreach ($all_activities as $act): ?>
-                    <div class="activity-card-row <?= $act['status_type'] ?>" data-status="<?= $act['status_type'] ?>">
-                        <h4><?= getNotifIcon($act['status_type']) . htmlspecialchars($act['title']) ?></h4>
-                        <p><?= htmlspecialchars($act['description']) ?></p>
-                        <span>Logged at: <?= date('F d, Y - h:i A', strtotime($act['created_at'])) ?></span>
-                    </div>
-                <?php endforeach; ?>
+        <div class="search-container">
+            <input type="text" id="actSearch" class="search-input" placeholder="Search activities, modules, or updates..." onkeyup="filterActivities()">
+            <i data-lucide="search" class="search-icon"></i>
+        </div>
+
+        <div class="timeline-wrapper">
+            <?php if ($total > 0): ?>
+                <div class="timeline-container" id="timelineContainer">
+                    <?php 
+                    $delay = 0;
+                    foreach ($all_activities as $act): 
+                        $status = strtolower($act['status_type'] ?? 'info');
+                        // Map old statuses to standard classes
+                        if (!in_array($status, ['success', 'warning', 'info'])) {
+                            $status = 'info';
+                        }
+                        
+                        $icon = 'activity';
+                        if ($status === 'success') $icon = 'check';
+                        if ($status === 'warning') $icon = 'alert-triangle';
+                        
+                        // Parse time for better display
+                        $timestamp = strtotime($act['created_at']);
+                        $time_str = date('h:i A', $timestamp);
+                        $date_str = date('M d, Y', $timestamp);
+                        
+                        // Extract Title as Action, Description as Context
+                        $action = htmlspecialchars($act['title']);
+                        $context = htmlspecialchars($act['description']);
+                    ?>
+                        <div class="timeline-item status-<?= $status ?>" data-searchText="<?= strtolower($action . ' ' . $context) ?>" style="animation-delay: <?= $delay ?>s;">
+                            <div class="timeline-node">
+                                <i data-lucide="<?= $icon ?>"></i>
+                            </div>
+                            <div class="timeline-card">
+                                <div class="timeline-content">
+                                    <h3 class="timeline-action"><?= $action ?></h3>
+                                    <p class="timeline-context"><?= $context ?></p>
+                                </div>
+                                <div class="timeline-meta">
+                                    <span class="timeline-time"><?= $time_str ?></span>
+                                    <span class="timeline-date"><?= $date_str ?></span>
+                                </div>
+                            </div>
+                        </div>
+                    <?php 
+                        $delay += 0.05; // 50ms stagger
+                    endforeach; 
+                    ?>
+                </div>
             <?php else: ?>
-                <p style="text-align: center; color: var(--text-muted); padding: 40px; font-size:14px;">No system activities logged yet.</p>
+                <div class="empty-state">
+                    <i data-lucide="inbox"></i>
+                    <h3>No activities yet</h3>
+                    <p>When you or your group members take action, it will appear here.</p>
+                </div>
             <?php endif; ?>
         </div>
     </div>
 
     <script>
+        // Initialize Lucide Icons
+        lucide.createIcons();
+
         function filterActivities() {
             const search = document.getElementById('actSearch').value.toLowerCase();
-            const rows = document.querySelectorAll('.activity-card-row');
+            const items = document.querySelectorAll('.timeline-item');
+            let hasVisible = false;
 
-            rows.forEach(row => {
-                const text = row.innerText.toLowerCase();
-
-                const matchesSearch = text.includes(search);
-
-                if (matchesSearch) {
-                    row.style.display = 'block';
+            items.forEach(item => {
+                const text = item.getAttribute('data-searchText');
+                if (text.includes(search)) {
+                    item.style.display = 'block';
+                    hasVisible = true;
                 } else {
-                    row.style.display = 'none';
+                    item.style.display = 'none';
                 }
             });
+
+            // Handle empty state for search
+            const container = document.getElementById('timelineContainer');
+            let noResults = document.getElementById('noResultsMsg');
+            
+            if (!hasVisible && search.trim() !== '') {
+                if (!noResults) {
+                    noResults = document.createElement('div');
+                    noResults.id = 'noResultsMsg';
+                    noResults.className = 'empty-state';
+                    noResults.innerHTML = '<i data-lucide="search-x"></i><p>No activities match your search.</p>';
+                    container.appendChild(noResults);
+                    lucide.createIcons({root: noResults});
+                }
+                noResults.style.display = 'block';
+            } else if (noResults) {
+                noResults.style.display = 'none';
+            }
         }
 
         // Apply global theme from parent
@@ -461,5 +499,4 @@ function getNotifIcon($status)
         }, 500);
     </script>
 </body>
-
 </html>

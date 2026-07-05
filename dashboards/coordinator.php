@@ -1,6 +1,8 @@
 <?php
 require_once '../config/db.php';
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
 // Enforce Session Access Rule
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Research Coordinator') {
@@ -91,7 +93,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
         // Queue notification job for Director authorized release via SMTP
         $subject = "Research Stage update: Coordinator Review Completed";
         $body = "Dear $group_name,\n\nYour recent study stage submissions have been reviewed by the Research Coordinator.\nStatus: $status.\nRemarks: $remarks\n\nBest Regards,\nInstitutional Portal";
-        
+
         $notif_stmt = $pdo->prepare("
             INSERT INTO notifications (recipient_email, subject, body, sent_status, director_approval) 
             VALUES (?, ?, ?, 'Pending Approval', 0)
@@ -102,10 +104,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
         $log_title = "Coordinator Stage Review - " . $status;
         $log_desc = "Coordinator stage checklist review marked as " . $status . ". Feedback notes: " . $remarks;
         $log_status = ($status === 'Approved') ? 'success' : 'warning';
-        
+
         $log_stmt = $pdo->prepare("
             INSERT INTO activity_logs (user_id, title, description, status_type, created_at) 
-            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                  VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
         ");
         $log_stmt->execute([$student_user_id, $log_title, $log_desc, $log_status]);
     }
@@ -136,6 +138,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -150,7 +153,8 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --control-radius: 12px;
         }
 
-        body.theme-default, body {
+        body.theme-default,
+        body {
             --bg-canvas: #f7f5ef;
             --bg-white: #ffffff;
             --mcnp-teal: #0c343d;
@@ -160,6 +164,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #2c2416;
             --eagle-gold: #cc9900;
         }
+
         body.theme-dark {
             --bg-canvas: #0f1214;
             --bg-white: #171c1f;
@@ -170,6 +175,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #f1f5f9;
             --eagle-gold: #fbbf24;
         }
+
         body.theme-green {
             --bg-canvas: #f2f8f2;
             --bg-white: #ffffff;
@@ -180,6 +186,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #202c20;
             --eagle-gold: #c39a24;
         }
+
         body.theme-red {
             --bg-canvas: #f9f5f5;
             --bg-white: #ffffff;
@@ -190,6 +197,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #3b2020;
             --eagle-gold: #cca500;
         }
+
         body.theme-pink {
             --bg-canvas: #fcf4f7;
             --bg-white: #ffffff;
@@ -200,6 +208,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #3a1c2d;
             --eagle-gold: #cb9300;
         }
+
         body.theme-purple {
             --bg-canvas: #f6f4fa;
             --bg-white: #ffffff;
@@ -210,6 +219,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --text-dark: #2c1a3e;
             --eagle-gold: #cb9200;
         }
+
         body.theme-orange {
             --bg-canvas: #fcf6f0;
             --bg-white: #ffffff;
@@ -221,33 +231,37 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             --eagle-gold: #cb9400;
         }
 
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg-canvas) !important; 
-            min-height: 100vh; 
-            color: var(--text-dark); 
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-canvas) !important;
+            min-height: 100vh;
+            color: var(--text-dark);
             display: flex;
         }
 
         /* Container Styling */
-        .app-dashboard-frame { 
-            background: var(--bg-canvas); 
-            width: 100vw; 
-            height: 100vh; 
-            display: flex; 
-            position: relative; 
-            overflow: hidden; 
+        .app-dashboard-frame {
+            background: var(--bg-canvas);
+            width: 100vw;
+            height: 100vh;
+            display: flex;
+            position: relative;
+            overflow: hidden;
         }
 
         .app-dashboard-frame::before {
             content: '';
             position: absolute;
             inset: 0;
-            background-image: 
+            background-image:
                 radial-gradient(#e0dbc8 1px, transparent 1px),
-                linear-gradient(to right, rgba(0,0,0,0.01) 1px, transparent 1px);
+                linear-gradient(to right, rgba(0, 0, 0, 0.01) 1px, transparent 1px);
             background-size: 24px 24px, 128px 128px;
             opacity: 0.5;
             pointer-events: none;
@@ -255,22 +269,22 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
 
         /* Sidebar Styling */
-        .app-sidebar { 
-            background-color: var(--mcnp-teal); 
-            color: white; 
-            width: 280px; 
-            padding: 35px 20px; 
-            display: flex; 
-            flex-direction: column; 
-            z-index: 110; 
-            flex-shrink: 0; 
+        .app-sidebar {
+            background-color: var(--mcnp-teal);
+            color: white;
+            width: 280px;
+            padding: 35px 20px;
+            display: flex;
+            flex-direction: column;
+            z-index: 110;
+            flex-shrink: 0;
             box-shadow: 10px 0 35px rgba(12, 52, 61, 0.12);
-            border-right: 2px solid rgba(255,255,255,0.08);
+            border-right: 2px solid rgba(255, 255, 255, 0.08);
         }
 
         .sidebar-header {
             text-align: center;
-            border-bottom: 2px solid rgba(255,255,255,0.08);
+            border-bottom: 2px solid rgba(255, 255, 255, 0.08);
             padding-bottom: 25px;
             margin-bottom: 25px;
         }
@@ -302,80 +316,91 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             font-weight: bold;
         }
 
-        .nav-menu-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-        
-        .nav-item-btn { 
-            width: 100%; 
-            padding: 13px 16px; 
-            background: transparent; 
-            border: none; 
-            color: #d1d5db; 
-            font-family: inherit; 
-            font-size: 13.5px; 
-            text-align: left; 
-            border-radius: var(--control-radius); 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            gap: 12px; 
-            transition: all 0.25s; 
+        .nav-menu-list {
+            list-style: none;
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+
+        .nav-item-btn {
+            width: 100%;
+            padding: 13px 16px;
+            background: transparent;
+            border: none;
+            color: #d1d5db;
+            font-family: inherit;
+            font-size: 13.5px;
+            text-align: left;
+            border-radius: var(--control-radius);
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            transition: all 0.25s;
             font-weight: 550;
         }
-        
-        .nav-item-btn:hover { 
-            background: rgba(255, 255, 255, 0.08); 
+
+        .nav-item-btn:hover {
+            background: rgba(255, 255, 255, 0.08);
             color: white;
             transform: translateX(3px);
         }
-        
-        .nav-item-btn.active { 
-            background: rgba(255, 255, 255, 0.15); 
-            color: white; 
-            font-weight: 700; 
+
+        .nav-item-btn.active {
+            background: rgba(255, 255, 255, 0.15);
+            color: white;
+            font-weight: 700;
             border-left: 4px solid #cc9900;
         }
-        
-        .nav-badge { 
-            background: #ef4444; 
-            color: white; 
-            padding: 2px 7px; 
-            border-radius: var(--control-radius); 
-            font-size: 10px; 
-            font-style: bold; 
-            margin-left: auto; 
+
+        .nav-badge {
+            background: #ef4444;
+            color: white;
+            padding: 2px 7px;
+            border-radius: var(--control-radius);
+            font-size: 10px;
+            font-style: bold;
+            margin-left: auto;
         }
 
-        .main-workspace-content { 
-            flex: 1; 
-            padding: 30px; 
-            overflow-y: auto; 
-            position: relative; 
+        .main-workspace-content {
+            flex: 1;
+            padding: 30px;
+            overflow-y: auto;
+            position: relative;
             z-index: 20;
             background: #faf9f6;
         }
 
-        .container { max-width: 1080px; margin: 0 auto; }
+        .container {
+            max-width: 1080px;
+            margin: 0 auto;
+        }
 
-        .header { 
-            display: flex; 
-            flex-wrap: wrap; 
-            justify-content: space-between; 
+        .header {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: space-between;
             align-items: center;
-            gap: 20px; 
-            margin-bottom: 28px; 
+            gap: 20px;
+            margin-bottom: 28px;
             border-bottom: 2px solid var(--border-line);
             padding-bottom: 20px;
         }
 
-        .header-title h1 { 
+        .header-title h1 {
             font-family: 'Cinzel', serif;
-            font-size: 26px; 
-            color: var(--mcnp-teal); 
-            margin-bottom: 6px; 
+            font-size: 26px;
+            color: var(--mcnp-teal);
+            margin-bottom: 6px;
             font-weight: 800;
         }
-        
-        .header-title p { color: var(--text-muted); font-size: 13.5px; }
+
+        .header-title p {
+            color: var(--text-muted);
+            font-size: 13.5px;
+        }
 
         .clock-widget {
             background: white;
@@ -386,7 +411,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             align-items: center;
             gap: 12px;
             font-family: 'JetBrains Mono', monospace;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.02);
+            box-shadow: 0 5px 15px rgba(0, 0, 0, 0.02);
         }
 
         .clock-widget span {
@@ -399,7 +424,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             border-radius: var(--card-radius);
             padding: 28px;
             border: 1.5px solid var(--border-line);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
             margin-bottom: 24px;
         }
 
@@ -416,7 +441,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             border-radius: var(--card-radius);
             padding: 22px;
             margin-bottom: 28px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.02);
         }
 
         .selector-header {
@@ -428,7 +453,11 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             margin-bottom: 18px;
         }
 
-        .selector-header h3 { font-family: 'Cinzel', serif; font-size: 14.5px; color: var(--mcnp-teal); }
+        .selector-header h3 {
+            font-family: 'Cinzel', serif;
+            font-size: 14.5px;
+            color: var(--mcnp-teal);
+        }
 
         .select-group-dropdown {
             padding: 10px 14px;
@@ -453,8 +482,15 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
 
         @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
+            from {
+                opacity: 0;
+                transform: translateY(-10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
         }
 
         .profile-pfp {
@@ -466,12 +502,36 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             background: white;
         }
 
-        .table-wrapper { overflow-x: auto; border-radius: 12px; border: 1.5px solid var(--border-line); }
-        table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid var(--border-line); vertical-align: middle; }
-        th { background: #faf8f4; color: var(--text-dark); font-size: 11px; text-transform: uppercase; font-weight: 800; }
-        
-        select, textarea {
+        .table-wrapper {
+            overflow-x: auto;
+            border-radius: 12px;
+            border: 1.5px solid var(--border-line);
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 760px;
+        }
+
+        th,
+        td {
+            padding: 14px 16px;
+            text-align: left;
+            border-bottom: 1px solid var(--border-line);
+            vertical-align: middle;
+        }
+
+        th {
+            background: #faf8f4;
+            color: var(--text-dark);
+            font-size: 11px;
+            text-transform: uppercase;
+            font-weight: 800;
+        }
+
+        select,
+        textarea {
             width: 100%;
             padding: 11px 14px;
             border-radius: var(--control-radius);
@@ -495,8 +555,15 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             transition: all 0.2s;
         }
 
-        .btn-primary { background: var(--mcnp-teal); color: white; }
-        .btn-primary:hover { opacity: 0.9; transform: translateY(-1px); }
+        .btn-primary {
+            background: var(--mcnp-teal);
+            color: white;
+        }
+
+        .btn-primary:hover {
+            opacity: 0.9;
+            transform: translateY(-1px);
+        }
 
         .badge-status {
             padding: 4px 10px;
@@ -506,47 +573,100 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             text-transform: uppercase;
             display: inline-block;
         }
-        .badge-paid { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-        .badge-pending { background: #fff3cd; color: #856404; border: 1px solid #fcd34d; }
 
-        .alert-success { background: #ecfdf5; color: #136643; padding: 16px 20px; border-radius: 14px; margin-bottom: 24px; font-weight: 700; border-left: 5px solid #059669; }
+        .badge-paid {
+            background: #d1fae5;
+            color: #065f46;
+            border: 1px solid #6ee7b7;
+        }
+
+        .badge-pending {
+            background: #fff3cd;
+            color: #856404;
+            border: 1px solid #fcd34d;
+        }
+
+        .alert-success {
+            background: #ecfdf5;
+            color: #136643;
+            padding: 16px 20px;
+            border-radius: 14px;
+            margin-bottom: 24px;
+            font-weight: 700;
+            border-left: 5px solid #059669;
+        }
 
         /* Fullscreen Overlay System */
-        .fullscreen-overlay { 
-            position: absolute; 
-            top: 0; 
-            left: 280px; 
-            width: calc(100% - 280px); 
-            height: 100%; 
-            background-color: #faf9f6; 
-            z-index: 150; 
-            padding: 0; 
-            display: none; 
-        }
-        
-        .fullscreen-overlay.active { 
-            display: block; 
-            animation: fadeIn 0.3s ease; 
-        }
-        
-        .overlay-iframe { 
-            width: 100%; 
-            height: 100%; 
-            border: none; 
-            background: transparent; 
-        }
-        
-        @keyframes fadeIn { 
-            from { opacity: 0; transform: translateY(10px); } 
-            to { opacity: 1; transform: translateY(0); } 
+        .fullscreen-overlay {
+            position: absolute;
+            top: 0;
+            left: 280px;
+            width: calc(100% - 280px);
+            height: 100%;
+            background-color: #faf9f6;
+            z-index: 150;
+            padding: 0;
+            display: none;
         }
 
-        .sidebar-footer { margin-top: auto; padding-top: 20px; border-top: 2px solid rgba(255,255,255,0.08); text-align: center; }
-        .sidebar-footer p { font-size: 11.5px; opacity: 0.7; margin-bottom: 12px; color: white; }
-        .logout-btn { width: 100%; padding: 11px 14px; background: rgba(220, 38, 38, 0.85); border: none; color: white; border-radius: 10px; cursor: pointer; font-weight: bold; font-size: 12.5px; text-decoration: none; display: block; }
-        .logout-btn:hover { background: #b91c1c; }
+        .fullscreen-overlay.active {
+            display: block;
+            animation: fadeIn 0.3s ease;
+        }
+
+        .overlay-iframe {
+            width: 100%;
+            height: 100%;
+            border: none;
+            background: transparent;
+        }
+
+        @keyframes fadeIn {
+            from {
+                opacity: 0;
+                transform: translateY(10px);
+            }
+
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        .sidebar-footer {
+            margin-top: auto;
+            padding-top: 20px;
+            border-top: 2px solid rgba(255, 255, 255, 0.08);
+            text-align: center;
+        }
+
+        .sidebar-footer p {
+            font-size: 11.5px;
+            opacity: 0.7;
+            margin-bottom: 12px;
+            color: white;
+        }
+
+        .logout-btn {
+            width: 100%;
+            padding: 11px 14px;
+            background: rgba(220, 38, 38, 0.85);
+            border: none;
+            color: white;
+            border-radius: 10px;
+            cursor: pointer;
+            font-weight: bold;
+            font-size: 12.5px;
+            text-decoration: none;
+            display: block;
+        }
+
+        .logout-btn:hover {
+            background: #b91c1c;
+        }
     </style>
 </head>
+
 <body>
     <div class="app-dashboard-frame">
         <aside class="app-sidebar">
@@ -555,23 +675,26 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 <h2>Staff Portal</h2>
                 <p>Coordinator</p>
             </div>
-            
+
             <ul class="nav-menu-list">
                 <li><button class="nav-item-btn active" onclick="showMasterDashboard(this)">
-                    <i data-lucide="layout-dashboard"></i> Master Dashboard
-                </button></li>
+                        <i data-lucide="layout-dashboard"></i> Master Dashboard
+                    </button></li>
                 <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
-                    <i data-lucide="file-check"></i> Evaluate Proposals
-                    <?= $pending_uploads_count > 0 ? '<span class="nav-badge">' . $pending_uploads_count . '</span>' : '' ?>
-                </button></li>
+                        <i data-lucide="file-check"></i> Evaluate Proposals
+                        <?= $pending_uploads_count > 0 ? '<span class="nav-badge">' . $pending_uploads_count . '</span>' : '' ?>
+                    </button></li>
+                <li><button class="nav-item-btn" onclick="openOverlay('message.php', this)">
+                        <i data-lucide="message-square"></i> Messages
+                    </button></li>
                 <li><button class="nav-item-btn" onclick="showCalendarDashboard(this)">
-                    <i data-lucide="calendar-days"></i> Institutional Calendar
-                </button></li>
+                        <i data-lucide="calendar-days"></i> Institutional Calendar
+                    </button></li>
                 <li><button class="nav-item-btn" id="settings-nav-btn" onclick="showSettingsDashboard(this)">
-                    <i data-lucide="settings"></i> Panel Settings
-                </button></li>
+                        <i data-lucide="settings"></i> Panel Settings
+                    </button></li>
             </ul>
-            
+
             <div class="sidebar-footer" style="padding-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; border-top: 2px solid rgba(255,255,255,0.08); margin-top: auto;">
                 <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-align: left;">
                     <img src="<?= htmlspecialchars($current_pfp) ?>" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1.5px solid #cc9900; background: white; flex-shrink: 0;" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';">
@@ -600,7 +723,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     </div>
                 </div>
 
-                <?php if($message): ?>
+                <?php if ($message): ?>
                     <div class="alert-success">
                         <i data-lucide="check-circle" style="vertical-align: middle; margin-right: 6px;"></i>
                         <?= htmlspecialchars($message) ?>
@@ -632,7 +755,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                                     <p id="groupDetails" style="font-size:11px; color:#9ca3af; margin-top:2px;"></p>
                                 </div>
                             </div>
-                            
+
                             <div style="text-align:right;">
                                 <span style="font-size:10px; font-weight:800; color:#4a453e; text-transform:uppercase;">Administrative Milestones</span>
                                 <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px; align-items:flex-end;">
@@ -659,31 +782,31 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                             </thead>
                             <tbody>
                                 <?php foreach ($workflow_tracks as $wt): ?>
-                                <tr>
-                                    <td>
-                                        <strong><?= htmlspecialchars($wt['research_group_name']) ?></strong><br>
-                                        <small style="color:var(--text-muted);"><?= htmlspecialchars($wt['program']) ?></small>
-                                    </td>
-                                    <td><?= htmlspecialchars($wt['form_name']) ?></td>
-                                    <td>
-                                        <span class="badge-status <?= $wt['statistician_status'] === 'Approved' ? 'badge-paid' : 'badge-pending' ?>">
-                                            <?= htmlspecialchars($wt['statistician_status']) ?>
-                                        </span>
-                                    </td>
-                                    <td>
-                                        <form method="POST">
-                                            <input type="hidden" name="action_type" value="coordinator_signoff">
-                                            <input type="hidden" name="approval_id" value="<?= $wt['approval_id'] ?>">
-                                            <select name="coordinator_status" required>
-                                                <option value="Pending" <?= $wt['coordinator_status'] === 'Pending' ? 'selected' : '' ?>>Pending Review</option>
-                                                <option value="Approved" <?= $wt['coordinator_status'] === 'Approved' ? 'selected' : '' ?>>Approve & Forward to Director</option>
-                                                <option value="Rejected" <?= $wt['coordinator_status'] === 'Rejected' ? 'selected' : '' ?>>Reject / Hold Milestones</option>
-                                            </select>
-                                            <textarea name="remarks" placeholder="Enter remarks/instructions for notifications..." style="margin-top:8px; font-size:11px;" required></textarea>
-                                            <button type="submit" class="btn btn-primary" style="margin-top:8px; width:100%; font-size:11px; padding:8px;"><i data-lucide="check-square" style="width:12px; height:12px;"></i> Process Signoff</button>
-                                        </form>
-                                    </td>
-                                </tr>
+                                    <tr>
+                                        <td>
+                                            <strong><?= htmlspecialchars($wt['research_group_name']) ?></strong><br>
+                                            <small style="color:var(--text-muted);"><?= htmlspecialchars($wt['program']) ?></small>
+                                        </td>
+                                        <td><?= htmlspecialchars($wt['form_name']) ?></td>
+                                        <td>
+                                            <span class="badge-status <?= $wt['statistician_status'] === 'Approved' ? 'badge-paid' : 'badge-pending' ?>">
+                                                <?= htmlspecialchars($wt['statistician_status']) ?>
+                                            </span>
+                                        </td>
+                                        <td>
+                                            <form method="POST">
+                                                <input type="hidden" name="action_type" value="coordinator_signoff">
+                                                <input type="hidden" name="approval_id" value="<?= $wt['approval_id'] ?>">
+                                                <select name="coordinator_status" required>
+                                                    <option value="Pending" <?= $wt['coordinator_status'] === 'Pending' ? 'selected' : '' ?>>Pending Review</option>
+                                                    <option value="Approved" <?= $wt['coordinator_status'] === 'Approved' ? 'selected' : '' ?>>Approve & Forward to Director</option>
+                                                    <option value="Rejected" <?= $wt['coordinator_status'] === 'Rejected' ? 'selected' : '' ?>>Reject / Hold Milestones</option>
+                                                </select>
+                                                <textarea name="remarks" placeholder="Enter remarks/instructions for notifications..." style="margin-top:8px; font-size:11px;" required></textarea>
+                                                <button type="submit" class="btn btn-primary" style="margin-top:8px; width:100%; font-size:11px; padding:8px;"><i data-lucide="check-square" style="width:12px; height:12px;"></i> Process Signoff</button>
+                                            </form>
+                                        </td>
+                                    </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
@@ -706,10 +829,10 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 
                 <div class="section" style="max-width: 650px; margin: 0 auto; background: var(--bg-white, #ffffff); padding: 30px; border-radius: var(--card-radius); border: 2px solid var(--border-line);">
                     <h3 style="margin-bottom: 20px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px;">Update Authorized Profile</h3>
-                    
+
                     <form method="POST" id="adminSettingsForm">
                         <input type="hidden" name="action_type" value="update_admin_settings">
-                        
+
                         <div style="margin-bottom: 20px;">
                             <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:8px;">Username Signature</label>
                             <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
@@ -720,7 +843,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                             <input type="text" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($currentUser['profile_pic'] ?? '') ?>" placeholder="Paste image link or leave empty for DiceBear dynamic avatar" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
                             <p style="font-size:11px; color:var(--text-muted); margin-top:5px;">Choose Avatar Quickpreset:</p>
                             <div style="display:flex; gap:10px; margin-top:10px; overflow-x:auto;">
-                                <?php foreach (["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"] as $preset): 
+                                <?php foreach (["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"] as $preset):
                                     $purl = "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $preset; ?>
                                     <img src="<?= $purl ?>" onclick="document.getElementById('pfp_selector').value='<?= $purl ?>';" style="width:36px; height:36px; border-radius:50%; border:1.5px solid var(--border-line); cursor:pointer; background:#f3f4f6; transition:scale 0.2s;" onmouseover="this.style.scale=1.13;" onmouseout="this.style.scale=1;">
                                 <?php endforeach; ?>
@@ -808,21 +931,23 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    <?php if(empty($calendar_events)): ?>
-                                        <tr><td colspan="3" style="text-align:center; padding: 14px; color:var(--text-muted);">No custom events configured.</td></tr>
+                                    <?php if (empty($calendar_events)): ?>
+                                        <tr>
+                                            <td colspan="3" style="text-align:center; padding: 14px; color:var(--text-muted);">No custom events configured.</td>
+                                        </tr>
                                     <?php endif; ?>
-                                    <?php foreach($calendar_events as $ce): ?>
-                                    <tr>
-                                        <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><strong><?= date('M d, Y', strtotime($ce['event_date'])) ?></strong></td>
-                                        <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><?= htmlspecialchars($ce['title']) ?><br><small style="color:var(--text-muted);"><?= htmlspecialchars($ce['description']) ?></small></td>
-                                        <td style="padding: 10px; border-bottom: 1px solid var(--border-line);">
-                                            <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
-                                                <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;"><i data-lucide="trash" style="width:14px;height:14px;"></i> Delete</button>
-                                            </form>
-                                        </td>
-                                    </tr>
+                                    <?php foreach ($calendar_events as $ce): ?>
+                                        <tr>
+                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><strong><?= date('M d, Y', strtotime($ce['event_date'])) ?></strong></td>
+                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><?= htmlspecialchars($ce['title']) ?><br><small style="color:var(--text-muted);"><?= htmlspecialchars($ce['description']) ?></small></td>
+                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);">
+                                                <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');">
+                                                    <input type="hidden" name="action" value="delete">
+                                                    <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
+                                                    <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;"><i data-lucide="trash" style="width:14px;height:14px;"></i> Delete</button>
+                                                </form>
+                                            </td>
+                                        </tr>
                                     <?php endforeach; ?>
                                 </tbody>
                             </table>
@@ -843,15 +968,25 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         // Standardized dynamic clock updater (without timezone text to give breath)
         function updateClock() {
             const clockEl = document.getElementById('coordClock');
-            if(clockEl) {
+            if (clockEl) {
                 const now = new Date();
-                const phtime = now.toLocaleString("en-US", { timeZone: "Asia/Manila", hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const phtime = now.toLocaleString("en-US", {
+                    timeZone: "Asia/Manila",
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
                 clockEl.textContent = phtime;
             }
             const settingsClock = document.getElementById('directorTimeClockSettings');
             if (settingsClock) {
                 const now = new Date();
-                const phtime = now.toLocaleString("en-US", { timeZone: "Asia/Manila", hour: '2-digit', minute: '2-digit', second: '2-digit' });
+                const phtime = now.toLocaleString("en-US", {
+                    timeZone: "Asia/Manila",
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit'
+                });
                 settingsClock.textContent = phtime;
             }
         }
@@ -878,7 +1013,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 // Populate tracking labels
                 document.getElementById('progCoord').textContent = data.coordinator_status;
                 document.getElementById('progCoord').className = 'badge-status ' + (data.coordinator_status === 'Approved' ? 'badge-paid' : 'badge-pending');
-                
+
                 document.getElementById('progStats').textContent = data.statistician_status;
                 document.getElementById('progStats').className = 'badge-status ' + (data.statistician_status === 'Approved' ? 'badge-paid' : 'badge-pending');
 
@@ -886,7 +1021,9 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 document.getElementById('progPay').className = 'badge-status ' + (data.payment_status === 'Paid' ? 'badge-paid' : 'badge-unpaid');
 
                 lucide.createIcons();
-            } catch(e) { console.error("Error loading group", e); }
+            } catch (e) {
+                console.error("Error loading group", e);
+            }
         }
 
         // Complete workspace-switcher layout handlers
@@ -931,7 +1068,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         const localThemeKey = "staff-portal-coordinator-theme";
         const currentTheme = localStorage.getItem(localThemeKey) || "theme-default";
         document.body.className = currentTheme;
-        
+
         const themeSelectorEl = document.getElementById('user_theme_select');
         if (themeSelectorEl) {
             themeSelectorEl.value = currentTheme;
@@ -943,4 +1080,5 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
     </script>
 </body>
+
 </html>

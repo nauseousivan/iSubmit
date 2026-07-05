@@ -1,7 +1,12 @@
 <?php
 require_once '../config/db.php';
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
-if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') { exit("Access Denied"); }
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
+
+if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') {
+    exit("Access Denied");
+}
 
 $user_id = $_SESSION['user_id'];
 // Determine the effective user_id for data retrieval (leader's ID if current user is a member)
@@ -21,7 +26,7 @@ foreach ($checklist_items as $item) {
     $stmt = $pdo->prepare("SELECT verification_status, remarks, file_path, original_filename, uploaded_at, form_008_data, form_008_score, form_008_decision FROM uploads WHERE user_id = ? AND item_id = ? ORDER BY uploaded_at DESC LIMIT 1");
     $stmt->execute([$effective_user_id, $item['item_id']]);
     $latest_upload = $stmt->fetch();
-    
+
     $item_statuses[$item['item_id']] = [
         'status' => $latest_upload['verification_status'] ?? 'No Upload',
         'remarks' => $latest_upload['remarks'] ?? '',
@@ -68,749 +73,1036 @@ $message_type = $_GET['type'] ?? '';
 ?>
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
 
-        :root { 
-            --primary: #0c343d;
-            --primary-light: #1a4f5c;
-            --text-dark: #1f2937;
-            --text-muted: #6b7280;
-            --text-light: #9ca3af;
-            --bg-white: #ffffff;
-            --bg-light: #f8f9fa;
-            --bg-pale: #f3f4f6;
-            --success: #10b981;
-            --warning: #f59e0b;
-            --danger: #ef4444;
-            --info: #3b82f6;
-            --border-color: #e5e7eb;
-            --ui-sans: 'Inter', system-ui, -apple-system, sans-serif;
-        }
-        
-        * { box-sizing: border-box; }
-        
-        body { 
-            font-family: 'Cambria', serif; 
-            background: linear-gradient(135deg, var(--bg-light) 0%, #f0f4f8 100%);
-            color: var(--text-dark); 
-            padding: 24px; 
+        body {
+            font-family: 'Inter', sans-serif;
             margin: 0;
-            min-height: 100vh;
-            transition: all 0.3s ease;
-        }
-        
-        body::-webkit-scrollbar { display: none; }
-        
-        .container { max-width: 1000px; margin: 0 auto; }
-        
-        .header { margin-bottom: 32px; }
-        
-        h2 { 
-            font-family: var(--ui-sans);
-            font-size: 32px; 
-            color: var(--primary);
-            margin: 0 0 8px 0;
-            font-weight: 800;
-            letter-spacing: -0.02em;
-        }
-        
-        .subtitle {
-            font-size: 15px;
-            color: var(--text-muted);
-            margin: 0;
-            line-height: 1.6;
-        }
-        
-        /* Status Alerts */
-        .alert {
-            padding: 16px 20px;
-            border-radius: 12px;
-            margin-bottom: 24px;
-            font-family: var(--ui-sans);
-            font-size: 14px;
-            font-weight: 500;
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-            animation: slideDown 0.3s ease-out;
-        }
-        
-        @keyframes slideDown {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        
-        .alert.success { 
-            background: #ecfdf5;
-            color: #065f46;
-            border: 1px solid #a7f3d0;
-        }
-        
-        .alert.error { 
-            background: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fecaca;
-        }
-        
-        .alert.info { 
-            background: #eff6ff;
-            color: #0c4a6e;
-            border: 1px solid #bae6fd;
-        }
-        
-        .alert-icon {
-            flex-shrink: 0;
-            font-size: 20px;
-            line-height: 1;
-            margin-top: 2px;
-        }
-        
-        .alert-content { flex: 1; }
-        
-        .alert-btn {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            background: var(--success);
-            color: white;
-            padding: 10px 18px;
-            border-radius: 8px;
-            text-decoration: none;
-            font-weight: 700;
-            font-size: 13px;
-            cursor: pointer;
-            border: none;
-            margin-top: 10px;
-            transition: all 0.25s ease;
-            font-family: var(--ui-sans);
-        }
-        
-        .alert-btn:hover {
-            background: #059669;
-            transform: translateY(-2px);
-            box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
-        }
-        
-        /* Cards Grid */
-        .items-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-            gap: 20px;
-            margin-bottom: 24px;
-        }
-        
-        .item-card {
-            background: var(--bg-white);
-            border-radius: 24px;
-            border: 1.5px solid var(--border-color);
-            padding: 0;
-            overflow: hidden;
-            transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-            box-shadow: 0 4px 14px rgba(0, 0, 0, 0.06);
-        }
-        
-        .item-card:hover {
-            border-color: var(--primary);
-            box-shadow: 0 12px 30px rgba(0, 0, 0, 0.08);
-            transform: scale(1.02) translateY(-4px);
-        }
-        
-        .item-card.approved { border-left: 4px solid var(--success); }
-        .item-card.review { border-left: 4px solid var(--warning); }
-        .item-card.revision { border-left: 4px solid var(--danger); }
-        .item-card.pending { border-left: 4px solid var(--info); }
-        
-        /* Sub-Card Visual Grouping for Cascaded Items */
-        .item-card.cascaded-item {
-            border-left: 4px solid var(--info) !important;
-            background: linear-gradient(145deg, #f8fafc 0%, #ffffff 100%);
-            transform: scale(0.97);
-        }
-
-        .card-header {
-            padding: 16px 20px;
-            border-bottom: 1px solid var(--border-color);
-            display: flex;
-            align-items: flex-start;
-            gap: 12px;
-        }
-        
-        .status-badge {
-            flex-shrink: 0;
-            width: 40px;
-            height: 40px;
-            border-radius: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            font-size: 18px;
-            font-weight: 700;
-            color: white;
-        }
-        
-        .status-badge.approved { background: linear-gradient(135deg, var(--success) 0%, #059669 100%); }
-        .status-badge.review { background: linear-gradient(135deg, var(--warning) 0%, #d97706 100%); animation: pulse 2s infinite; }
-        .status-badge.revision { background: linear-gradient(135deg, var(--danger) 0%, #991b1b 100%); }
-        .status-badge.pending { background: linear-gradient(135deg, #94a3b8 0%, #64748b 100%); }
-        
-        @keyframes pulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(245, 158, 11, 0.4); }
-            50% { box-shadow: 0 0 0 8px rgba(245, 158, 11, 0); }
-        }
-        
-        .card-title {
-            font-family: var(--ui-sans);
-            font-size: 14px;
-            font-weight: 700;
-            color: var(--text-dark);
-            margin: 0 0 4px 0;
-            text-transform: uppercase;
-            letter-spacing: 0.02em;
-        }
-        
-        .card-meta {
-            font-size: 12px;
-            color: var(--text-muted);
-            margin: 0;
-            font-family: var(--ui-sans);
-        }
-        
-        .card-body {
             padding: 20px;
+            background: #ffffff;
+            color: #1f2937;
+            padding-top: 10px;
         }
-        
-        .card-description {
-            font-size: 13px;
-            color: var(--text-muted);
-            line-height: 1.6;
-            margin-bottom: 16px;
+
+        * {
+            box-sizing: border-box;
         }
-        
-        .status-label {
-            display: inline-block;
-            font-family: var(--ui-sans);
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            padding: 6px 12px;
-            border-radius: 6px;
-            margin-bottom: 12px;
+
+        /* Shared Styles (Progress Widget) */
+        .mobile-stack-hint {
+            display: none;
         }
-        
-        .status-label.approved { background: #d1fae5; color: #065f46; }
-        .status-label.review { background: #fef3c7; color: #78350f; }
-        .status-label.revision { background: #fee2e2; color: #7c2d12; }
-        .status-label.pending { background: #dbeafe; color: #0c4a6e; }
-        
-        .reviewer-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            background: #f3f4f6;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            color: var(--text-dark);
-            margin-bottom: 12px;
-            font-weight: 600;
-            font-family: var(--ui-sans);
+
+        .hero-widgets {
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-start;
+            margin-bottom: 24px;
         }
-        
-        .reviewer-badge svg {
-            width: 14px;
-            height: 14px;
-            color: var(--success);
-        }
-        
-        .action-buttons {
+
+        .widget-card {
+            background: white;
+            border-radius: 20px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05);
+            border: 1px solid #f3f4f6;
+            width: 140px;
+            height: 140px;
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            margin-top: 16px;
+            align-items: center;
+            justify-content: center;
         }
-        
-        .btn {
-            padding: 12px 18px;
+
+        .circular-chart {
+            display: block;
+            margin: 0 auto;
+            max-width: 60px;
+            max-height: 60px;
+        }
+
+        .circle-bg {
+            fill: none;
+            stroke: #e2e8f0;
+            stroke-width: 3.5;
+        }
+
+        .circle {
+            fill: none;
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            animation: progress 1s ease-out forwards;
+        }
+
+        @keyframes progress {
+            0% {
+                stroke-dasharray: 0 100;
+            }
+        }
+
+        .percentage {
+            fill: #1e293b;
+            font-family: 'Inter', sans-serif;
+            font-size: 8px;
+            font-weight: 800;
+            text-anchor: middle;
+            dominant-baseline: central;
+        }
+
+        .widget-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .widget-value {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 4px 0 2px 0;
+        }
+
+        .widget-subtext {
+            font-size: 11px;
+            color: #64748b;
+            margin: 0;
+        }
+
+        /* Buttons and Shared Form Elements */
+        .status-pill {
+            display: inline-flex;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 6px 14px;
             border-radius: 8px;
-            font-family: var(--ui-sans);
+            margin-bottom: 20px;
+        }
+
+        .status-pill.review {
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        .status-pill.approved {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+        }
+
+        .status-pill.revision {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+
+        .status-pill.pending {
+            background: #f3f4f6;
+            color: #4b5563;
+            border: 1px solid #e5e7eb;
+        }
+
+        .status-pill.no-upload {
+            background: #f3e8ff;
+            color: #7e22ce;
+            border: 1px solid #d8b4fe;
+        }
+
+        .instruction-box {
+            background: #f0fdf4;
+            color: #166534;
+            padding: 16px;
+            border-radius: 12px;
             font-size: 13px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .instruction-box strong {
+            font-weight: 700;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 15px;
             font-weight: 700;
             cursor: pointer;
             border: none;
             text-decoration: none;
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            text-align: center;
-            justify-content: center;
-            transition: all 0.25s ease;
+            font-family: 'Inter', sans-serif;
+            transition: opacity 0.2s;
         }
-        
-        .btn-upload {
-            background: var(--info);
+
+        .btn:active {
+            opacity: 0.8;
+        }
+
+        .btn-primary {
+            background: #0f172a;
             color: white;
-            box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
         }
-        
-        .btn-upload:hover {
-            background: #2563eb;
-            box-shadow: 0 6px 16px rgba(59, 130, 246, 0.4);
-            transform: translateY(-2px);
+
+        .btn-outline {
+            background: transparent;
+            color: #0f172a;
+            border: 1.5px solid #e2e8f0;
         }
-        
-        .btn-download {
-            background: var(--bg-pale);
-            color: var(--primary);
-            border: 2px solid var(--border-color);
-            font-weight: 700;
-        }
-        
-        .btn-download:hover {
-            background: var(--primary);
-            color: white;
-            border-color: var(--primary);
-            box-shadow: 0 4px 12px rgba(12, 52, 61, 0.2);
-            transform: translateY(-2px);
-        }
-        
-        .file-info {
-            background: #eff6ff;
-            border: 1px solid #bae6fd;
-            border-radius: 8px;
-            padding: 12px 14px;
-            font-size: 13px;
-            color: var(--primary);
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin-top: 12px;
-        }
-        
-        .file-info a {
-            color: var(--primary);
-            text-decoration: none;
-            font-weight: 700;
-            word-break: break-word;
-            flex: 1;
-        }
-        
-        .file-info a:hover {
-            text-decoration: underline;
-        }
-        
-        .feedback-box {
+
+        .btn-warning {
             background: #fffbeb;
-            border: 1px solid #fef3c7;
-            border-left: 4px solid var(--warning);
-            padding: 14px;
-            border-radius: 8px;
-            margin-top: 12px;
-            font-size: 12px;
+            color: #b45309;
+            border: 1px solid #fde68a;
         }
-        
-        .feedback-box p {
-            color: #92400e;
-            margin: 0;
-            line-height: 1.5;
-            font-style: italic;
+
+        .file-attachment {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 10px;
         }
-        
-        .awaiting-text {
-            color: var(--warning);
+
+        .file-icon {
+            color: #64748b;
+        }
+
+        .file-name {
+            font-size: 14px;
             font-weight: 700;
+            color: #0f172a;
+            display: block;
+        }
+
+        .file-sub {
             font-size: 12px;
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        
-        .loader {
-            width: 12px;
-            height: 12px;
-            border: 2px solid rgba(245, 158, 11, 0.3);
-            border-top-color: var(--warning);
-            border-radius: 50%;
-            animation: spin 1s linear infinite;
-        }
-        
-        @keyframes spin {
-            to { transform: rotate(360deg); }
+            color: #64748b;
+            display: block;
+            margin-top: 2px;
         }
 
-        /* Mobile adaptions */
-        @media (max-width: 640px) {
-            body { padding: 16px; }
-            .items-grid { grid-template-columns: 1fr; }
-            h2 { font-size: 24px; }
-        }
 
-        /* Dynamic Theme classes mapping */
-        body.theme-default, body.theme-blue { --bg-light: #f0f4f9; --bg-white: #ffffff; --text-dark: #1c2a44; --text-muted: #5f6f8a; --border-color: #c6d4e9; --primary: #4a7c8c; --primary-light: #3b6370; }
-        body.theme-red { --bg-light: #ffe8e8; --bg-white: #ffffff; --text-dark: #4c1f20; --text-muted: #9d5b5c; --border-color: #f2c7c7; --primary: #d65a5a; --primary-light: #c04f4f; }
-        body.theme-pink, body.theme-rose { --bg-light: #fde8f5; --bg-white: #ffffff; --text-dark: #4c2346; --text-muted: #9f628d; --border-color: #f3c7dc; --primary: #c56ba8; --primary-light: #ac5e94; }
-        body.theme-green { --bg-light: #e8f6ea; --bg-white: #ffffff; --text-dark: #2f4a33; --text-muted: #6d8b75; --border-color: #c9dec9; --primary: #4a9e7b; --primary-light: #3a8565; }
-        body.theme-purple, body.theme-lavender { --bg-light: #f5f3ff; --bg-white: #ffffff; --text-dark: #4c1d95; --text-muted: #9c9284; --border-color: #ddd6fe; --primary: #6d28d9; --primary-light: #4c1d95; }
-        body.theme-orange, body.theme-amber { --bg-light: #fffbeb; --bg-white: #ffffff; --text-dark: #78350f; --text-muted: #9c9284; --border-color: #fde68a; --primary: #b45309; --primary-light: #78350f; }
-        body.theme-dark { --bg-light: #1a1d21; --bg-white: #24282d; --text-dark: #e0e0e0; --text-muted: #b0ada8; --border-color: #3a3f45; --primary: #38bdf8; --primary-light: #0284c7; }
-    
-        /* ── Premium Icon & Animation Enhancements ── */
-        @keyframes fadeInUp {
-            from { opacity: 0; transform: translateY(16px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-        @keyframes spin {
-            to { transform: rotate(360deg); }
-        }
-        .item-card {
-            animation: fadeInUp 0.4s ease forwards;
-            opacity: 0;
-        }
-        .item-card:nth-child(1) { animation-delay: 0.05s; }
-        .item-card:nth-child(2) { animation-delay: 0.1s; }
-        .item-card:nth-child(3) { animation-delay: 0.15s; }
-        .item-card:nth-child(4) { animation-delay: 0.2s; }
-        .item-card:nth-child(5) { animation-delay: 0.25s; }
-        .item-card:nth-child(6) { animation-delay: 0.3s; }
-        .item-card:nth-child(7) { animation-delay: 0.35s; }
-        .item-card:nth-child(8) { animation-delay: 0.4s; }
-
-        .status-badge i { display: flex; }
-
-        .alert {
-            animation: fadeInUp 0.35s ease forwards;
-        }
-
-        .alert-icon {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-        }
-
-        .btn-upload, .btn-download {
-            position: relative;
-            overflow: hidden;
-        }
-        .btn-upload::after, .btn-download::after {
-            content: "";
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            width: 0;
-            height: 0;
-            background: rgba(255,255,255,0.15);
-            border-radius: 50%;
-            transform: translate(-50%, -50%);
-            transition: width 0.4s ease, height 0.4s ease;
-        }
-        .btn-upload:hover::after, .btn-download:hover::after {
-            width: 300px;
-            height: 300px;
-        }
-
-        .file-info {
-            transition: all 0.25s ease;
-        }
-        .file-info:hover {
-            transform: translateX(4px);
-            border-color: #93c5fd;
-            box-shadow: 0 2px 8px rgba(59, 130, 246, 0.1);
-        }
-
-        .feedback-box {
-            transition: all 0.25s ease;
-        }
-        .feedback-box:hover {
-            transform: translateX(4px);
-            box-shadow: 0 2px 8px rgba(245, 158, 11, 0.1);
-        }
-
-        .item-card:hover .status-badge {
-            transform: scale(1.05);
-            transition: transform 0.2s ease;
-        }
-    
-    </style>
-    <script src="https://unpkg.com/lucide@latest"></script>
-</head>
-<body>
-    <div class="container">
-        <div class="header">
-            <h2>Proposal Defense Workspace</h2>
-            <p class="subtitle">Secure clearance and satisfy prerequisites for your official Proposal Defense Phase.</p>
-        </div>
-
-        <?php if ($overall_prop_status === 'Revision Requested'): ?>
-            <div class="alert error">
-                <div class="alert-icon"><i data-lucide="x-circle" style="width:22px;height:22px;color:#ef4444;"></i></div>
-                <div class="alert-content">
-                    <strong>Revision Required</strong>
-                    <p style="margin: 4px 0 0 0; font-size: 13px;">Revisions requested. Review evaluator feedback for each card below and upload corrected files.</p>
-                </div>
-            </div>
-        <?php elseif ($overall_prop_status === 'Under Review'): ?>
-            <div class="alert info">
-                <div class="alert-icon"><i data-lucide="loader" style="width:22px;height:22px;color:#3b82f6;animation:spin 2s linear infinite;"></i></div>
-                <div class="alert-content">
-                    <strong>Under Review</strong>
-                    <p style="margin: 4px 0 0 0; font-size: 13px;">Your files are currently being audited by coordinators. You will be notified of decisions here.</p>
-                </div>
-            </div>
-        <?php elseif ($overall_prop_status === 'Approved'): ?>
-            <div class="alert success">
-                <div class="alert-icon"><i data-lucide="trophy" style="width:22px;height:22px;color:#10b981;"></i></div>
-                <div class="alert-content">
-                    <strong>Institutional Clearance Obtained!</strong>
-                    <p style="margin: 4px 0 0 0; font-size: 13px;">Your Proposal Defense Stage is cleared.</p>
-                    <a href="../proposal_cleared.pdf" download class="alert-btn"><i data-lucide="download" style="width:16px;height:16px;"></i> Download Signed Approval Form</a>
-                </div>
-            </div>
-        <?php endif; ?>
-
-        <?php if ($message): ?>
-            <div class="alert <?= htmlspecialchars($message_type) === 'success' ? 'success' : 'error' ?>">
-                <div class="alert-icon"><?php if($message_type === 'success'): ?><i data-lucide="check-circle-2" style="width:20px;height:20px;color:#10b981;"></i><?php else: ?><i data-lucide="alert-circle" style="width:20px;height:20px;color:#ef4444;"></i><?php endif; ?></div>
-                <div class="alert-content">
-                    <?= htmlspecialchars($message) ?>
-                </div>
-            </div>
-        <?php endif; ?>
-
-        <div class="items-grid">
-        <?php foreach ($checklist_items as $item): 
-            $status_data = $item_statuses[$item['item_id']];
-            $current_status = $status_data['status'];
-            $current_remarks = $status_data['remarks'];
-            $current_file_path = $status_data['file_path'];
-            $current_original_filename = $status_data['original_filename'];
-            $reviewer_name = $status_data['reviewer_name'];
-
-            // Determine status class
-            $status_class = 'pending';
-            $status_text = 'Pending';
-            $status_icon = '<i data-lucide="circle-dashed" style="width:18px;height:18px;"></i>';
-            
-            if ($current_status === 'Approved') {
-                $status_class = 'approved';
-                $status_text = 'Approved';
-                $status_icon = '<i data-lucide="check" style="width:18px;height:18px;"></i>';
-            } elseif ($current_status === 'Under Review' || $current_status === 'Pending') {
-                $status_class = 'review';
-                $status_text = 'Under Review';
-                $status_icon = '<i data-lucide="clock" style="width:18px;height:18px;"></i>';
-            } elseif ($current_status === 'Revision Requested') {
-                $status_class = 'revision';
-                $status_text = 'Revision Needed';
-                $status_icon = '<i data-lucide="alert-triangle" style="width:18px;height:18px;"></i>';
-            } elseif ($current_status === 'No Upload') {
-                $status_class = 'pending';
-                $status_text = 'No Upload';
-                $status_icon = '<i data-lucide="circle-dashed" style="width:18px;height:18px;"></i>';
+        /* ========================================================
+           MOBILE LAYOUT (Apple Wallet Stack)
+           ======================================================== */
+        @media (max-width: 768px) {
+            body {
+                padding: 12px 10px;
+                /* Reduced from 20px to make cards touch closer to the edges */
             }
 
-            // Define a permissive accept attribute for all document types and image scans
-            $accept_attr = 'image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
-            $is_cascaded = in_array($item['item_id'], [13, 15, 16]);
+            .sheet-drag-handle {
+                display: none !important;
+            }
+
+            .mobile-stack-hint {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                justify-content: flex-end;
+                font-size: 11px;
+                font-weight: 700;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                margin-bottom: 12px;
+                margin-top: 8px;
+                margin-right: 4px;
+                animation: pulseHint 2.5s infinite;
+            }
+
+            @keyframes pulseHint {
+
+                0%,
+                100% {
+                    opacity: 0.5;
+                }
+
+                50% {
+                    opacity: 1;
+                    transform: translateY(-2px);
+                }
+            }
+
+            .items-grid {
+                display: flex;
+                flex-direction: column;
+                padding-bottom: 40px;
+                position: relative;
+            }
+
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                position: relative;
+                width: 100%;
+                border-radius: 24px;
+                margin-top: -85px;
+                /* Slight adjustment for the new size */
+                /* 3D Physical Card Effect: Inner highlight borders + Halo outer shadow */
+                border-top: 1px solid rgba(255, 255, 255, 0.4);
+                border-left: 1px solid rgba(255, 255, 255, 0.2);
+                border-right: 1px solid rgba(255, 255, 255, 0.1);
+                box-shadow:
+                    0 -15px 30px -10px rgba(0, 0, 0, 0.25),
+                    /* Deep stacking shadow */
+                    0 15px 25px -10px rgba(0, 0, 0, 0.2);
+                /* Drop shadow */
+                transition: all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+                cursor: pointer;
+                overflow: hidden;
+            }
+
+            /* Custom Colored Halo Shadows for each card status */
+            .item-card.approved {
+                box-shadow: 0 -15px 35px -10px rgba(16, 185, 129, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.review,
+            .item-card.pending {
+                box-shadow: 0 -15px 35px -10px rgba(245, 158, 11, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.revision {
+                box-shadow: 0 -15px 35px -10px rgba(239, 68, 68, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.no-upload {
+                box-shadow: 0 -15px 35px -10px rgba(124, 58, 237, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card:first-child {
+                margin-top: 0;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            }
+
+            .card-inner-bg {
+                width: 100%;
+                min-height: 140px;
+                transition: all 0.3s ease;
+            }
+
+            .item-card.review .card-inner-bg,
+            .item-card.pending .card-inner-bg,
+            .item-card.revision .card-inner-bg {
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            }
+
+            .item-card.approved .card-inner-bg {
+                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            }
+
+            .item-card.no-upload .card-inner-bg {
+                background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+            }
+
+            .card-header {
+                padding: 28px 24px;
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+                color: white;
+            }
+
+            .status-icon-box {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.2);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .card-title {
+                margin: 0 0 4px 0;
+                font-size: 14px;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0;
+                line-height: 1.2;
+                /* Allow 2 lines max, but 14px should fit most on 1 line */
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
+            .card-meta {
+                margin: 0;
+                font-size: 13.5px;
+                color: rgba(255, 255, 255, 0.95);
+                line-height: 1.4;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
+            body.has-active-wallet {
+                overflow: hidden;
+            }
+
+            .items-grid.has-active-card .item-card:not(.wallet-active) {
+                transform: translateY(100vh);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .item-card.wallet-active {
+                position: fixed;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                margin-top: 0;
+                border-radius: 24px 24px 0 0;
+                z-index: 9999 !important;
+                cursor: default;
+                background-color: white !important;
+            }
+
+            .item-card.wallet-active .card-inner-bg {
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .item-card.wallet-active .card-header {
+                padding-top: 30px;
+                padding-bottom: 40px;
+            }
+
+            .item-card.wallet-active .card-meta {
+                -webkit-line-clamp: unset;
+            }
+
+
+
+            .card-body {
+                background: white;
+                flex: 1;
+                border-radius: 24px 24px 0 0;
+                margin-top: -20px;
+                padding: 30px 24px;
+                display: none;
+                overflow-y: auto;
+                box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05);
+            }
+
+            .item-card.wallet-active .card-body {
+                display: block;
+                animation: slideBodyUp 0.4s ease forwards;
+            }
+
+            @keyframes slideBodyUp {
+                from {
+                    transform: translateY(40px);
+                    opacity: 0;
+                }
+
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+        }
+
+
+        /* ========================================================
+           DESKTOP LAYOUT (Grid Cards)
+           ======================================================== */
+        @media (min-width: 769px) {
+            .sheet-drag-handle {
+                display: none;
+            }
+
+            .wallet-close-btn {
+                display: none !important;
+            }
+
+            .mobile-stack-hint {
+                display: none;
+            }
+
+            .hero-widgets {
+                flex-direction: row;
+                gap: 24px;
+            }
+
+            .hero-widgets .widget-card {
+                flex: 1;
+            }
+
+            .items-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 24px;
+                margin-top: 30px;
+            }
+
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                background: white;
+                border-radius: 16px;
+                border: 1px solid #e5e7eb;
+                border-left: 5px solid #e5e7eb;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+
+            .item-card:hover {
+                transform: translateY(-4px);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            }
+
+            .item-card.approved {
+                border-left-color: #10b981;
+            }
+
+            .item-card.review,
+            .item-card.pending {
+                border-left-color: #f59e0b;
+            }
+
+            .item-card.revision {
+                border-left-color: #ef4444;
+            }
+
+            .card-header {
+                padding: 24px 24px 16px 24px;
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .status-icon-box {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .item-card.approved .status-icon-box {
+                background: #d1fae5;
+                color: #047857;
+            }
+
+            .item-card.review .status-icon-box,
+            .item-card.pending .status-icon-box {
+                background: #fef3c7;
+                color: #b45309;
+            }
+
+            .item-card.revision .status-icon-box {
+                background: #fee2e2;
+                color: #b91c1c;
+            }
+
+            .card-title {
+                margin: 0 0 6px 0;
+                font-size: 17px;
+                font-weight: 800;
+                color: #0f172a;
+                text-transform: uppercase;
+                letter-spacing: 0.02em;
+            }
+
+            .card-meta {
+                margin: 0;
+                font-size: 13px;
+                color: #64748b;
+                line-height: 1.5;
+            }
+
+            .card-body {
+                padding: 0 24px 24px 24px;
+                display: flex !important;
+                /* Force visible on desktop */
+                flex-direction: column;
+                flex: 1;
+            }
+
+            /* On desktop, the status pill is redundant with the left border, but we can keep it */
+            .status-pill {
+                align-self: flex-start;
+                margin-bottom: 16px;
+            }
+
+            .instruction-box {
+                margin-bottom: 16px;
+            }
+
+            .item-card form {
+                margin-top: auto;
+                /* Push to bottom */
+            }
+
+            /* Remove wallet functionality on desktop */
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                cursor: default;
+            }
+        }
+
+        .num-indicator {
+            font-family: 'JetBrains Mono', 'Poppins', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+    </style>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const savedTheme = localStorage.getItem('rd-portal-theme');
+            if (savedTheme) {
+                document.body.className = savedTheme;
+            }
+        });
+        window.addEventListener('storage', function(e) {
+            if (e.key === 'rd-portal-theme' && e.newValue) {
+                document.body.className = e.newValue;
+            }
+        });
+    </script>
+    <style>
+        body.theme-dark {
+            background: #0f172a !important;
+            color: #f8fafc;
+        }
+
+        body.theme-dark .card-body,
+        body.theme-dark .item-card.wallet-active .card-body {
+            background: #1e293b !important;
+            color: #f1f5f9;
+        }
+
+        body.theme-dark .item-card {
+            background: #1e293b !important;
+            border-color: rgba(255, 255, 255, 0.06);
+            color: #f8fafc;
+        }
+
+        body.theme-dark .card-meta,
+        body.theme-dark .card-description {
+            color: #94a3b8;
+        }
+
+        body.theme-dark .wallet-close-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f1f5f9;
+        }
+
+        body.theme-dark .mobile-stack-hint {
+            color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        body.theme-dark .card-title {
+            color: #f8fafc;
+        }
+
+        body.theme-dark .status-pill {
+            background: #0f172a;
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.theme-dark .upload-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f8fafc;
+        }
+
+        body.theme-dark .upload-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        body.theme-dark .feedback-box {
+            background: rgba(22, 101, 52, 0.2) !important;
+        }
+
+        body.theme-dark .feedback-box p {
+            color: #4ade80 !important;
+        }
+
+        /* Other theme colors */
+        body.theme-pink,
+        body.theme-rose {
+            background: #fde8f5 !important;
+        }
+
+        body.theme-green {
+            background: #e8f6ea !important;
+        }
+
+        body.theme-orange,
+        body.theme-amber {
+            background: #fffbeb !important;
+        }
+
+        body.theme-purple,
+        body.theme-lavender {
+            background: #ffffff !important;
+        }
+    </style>
+</head>
+
+<body>
+
+
+    <?php
+    $total_items = count($checklist_items);
+    $approved_items = 0;
+    foreach ($item_statuses as $s) {
+        if ($s['status'] === 'Approved') $approved_items++;
+    }
+    $progress_pct = $total_items > 0 ? round(($approved_items / $total_items) * 100) : 0;
+    $dash_array = "$progress_pct, 100";
+    $stroke_color = '#3b82f6'; // Always blue like screenshot
+    ?>
+
+    <div class="hero-widgets">
+        <!-- Progress Widget -->
+        <div class="widget-card">
+            <svg viewBox="0 0 36 36" class="circular-chart">
+                <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                <path class="circle" stroke="<?= $stroke_color ?>" stroke-dasharray="<?= $dash_array ?>" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
+                <text x="18" y="21" class="percentage"><?= $progress_pct ?>%</text>
+            </svg>
+            <div class="widget-label"><i data-lucide="target" style="width:14px;height:14px;"></i> PROGRESS</div>
+            <div class="widget-value"><?= $approved_items ?> / <?= $total_items ?></div>
+            <p class="widget-subtext">Reqs Cleared</p>
+        </div>
+
+        <!-- Next Milestone Widget Removed -->
+    </div>
+
+
+    <div class="mobile-stack-hint">
+        <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap any card to manage
+    </div>
+    <div class="items-grid">
+        <?php
+        $card_index = 0;
+        foreach ($checklist_items as $item):
+            $card_index++;
+            $status_data = $item_statuses[$item['item_id']];
+            $current_status = $status_data['status'];
+
+            $status_class = 'pending';
+            $pill_text = 'Pending';
+            $icon = 'circle-dashed';
+
+            if ($current_status === 'Approved') {
+                $status_class = 'approved';
+                $pill_text = 'Approved';
+                $icon = 'check';
+            } elseif ($current_status === 'Under Review' || $current_status === 'Pending') {
+                $status_class = 'review';
+                $pill_text = 'Under Review';
+                $icon = 'clock';
+            } elseif ($current_status === 'Revision Requested') {
+                $status_class = 'revision';
+                $pill_text = 'Revision Needed';
+                $icon = 'alert-triangle';
+            } elseif ($current_status === 'No Upload') {
+                $status_class = 'no-upload';
+                $pill_text = 'No Upload';
+            }
         ?>
-            <div class="item-card <?= $status_class ?> <?= $is_cascaded ? 'cascaded-item' : '' ?>">
-                <div class="card-header">
-                    <div class="status-badge <?= $status_class ?>"><?= $status_icon ?></div>
-                    <div style="flex: 1;">
-                        <h3 class="card-title"><?= htmlspecialchars($item['item_name']) ?></h3>
-                        <p class="card-meta"><?= htmlspecialchars($item['description']) ?></p>
+            <div class="item-card <?= $status_class ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
+                <div class="card-inner-bg">
+
+
+                    <div class="card-header">
+                        <div class="status-icon-box num-indicator"><?= str_pad($card_index, 2, '0', STR_PAD_LEFT) ?></div>
+                        <div>
+                            <h3 class="card-title"><?= htmlspecialchars($item['item_name']) ?></h3>
+                            <p class="card-meta"><?= htmlspecialchars($item['description']) ?></p>
+                        </div>
                     </div>
-                </div>
-                
-                <div class="card-body">
-                    <span class="status-label <?= $status_class ?>"><?= $status_text ?></span>
-                    
-                    <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
-                        <div class="feedback-box" style="background: #f0fdf4; border-left-color: var(--success); margin-bottom: 12px; padding: 10px;">
-                            <p style="color: #166534; font-size: 11px;"><b>Workflow:</b> Download form &rarr; Hand to adviser for signature &rarr; Snap picture/Scan &rarr; Upload signed copy.</p>
-                        </div>
-                    <?php endif; ?>
 
-                    <?php if ($reviewer_name && $current_status === 'Approved'): ?>
-                        <div class="reviewer-badge">
-                            <i data-lucide="badge-check" style="width:14px;height:14px;"></i>
-                            Verified by <?= htmlspecialchars($reviewer_name) ?>
-                        </div>
-                    <?php endif; ?>
-                    
-                    <?php if (in_array($item['item_id'], [11, 12])): ?>
-                        <!-- Description simplified -->
-                    <?php elseif (in_array($item['item_id'], [13, 15, 16])): ?>
-                        <p class="card-description">State updates dynamically depending on evaluation outcomes of your primary Capsule Proposal document.</p>
-                    <?php else: ?>
-                        <p class="card-description"><?= htmlspecialchars($item['description']) ?></p>
-                    <?php endif; ?>
+                    <div class="card-body" onclick="event.stopPropagation()">
+                        <div class="status-pill <?= $status_class ?>"><?= $pill_text ?></div>
 
-                    <?php if (in_array($item['item_id'], [13, 15, 16])): // Cascaded items ?>
-                        <?php if ($current_status !== 'Approved'): ?>
-                            <div class="awaiting-text">
-                                <div class="loader"></div>
-                                Awaiting Capsule Proposal Evaluation
-                            </div>
-                        <?php else: ?>
-                            <div class="awaiting-text" style="color: var(--success);">
-                                <i data-lucide="check-circle-2" style="width:16px;height:16px;"></i>
-                                Cleared via Capsule Proposal
+                        <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
+                            <div class="instruction-box">
+                                <strong>Workflow:</strong> Download form &rarr; Hand to adviser for signature &rarr; Snap picture/Scan &rarr; Upload signed copy.
                             </div>
                         <?php endif; ?>
-                    <?php elseif ($current_status === 'Approved'): ?>
-                        <?php if ($current_file_path): ?>
-                            <div class="file-info">
-                                <i data-lucide="file-text" style="width:16px;height:16px;"></i>
-                                <a href="<?= htmlspecialchars($current_file_path) ?>" download><?= htmlspecialchars($current_original_filename) ?></a>
-                            </div>
+
+                        <?php if (in_array($item['item_id'], [13, 15, 16])): ?>
+                            <?php if ($current_status !== 'Approved'): ?>
+                                <div class="instruction-box">Awaiting Capsule Proposal Evaluation.</div>
+                            <?php else: ?>
+                                <div class="instruction-box" style="background:#ecfdf5;color:#047857;"><i data-lucide="check-circle-2" style="width:16px;height:16px;display:inline-block;vertical-align:middle;"></i> Cleared via Capsule Proposal.</div>
+                            <?php endif; ?>
                         <?php endif; ?>
-                    <?php else: ?>
-                        <div class="action-buttons">
-                            <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" style="width: 100%;">
+
+                        <?php if (!in_array($item['item_id'], [13, 15, 16]) && $current_status !== 'Approved'): ?>
+                            <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent">
                                 <input type="hidden" name="module_context" value="proposal">
                                 <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
-                                <label class="btn btn-upload">
-                                    <i data-lucide="upload" style="width:16px;height:16px;"></i>
-                                    Upload File
-                                    <input type="file" name="research_file" style="display:none;" onchange="this.form.submit()" accept="<?= $accept_attr ?>" required>
+                                <label class="btn btn-primary">
+                                    <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                                    <input type="file" name="research_file" style="display:none;" onchange="this.form.submit()" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" required>
                                 </label>
                             </form>
-                        </div>
-                        
-                        <?php if ($current_file_path): ?>
-                            <div class="file-info" style="margin-top: 12px;">
-                                <i data-lucide="file-text" style="width:16px;height:16px;"></i>
-                                <div style="flex: 1;">
-                                    <a href="<?= htmlspecialchars($current_file_path) ?>" download><?= htmlspecialchars($current_original_filename) ?></a>
-                                    <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Latest submission</div>
+                        <?php endif; ?>
+
+                        <?php if ($status_data['file_path']): ?>
+                            <div class="file-attachment">
+                                <i data-lucide="file-text" class="file-icon"></i>
+                                <div style="flex:1; overflow:hidden;">
+                                    <a href="<?= htmlspecialchars($status_data['file_path']) ?>" download class="file-name" style="text-decoration:none; white-space:nowrap; text-overflow:ellipsis;"><?= htmlspecialchars($status_data['original_filename']) ?></a>
+                                    <span class="file-sub">Latest submission</span>
                                 </div>
                             </div>
                         <?php endif; ?>
-                    <?php endif; ?>
 
-                    <?php if (!empty($current_remarks)): ?>
-                        <div class="feedback-box">
-                            <p>"<?= htmlspecialchars($current_remarks) ?>"</p>
-                        </div>
-                    <?php endif; ?>
+                        <?php if (!empty($status_data['remarks'])): ?>
+                            <div class="instruction-box" style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; margin-top:20px;">
+                                <strong>Remarks:</strong> "<?= htmlspecialchars($status_data['remarks']) ?>"
+                            </div>
+                        <?php endif; ?>
 
-                    <?php if ($item['item_id'] === 11): ?>
-                        <a href="../assigned_adviser.pdf" download class="btn btn-download" style="margin-top: 12px; justify-content: flex-start;">
-                            <i data-lucide="download" style="width:15px;height:15px;"></i>
-                            Download Blank Form
-                        </a>
-                    <?php elseif ($item['item_id'] === 12): ?>
-                        <a href="../endorsement.pdf" download class="btn btn-download" style="margin-top: 12px; justify-content: flex-start;">
-                            <i data-lucide="download" style="width:15px;height:15px;"></i>
-                            Download Blank Form
-                        </a>
-                    <?php elseif ($item['item_id'] === 13): ?>
-                        <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
-                            <a href="../proposal_review.pdf" download class="btn btn-download" style="justify-content: flex-start;">
-                                <i data-lucide="download" style="width:15px;height:15px;"></i>
-                                Reference Form
-                            </a>
-                            
-                            <?php if (!empty($item_statuses[14]['form_008_data'])): ?>
-                                <button onclick='openStudentForm008(<?= json_encode($item_statuses[14]['form_008_data'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>, <?= $item_statuses[14]['form_008_score'] ?>, <?= json_encode($item_statuses[14]['form_008_decision'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn" style="background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; justify-content: flex-start; font-family: var(--ui-sans);">
-                                    View Form 008 Findings
-                                </button>
+                        <div style="margin-top: 24px; display:flex; flex-direction:column; gap:12px;">
+                            <?php if ($item['item_id'] === 11): ?>
+                                <a href="../assigned_adviser.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</a>
+                            <?php elseif ($item['item_id'] === 12): ?>
+                                <a href="../endorsement.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</a>
+                            <?php elseif ($item['item_id'] === 13): ?>
+                                <a href="../proposal_review.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</a>
+                            <?php elseif ($item['item_id'] === 14): ?>
+                                <a href="../capsule_form.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</a>
+                            <?php endif; ?>
+
+                            <?php if (in_array($item['item_id'], [13, 14]) && !empty($item_statuses[14]['form_008_data'])): ?>
+                                <button onclick="openStudentForm008(<?= htmlspecialchars(json_encode($item_statuses[14]['form_008_data'])) ?>, <?= $item_statuses[14]['form_008_score'] ?: 0 ?>, '<?= $item_statuses[14]['form_008_decision'] ?>')" class="btn btn-warning"><i data-lucide="eye" style="width:18px;height:18px;"></i> View Form 008 Findings</button>
                             <?php endif; ?>
                         </div>
-                    <?php elseif ($item['item_id'] === 14): ?>
-                        <div style="display: flex; gap: 10px; margin-top: 12px; flex-wrap: wrap;">
-                            <a href="../capsule_form.pdf" download class="btn btn-download" style="justify-content: flex-start;">
-                                <i data-lucide="download" style="width:15px;height:15px;"></i>
-                                Download Template
-                            </a>
-                            
-                            <?php if (!empty($status_data['form_008_data'])): ?>
-                                <button onclick='openStudentForm008(<?= json_encode($status_data['form_008_data'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>, <?= $status_data['form_008_score'] ?>, <?= json_encode($status_data['form_008_decision'], JSON_HEX_APOS | JSON_HEX_QUOT) ?>)' class="btn" style="background: #fef3c7; color: #92400e; border: 1px solid #f59e0b; justify-content: flex-start; font-family: var(--ui-sans);">
-                                    View Form 008 Findings
-                                </button>
-                            <?php endif; ?>
-                        </div>
-                    <?php endif; ?>
+
+                    </div>
                 </div>
             </div>
         <?php endforeach; ?>
-        </div>
     </div>
-    
-    <div id="studentForm008Modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:9999; justify-content:center; align-items:center; padding: 20px;">
-        <div style="background:white; width:100%; max-width:800px; height:90%; border-radius:16px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
-            
-            <div style="background:var(--primary); color:white; padding:15px 25px; display:flex; justify-content:space-between; align-items:center;">
-                <div>
-                    <span style="font-size:10px; font-family:var(--ui-sans); text-transform:uppercase; letter-spacing:0.05em; opacity:0.8;">Feedback Panel</span>
-                    <h3 style="margin:0; font-family:var(--ui-sans); font-size:18px;">ISAP Form No. 008 Evaluation Sheet</h3>
-                </div>
-                <button onclick="document.getElementById('studentForm008Modal').style.display='none'" style="background:none; border:none; color:white; font-size:28px; cursor:pointer;">&times;</button>
-            </div>
 
-            <div style="flex:1; overflow-y:auto; padding:25px; background:#f9f7f2; font-family:var(--ui-sans);">
-                
-                <div style="display:flex; justify-content:space-between; align-items:center; background:white; padding:15px 20px; border-radius:12px; border:1px solid #e5e7eb; margin-bottom:20px;">
+    <script>
+        lucide.createIcons();
+
+        function expandWalletCard(cardEl, event) {
+            if (window.innerWidth > 768) return;
+            if (cardEl.classList.contains('wallet-active')) return;
+
+
+
+            const grid = document.querySelector('.items-grid');
+            grid.classList.add('has-active-card');
+            document.body.classList.add('has-active-wallet');
+            cardEl.classList.add('wallet-active');
+
+            // PUSH STATE LOGIC for back button
+            try {
+                const correctHash = parent.document.querySelector('.fullscreen-zoom-overlay.active').id.replace('zoom-', '');
+                history.pushState({
+                    walletOpen: true
+                }, '', '#' + correctHash);
+            } catch (e) {
+                history.pushState({
+                    walletOpen: true
+                }, '', '');
+            }
+        }
+
+
+
+        // Listen for iframe popstate (hardware back button)
+        window.addEventListener('popstate', function(event) {
+            const openCard = document.querySelector('.wallet-active');
+            if (openCard) {
+                window.collapseCard(openCard, true);
+            }
+        });
+
+        window.collapseCard = function(cardEl, fromPopstate = false) {
+            try {
+                if (typeof window.event !== 'undefined' && window.event) {
+                    window.event.stopPropagation();
+                }
+            } catch (e) {}
+            const grid = document.querySelector('.items-grid');
+            cardEl.classList.remove('wallet-active');
+            grid.classList.remove('has-active-card');
+            document.body.classList.remove('has-active-wallet');
+
+            if (!fromPopstate) {
+                history.back();
+            }
+        };
+    </script>
+    <div id="studentForm008Modal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.6); z-index:99999; justify-content:center; align-items:center; padding: 20px;">
+        <div style="background:white; width:100%; max-width:800px; height:90%; border-radius:24px; display:flex; flex-direction:column; overflow:hidden; box-shadow:0 25px 50px -12px rgba(0,0,0,0.5);">
+            <div style="background:#0f172a; color:white; padding:20px 25px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span style="font-size:11px; font-family:'Inter', sans-serif; text-transform:uppercase; letter-spacing:0.05em; opacity:0.8;">Feedback Panel</span>
+                    <h3 style="margin:0; font-family:'Inter', sans-serif; font-size:18px;">Form 008 Evaluation Sheet</h3>
+                </div>
+                <button onclick="document.getElementById('studentForm008Modal').style.display='none'" style="background:rgba(255,255,255,0.2); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; border:none; color:white; font-size:24px; cursor:pointer;">&times;</button>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:25px; background:#f8fafc; font-family:'Inter', sans-serif;">
+                <div style="display:flex; justify-content:space-between; align-items:center; background:white; padding:20px; border-radius:16px; border:1px solid #e2e8f0; margin-bottom:24px;">
                     <div>
-                        <span style="font-size:12px; color:var(--text-muted); font-weight:bold; text-transform:uppercase;">Evaluated Score</span>
-                        <h2 style="margin:0; color:var(--primary); font-size:24px;" id="sModalScore">0/22</h2>
+                        <span style="font-size:12px; color:#64748b; font-weight:800; text-transform:uppercase;">Evaluated Score</span>
+                        <h2 style="margin:4px 0 0 0; color:#0f172a; font-size:28px;" id="sModalScore">0 / 22</h2>
                     </div>
                     <div style="text-align:right;">
-                        <span style="font-size:12px; color:var(--text-muted); font-weight:bold; text-transform:uppercase;">Overall Decision</span>
-                        <h3 style="margin:0; color:var(--warning);" id="sModalDecision">Pending</h3>
+                        <span style="font-size:12px; color:#64748b; font-weight:800; text-transform:uppercase;">Overall Decision</span>
+                        <h3 style="margin:4px 0 0 0; color:#d97706;" id="sModalDecision">Pending</h3>
                     </div>
                 </div>
-
-                <div id="sModalContent" style="display:flex; flex-direction:column; gap:15px;"></div>
+                <div id="sModalContent" style="display:flex; flex-direction:column; gap:20px;"></div>
             </div>
         </div>
     </div>
 
     <script>
-        const syncTheme = () => {
-            const savedTheme = localStorage.getItem('rd-portal-theme') || 'theme-default';
-            document.body.className = savedTheme;
-        };
-        syncTheme();
-        window.addEventListener('storage', syncTheme);
-        setInterval(() => {
-            try {
-                if (window.parent && window.parent.document && window.parent.document.body) {
-                    const pTheme = window.parent.document.body.className;
-                    if (pTheme && pTheme !== document.body.className) {
-                        document.body.className = pTheme;
-                    }
-                }
-            } catch(e) {}
-        }, 500);
-
         const form008Questions = {
-            "Clarity of Research Objectives": { "q1": "Are the research questions or objectives clearly articulated and well-defined?", "q2": "Is there a logical rationale for the study?" },
-            "Literature Review": { "q3": "Does the literature review demonstrate a thorough understanding of existing research?", "q4": "Is the literature review up-to-date and relevant?" },
-            "Theoretical Framework": { "q5": "Is there a well-developed theoretical framework guiding the research?", "q6": "Does the theoretical framework align with research questions?" },
-            "Research Design and Methodology": { "q7": "Is the research design appropriate for addressing objectives?", "q8": "Are methods described in sufficient detail?", "q9": "Is sample size and sampling method justified?" },
-            "Data Collection": { "q10": "Are data collection methods clearly described and appropriate?", "q11": "Is there a plan for ensuring credentials and validity?" },
-            "Data Analysis": { "q12": "Is data analysis approach suitable?", "q13": "Are statistical methods appropriate?" },
-            "Significance of the Study": { "q14": "Does proposal articulate potential contributions to the field?", "q15": "Is there discussion of practical implications?" },
-            "Feasibility": { "q16": "Are required resources realistically addressed?", "q17": "Does researcher have access to necessary data/facilities?" },
-            "Ethical Considerations": { "q18": "Are ethical considerations adequately addressed?", "q19": "Are there plans for consent and confidentiality?" },
-            "Presentation and Communication": { "q20": "Is proposal organized and clearly written?", "q21": "Are ideas presented coherently?", "q22": "Is the language appropriate and accessible?" }
+            "Clarity of Research Objectives": {
+                "q1": "Are the research questions or objectives clearly articulated and well-defined?",
+                "q2": "Is there a logical rationale for the study?"
+            },
+            "Literature Review": {
+                "q3": "Does the literature review demonstrate a thorough understanding of existing research?",
+                "q4": "Is the literature review up-to-date and relevant?"
+            },
+            "Theoretical Framework": {
+                "q5": "Is there a well-developed theoretical framework guiding the research?",
+                "q6": "Does the theoretical framework align with research questions?"
+            },
+            "Research Design and Methodology": {
+                "q7": "Is the research design appropriate for addressing objectives?",
+                "q8": "Are methods described in sufficient detail?",
+                "q9": "Is sample size and sampling method justified?"
+            },
+            "Data Collection": {
+                "q10": "Are data collection methods clearly described and appropriate?",
+                "q11": "Is there a plan for ensuring credentials and validity?"
+            },
+            "Data Analysis": {
+                "q12": "Is data analysis approach suitable?",
+                "q13": "Are statistical methods appropriate?"
+            },
+            "Significance of the Study": {
+                "q14": "Does proposal articulate potential contributions to the field?",
+                "q15": "Is there discussion of practical implications?"
+            },
+            "Feasibility": {
+                "q16": "Are required resources realistically addressed?",
+                "q17": "Does researcher have access to necessary data/facilities?"
+            },
+            "Ethical Considerations": {
+                "q18": "Are ethical considerations adequately addressed?",
+                "q19": "Are there plans for consent and confidentiality?"
+            },
+            "Presentation and Communication": {
+                "q20": "Is proposal organized and clearly written?",
+                "q21": "Are ideas presented coherently?",
+                "q22": "Is the language appropriate and accessible?"
+            }
         };
 
-        function openStudentForm008(jsonString, score, decision) {
+        window.openStudentForm008 = function(jsonString, score, decision) {
             try {
                 const data = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
-                
-                document.getElementById('sModalScore').textContent = `${score} / 22 Points`;
+                document.getElementById('sModalScore').textContent = `${score} / 22`;
                 const decEl = document.getElementById('sModalDecision');
                 decEl.textContent = decision ? decision.toUpperCase() : "EVALUATED";
-                
                 if (score >= 15) decEl.style.color = "#059669";
                 else if (score >= 8) decEl.style.color = "#d97706";
                 else decEl.style.color = "#dc2626";
@@ -820,22 +1112,23 @@ $message_type = $_GET['type'] ?? '';
 
                 for (const [sectionTitle, questions] of Object.entries(form008Questions)) {
                     let sectionHTML = `
-                        <div style="background:white; border:1px solid #e5e7eb; border-radius:8px; padding:15px;">
-                            <h4 style="margin:0 0 12px 0; color:var(--primary); font-size:14px; border-bottom:1px solid #e5e7eb; padding-bottom:8px; font-family:var(--ui-sans);">${sectionTitle}</h4>
-                            <div style="display:flex; flex-direction:column; gap:15px;">
+                        <div style="background:white; border:1px solid #e2e8f0; border-radius:16px; padding:20px;">
+                            <h4 style="margin:0 0 16px 0; color:#0f172a; font-size:15px; border-bottom:1px solid #e2e8f0; padding-bottom:12px; font-weight:800;">${sectionTitle}</h4>
+                            <div style="display:flex; flex-direction:column; gap:16px;">
                     `;
-
                     for (const [qKey, qText] of Object.entries(questions)) {
-                        const answerData = data && data[qKey] ? data[qKey] : { val: "N/A", comment: "" };
-                        
-                        let badgeStyle = "background:#f3f4f6; color:#4b5563;";
-                        if (answerData.val === "YES") badgeStyle = "background:#d1fae5; color:#065f46; border:1px solid #34d399;";
-                        if (answerData.val === "NO") badgeStyle = "background:#fee2e2; color:#991b1b; border:1px solid #f87171;";
+                        const answerData = data && data[qKey] ? data[qKey] : {
+                            val: "N/A",
+                            comment: ""
+                        };
+                        let badgeStyle = "background:#f1f5f9; color:#475569;";
+                        if (answerData.val === "YES") badgeStyle = "background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;";
+                        if (answerData.val === "NO") badgeStyle = "background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;";
 
                         let commentHTML = "";
                         if (answerData.comment && answerData.comment.trim() !== "") {
                             commentHTML = `
-                                <div style="margin-top:8px; background:#fffbeb; border-left:3px solid #f59e0b; padding:10px; border-radius:4px; font-size:12px; color:#92400e; font-style:italic;">
+                                <div style="margin-top:10px; background:#fffbeb; border-left:4px solid #f59e0b; padding:12px; border-radius:8px; font-size:13px; color:#92400e; font-style:italic;">
                                     <strong>Evaluator Note:</strong> "${answerData.comment}"
                                 </div>
                             `;
@@ -844,8 +1137,8 @@ $message_type = $_GET['type'] ?? '';
                         sectionHTML += `
                             <div style="display:flex; flex-direction:column;">
                                 <div style="display:flex; gap:12px; align-items:flex-start;">
-                                    <span style="padding:4.5px 10px; border-radius:6px; font-size:11px; font-weight:bold; height:fit-content; ${badgeStyle}">${answerData.val}</span>
-                                    <p style="margin:0; font-size:13px; color:#374151; line-height:1.4;">${qText}</p>
+                                    <span style="padding:6px 12px; border-radius:8px; font-size:12px; font-weight:800; height:fit-content; ${badgeStyle}">${answerData.val}</span>
+                                    <p style="margin:0; font-size:14px; color:#334155; line-height:1.5;">${qText}</p>
                                 </div>
                                 ${commentHTML}
                             </div>
@@ -854,14 +1147,80 @@ $message_type = $_GET['type'] ?? '';
                     sectionHTML += `</div></div>`;
                     container.innerHTML += sectionHTML;
                 }
-
                 document.getElementById('studentForm008Modal').style.display = 'flex';
             } catch (e) {
-                alert("Error loading Form 008 evaluation details.");
                 console.error(e);
+                alert("Error loading evaluation details.");
             }
-        }
+        };
+
+        // Drag to dismiss for wallet cards
+        document.addEventListener('DOMContentLoaded', () => {
+            let cardStartY = 0;
+            let cardCurrentY = 0;
+            let isCardDragging = false;
+            let activeDraggingCard = null;
+
+            document.addEventListener('touchstart', (e) => {
+                const card = e.target.closest('.item-card.wallet-active');
+                if (!card) return;
+
+                // Only allow drag from the card header, not the scrollable body!
+                const header = e.target.closest('.card-inner-bg');
+                const body = e.target.closest('.card-body');
+                if (body) return; // if they are touching the body (which might scroll), don't drag
+
+                if (header) {
+                    cardStartY = e.touches[0].clientY;
+                    isCardDragging = true;
+                    activeDraggingCard = card;
+                    card.style.transition = 'none'; // disable CSS transition while dragging
+                }
+            }, {
+                passive: true
+            });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!isCardDragging || !activeDraggingCard) return;
+
+                cardCurrentY = e.touches[0].clientY;
+                const deltaY = cardCurrentY - cardStartY;
+
+                // Only drag downwards
+                if (deltaY > 0) {
+                    activeDraggingCard.style.transform = `translateY(${deltaY}px)`;
+                }
+            }, {
+                passive: true
+            });
+
+            document.addEventListener('touchend', (e) => {
+                if (!isCardDragging || !activeDraggingCard) return;
+                isCardDragging = false;
+
+                activeDraggingCard.style.transition = 'all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+                const deltaY = cardCurrentY - cardStartY;
+
+                if (deltaY > 120) { // threshold
+                    // Trigger close button
+                    const backBtn = activeDraggingCard.querySelector('.wallet-back-btn');
+                    if (backBtn) {
+                        backBtn.click();
+                    } else {
+                        // fallback
+                        activeDraggingCard.classList.remove('wallet-active');
+                        document.body.classList.remove('has-active-wallet');
+                        document.querySelector('.items-grid').classList.remove('has-active-card');
+                    }
+                }
+
+                // Reset transform
+                activeDraggingCard.style.transform = '';
+                activeDraggingCard = null;
+            });
+        });
     </script>
-<script>lucide.createIcons();</script>
 </body>
+
 </html>

@@ -895,6 +895,9 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     <i data-lucide="file-warning"></i> Plagiarism Verify
                     <?= $pending_counts['plag_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['plag_pending'] . '</span>' : '' ?>
                 </button></li>
+                <li><button class="nav-item-btn" onclick="openOverlay('message.php', this)">
+                    <i data-lucide="message-square"></i> Messages
+                </button></li>
                 <li><button class="nav-item-btn" onclick="showCalendarDashboard(this)">
                     <i data-lucide="calendar-days"></i> Institutional Calendar
                 </button></li>

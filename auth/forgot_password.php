@@ -44,28 +44,38 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
 
     if ($action === 'send_code') {
-        $email = trim($_POST['email'] ?? '');
-        $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
-        $stmt->execute([$email]);
-        $user = $stmt->fetch();
+        if (isset($_SESSION['resend_lockout']) && time() < $_SESSION['resend_lockout']) {
+            $message = "Too many requests. Please try again in " . ceil(($_SESSION['resend_lockout'] - time()) / 60) . " minutes.";
+            $message_type = "error";
+        } else {
+            $_SESSION['resend_attempts'] = ($_SESSION['resend_attempts'] ?? 0) + 1;
+            if ($_SESSION['resend_attempts'] > 3) {
+                $_SESSION['resend_lockout'] = time() + (30 * 60);
+                $message = "Too many requests. Please try again in 30 minutes.";
+                $message_type = "error";
+            } else {
+                $email = trim($_POST['email'] ?? '');
+                $stmt = $pdo->prepare("SELECT * FROM users WHERE email = ? LIMIT 1");
+                $stmt->execute([$email]);
+                $user = $stmt->fetch();
 
-        if ($user) {
-            $otp_code = strval(rand(100000, 999999));
+                if ($user) {
+                    $otp_code = strval(rand(100000, 999999));
 
-            // Wipe out existing OTP items for this account
-            $stmt = $pdo->prepare("DELETE FROM otp_verifications WHERE email = ?");
-            $stmt->execute([$email]);
+                    // Wipe out existing OTP items for this account
+                    $stmt = $pdo->prepare("DELETE FROM otp_verifications WHERE email = ?");
+                    $stmt->execute([$email]);
 
-            $expires_at = date("Y-m-d H:i:s", strtotime("+15 minutes"));
-            $stmt = $pdo->prepare("INSERT INTO otp_verifications (email, otp_code, expires_at) VALUES (?, ?, ?)");
+                    $expires_at = date("Y-m-d H:i:s", strtotime("+15 minutes"));
+                    $stmt = $pdo->prepare("INSERT INTO otp_verifications (email, otp_code, expires_at) VALUES (?, ?, ?)");
 
-            if ($stmt->execute([$email, $otp_code, $expires_at])) {
-                $user_dept = $user['department'] ?? '';
-                $user_is_isap = (strpos(strtolower($user_dept), 'international school') !== false || strpos(strtolower($user_dept), 'isap') !== false);
-                $brand_color = $user_is_isap ? '#b91c1c' : '#1e40af';
-                $brand_abbrev = $user_is_isap ? 'ISAP' : 'MCNP';
+                    if ($stmt->execute([$email, $otp_code, $expires_at])) {
+                        $user_dept = $user['department'] ?? '';
+                        $user_is_isap = (strpos(strtolower($user_dept), 'international school') !== false || strpos(strtolower($user_dept), 'isap') !== false);
+                        $brand_color = $user_is_isap ? '#b91c1c' : '#1e40af';
+                        $brand_abbrev = $user_is_isap ? 'ISAP' : 'MCNP';
 
-                $email_body = '
+                        $email_body = '
                     <div style="font-family: \'Segoe UI\', Tahoma, Geneva, Verdana, sans-serif; background-color: #f7f4eb; padding: 40px 10px; text-align: center; color: #2b261f;">
                         <div style="max-width: 580px; margin: 0 auto; background-color: #ffffff; border-radius: 16px; box-shadow: 0 10px 30px rgba(12,52,61,0.06); border-top: 6px solid ' . $brand_color . '; padding: 40px; text-align: left;">
                             <div style="text-align: center; margin-bottom: 30px;">
@@ -103,23 +113,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                         </div>
                     </div>';
 
-                if (sendSystemEmail($email, "Your Password Reset Code", $email_body)) {
-                    $_SESSION['reset_email'] = $email;
-                    $_SESSION['reset_step'] = 'verify';
-                    header("Location: forgot_password.php");
-                    exit();
+                        if (sendSystemEmail($email, "Your Password Reset Code", $email_body)) {
+                            $_SESSION['reset_email'] = $email;
+                            $_SESSION['reset_step'] = 'verify';
+                            $_SESSION['reset_code_expires'] = time() + (15 * 60);
+                            $_SESSION['reset_resend_cooldown'] = time() + 60; // 1 minute cooldown
+                            header("Location: forgot_password.php");
+                            exit();
+                        } else {
+                            $message = "MTA failure occurred. Reset email could not be safely transmitted.";
+                            $message_type = "error";
+                        }
+                    }
                 } else {
-                    $message = "MTA failure occurred. Reset email could not be safely transmitted.";
+                    $message = "No account found with this email address.";
                     $message_type = "error";
                 }
             }
-        } else {
-            $message = "The email does not exist in our system.";
-            $message_type = "error";
         }
     } elseif ($action === 'verify_code') {
         $entered_otp = trim($_POST['otp_code'] ?? '');
         $email = $_SESSION['reset_email'] ?? '';
+        $is_ajax = isset($_POST['ajax_verify']);
 
         // Query the latest record timezone independenly on PHP side
         $stmt = $pdo->prepare("SELECT * FROM otp_verifications WHERE email = ? AND otp_code = ? ORDER BY created_at DESC LIMIT 1");
@@ -129,14 +144,29 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if ($row) {
             $expires_at = $row['expires_at'];
             if (strtotime($expires_at) < time()) {
-                $message = "This verification token has expired. Request a new one.";
+                if ($is_ajax) {
+                    echo json_encode(['status' => 'error', 'message' => 'This verification code has expired.']);
+                    exit;
+                }
+                $message = "This verification code has expired. Request a new one.";
                 $message_type = "error";
             } else {
                 $_SESSION['reset_step'] = 'reset';
+                unset($_SESSION['resend_attempts'], $_SESSION['resend_lockout']);
+
+                if ($is_ajax) {
+                    echo json_encode(['status' => 'success']);
+                    exit;
+                }
+
                 header("Location: forgot_password.php");
                 exit();
             }
         } else {
+            if ($is_ajax) {
+                echo json_encode(['status' => 'error', 'message' => 'The verification code you entered is incorrect.']);
+                exit;
+            }
             $message = "The verification code you entered is incorrect.";
             $message_type = "error";
         }
@@ -174,693 +204,459 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Account Recovery | MCNP-ISAP Research Portal</title>
-    <!-- Display & Sans Typography -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,400&display=swap" rel="stylesheet">
-    <!-- Lucide Dynamic Icons CDN -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Account Recovery | iSubmit</title>
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg">
+
+    <!-- Fonts & Icons -->
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <script src="https://unpkg.com/lucide@latest"></script>
 
+    <!-- Theme CSS -->
+    <link rel="stylesheet" href="../assets/css/theme.css?v=<?= time() ?>">
+    <link rel="stylesheet" href="../assets/mascot/mascot.css?v=<?= time() ?>">
+
     <style>
-        :root {
-            /* Palette Setup */
-            --bg-canvas: #fbfaf7;
-            --bg-card: #ffffff;
-            --text-primary: #1a1715;
-            --text-secondary: #5c544d;
-            --text-muted: #9c9284;
-            --border-subtle: #eaddd0;
-
-            /* Institutional Accents */
-            --mcnp-blue: #1e40af;
-            --isap-red: #b91c1c;
-            --eagle-gold: #d97706;
-
-            /* Workspace attributes inherited dynamically from corporate domain context */
-            --active-accent: <?php echo $active_accent; ?>;
-            --active-glow: <?php echo $active_glow; ?>;
-
-            /* Sizing standards */
-            --radius-viewport: 24px;
-            --radius-interactive: 14px;
-            --radius-pill: 50px;
-        }
-
-        * {
-            box-sizing: border-box;
-            margin: 0;
-            padding: 0;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        /* Custom premium research pencil/pen cursor */
-        body,
-        input,
-        select,
-        button,
-        textarea,
-        a,
-        span,
-        div,
-        label,
-        p,
-        h1,
-        h2,
-        h3,
-        i {
-            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%231c1917' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") 3 19, auto;
-            transition: background-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s cubic-bezier(0.16, 1, 0.3, 1), transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        input:focus,
-        select:focus,
-        textarea:focus {
-            cursor: text;
-        }
-
-        button,
-        a,
-        select,
-        option,
-        .btn-wizard,
-        .password-toggle-btn,
-        .back-link,
-        .btn-to-login,
-        .btn-to-register,
-        .btn-portal-submit,
-        [role='button'],
-        .add-member-trigger,
-        .member-pill i,
-        .prog-step {
-            cursor: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%23d97706' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><path d='M12 20h9'/><path d='M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z'/></svg>") 3 19, pointer !important;
-        }
-
-        /* Eagle watermark silhouette definition */
-        .eagle-watermark-bg {
-            position: absolute;
-            top: 55%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 250px;
-            height: 250px;
-            pointer-events: none;
-            z-index: 1;
-            opacity: 0.05;
-            color: #ffffff;
-            transition: color 0.6s ease, transform 0.6s ease;
-            animation: eagleDrift 30s infinite alternate ease-in-out;
-        }
-
-        @keyframes eagleDrift {
-            0% {
-                transform: translate(-50%, -50%) rotate(0deg) scale(0.95);
-            }
-
-            100% {
-                transform: translate(-47%, -53%) rotate(5deg) scale(1.05);
-            }
-        }
-
-        body {
-            font-family: 'Inter', sans-serif;
-            background-color: var(--bg-canvas);
-            color: var(--text-primary);
-            min-height: 100vh;
+        .otp-container {
             display: flex;
-            flex-direction: column;
-            align-items: center;
+            gap: 8px;
             justify-content: center;
-            padding: 24px;
-            background-image:
-                radial-gradient(#e0dbc8 1.5px, transparent 1.5px),
-                linear-gradient(to right, rgba(0, 0, 0, 0.02) 1px, transparent 1px),
-                linear-gradient(to bottom, rgba(0, 0, 0, 0.02) 1px, transparent 1px);
-            background-size: 32px 32px, 128px 128px, 128px 128px;
-            background-position: center;
-            position: relative;
-            overflow-x: hidden;
+            margin: 24px 0;
         }
 
-        /* Ambient glowing canvas node blurs */
-        .ambient-sphere {
-            position: absolute;
-            border-radius: 50%;
-            filter: blur(100px);
-            pointer-events: none;
-            z-index: 1;
-            opacity: 0.12;
-            animation: pulseGlow 10s infinite alternate cubic-bezier(0.4, 0, 0.2, 1);
-        }
-
-        .ambient-sphere-1 {
-            width: 500px;
-            height: 500px;
-            background: radial-gradient(circle, var(--active-accent) 0%, rgba(255, 255, 255, 0) 70%);
-            top: -10%;
-            left: -10%;
-        }
-
-        .ambient-sphere-2 {
-            width: 600px;
-            height: 600px;
-            background: radial-gradient(circle, var(--eagle-gold) 0%, rgba(255, 255, 255, 0) 70%);
-            bottom: -15%;
-            right: -10%;
-            animation-delay: 3s;
-        }
-
-        @keyframes pulseGlow {
-            0% {
-                transform: scale(1) translate(0px, 0px);
-                opacity: 0.08;
-            }
-
-            100% {
-                transform: scale(1.15) translate(20px, -20px);
-                opacity: 0.15;
-            }
-        }
-
-        /* Recovery Frame Wrapper */
-        .forgot-frame {
-            background-color: var(--bg-card);
-            width: 100%;
-            max-width: 480px;
-            border-radius: var(--radius-viewport);
-            box-shadow:
-                0 4px 6px -1px rgba(0, 0, 0, 0.01),
-                0 25px 65px -15px rgba(43, 38, 31, 0.16),
-                0 15px 30px -10px rgba(43, 38, 31, 0.08),
-                inset 0 0 0 1px rgba(255, 255, 255, 0.6);
-            border: 1px solid var(--border-subtle);
-            padding: 50px 40px;
-            position: relative;
-            z-index: 10;
-            backdrop-filter: blur(8px);
+        .otp-input {
+            width: 48px;
+            height: 56px;
             text-align: center;
-            animation: cardEntrance 0.7s cubic-bezier(0.16, 1, 0.3, 1);
-        }
-
-        @keyframes cardEntrance {
-            from {
-                opacity: 0;
-                transform: translateY(20px) scale(0.97);
-            }
-
-            to {
-                opacity: 1;
-                transform: translateY(0) scale(1);
-            }
-        }
-
-        /* Branding Headings and Badges */
-        .badge-header-box {
-            display: inline-flex;
-            justify-content: center;
-            align-items: center;
-            margin-bottom: 24px;
-            position: relative;
-        }
-
-        .brand-icon-box {
-            background: rgba(247, 245, 239, 0.7);
-            padding: 16px;
-            border-radius: 20px;
-            border: 1.5px solid var(--border-subtle);
-            color: var(--active-accent);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            box-shadow: 0 8px 24px rgba(43, 38, 31, 0.04);
-            animation: bounceFloat 4s ease-in-out infinite alternate;
-        }
-
-        .brand-icon-box.success-view {
-            color: #16a34a;
-            background: #f0fdf4;
-            border-color: #bbf7d0;
-        }
-
-        @keyframes bounceFloat {
-            0% {
-                transform: translateY(0);
-            }
-
-            100% {
-                transform: translateY(-5px);
-            }
-        }
-
-        h2 {
-            font-family: 'Cambria', Georgia, serif;
             font-size: 24px;
-            color: var(--text-primary);
-            font-weight: 800;
-            margin-bottom: 8px;
-            letter-spacing: 0.5px;
+            font-weight: 700;
+            border: 2px solid rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            background: #f8f9fa;
+            color: var(--primary-color);
+            transition: all 0.2s;
+            font-family: 'Poppins', sans-serif;
         }
 
-        h2.activated {
-            color: #15803d;
-        }
-
-        p {
-            font-size: 14px;
-            color: var(--text-secondary);
-            margin-bottom: 24px;
-            line-height: 1.45;
-            font-weight: 550;
-        }
-
-        /* Exquisite form design */
-        .field-box {
-            margin-bottom: 18px;
-            text-align: left;
-            position: relative;
-            width: 100%;
-        }
-
-        .field-box label {
-            display: block;
-            font-size: 11px;
-            font-weight: 800;
-            color: var(--text-secondary);
-            margin-bottom: 8px;
-            text-transform: uppercase;
-            letter-spacing: 1.2px;
-        }
-
-        .input-group-with-icon {
-            position: relative;
-            display: flex;
-            align-items: center;
-            width: 100%;
-        }
-
-        .input-group-with-icon .prefix-icon {
-            position: absolute;
-            left: 18px;
-            color: var(--text-muted);
-            pointer-events: none;
-            transition: all 0.2s ease;
-            z-index: 5;
-        }
-
-        .field-box input {
-            width: 100%;
-            padding: 15px 16px 15px 52px;
-            font-family: 'Inter', sans-serif;
-            font-size: 14.5px;
-            background-color: #f7f5ef;
-            border: 1.5px solid var(--border-subtle);
-            border-radius: var(--radius-interactive);
+        .otp-input:focus {
+            border-color: var(--primary-color);
+            box-shadow: 0 0 0 4px rgba(139, 92, 246, 0.1);
             outline: none;
-            color: var(--text-primary);
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            font-weight: 500;
-            box-shadow: inset 0 2px 4px rgba(43, 38, 31, 0.02);
         }
 
-        .field-box input::placeholder {
-            color: var(--text-muted);
-            opacity: 0.85;
+        .otp-input.filled {
+            border-color: var(--primary-color);
+            background: rgba(139, 92, 246, 0.02);
         }
 
-        .field-box input:focus {
-            border-color: var(--active-accent);
-            background-color: var(--bg-card);
-            box-shadow:
-                0 0 0 4px var(--active-glow),
-                0 6px 16px -4px rgba(43, 38, 31, 0.04);
+        .otp-input.success {
+            border-color: #22c55e !important;
+            box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.1) !important;
         }
 
-        .field-box input:focus+.prefix-icon {
-            color: var(--active-accent);
-            transform: scale(1.05);
+        .otp-input.error {
+            border-color: #ef4444 !important;
+            box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.1) !important;
         }
 
-        /* Password Show-Obscure toggle btn */
-        .password-toggle-btn {
-            position: absolute;
-            right: 16px;
-            top: 50%;
-            transform: translateY(-50%);
-            background: none;
-            border: none;
-            cursor: pointer;
-            color: var(--text-muted);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 10;
-            padding: 6px;
+        @keyframes shake {
+
+            0%,
+            100% {
+                transform: translateX(0);
+            }
+
+            20%,
+            60% {
+                transform: translateX(-5px);
+            }
+
+            40%,
+            80% {
+                transform: translateX(5px);
+            }
+        }
+
+        .shake {
+            animation: shake 0.4s cubic-bezier(.36, .07, .19, .97) both;
+        }
+
+        /* Loader Spinner */
+        .spinner {
+            border: 3px solid rgba(255, 255, 255, 0.3);
             border-radius: 50%;
-            transition: all 0.2s;
+            border-top: 3px solid #ffffff;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
         }
 
-        .password-toggle-btn:hover {
-            background-color: rgba(0, 0, 0, 0.05);
-            color: var(--text-primary);
-        }
-
-        /* Solid styling for buttons */
-        .btn-submit {
-            width: 100%;
-            padding: 16px 24px;
-            background-color: var(--active-accent);
-            color: #ffffff;
-            border: none;
-            font-family: 'Inter', sans-serif;
-            font-size: 15px;
-            font-weight: 700;
-            border-radius: var(--radius-interactive);
-            cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-            box-shadow: 0 8px 24px var(--active-glow);
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            gap: 10px;
-            text-decoration: none;
-        }
-
-        .btn-submit:hover {
-            transform: translateY(-2px);
-            opacity: 0.98;
-            box-shadow: 0 10px 30px var(--active-glow);
-        }
-
-        .btn-submit.btn-success {
-            background-color: #16a34a;
-            box-shadow: 0 8px 24px rgba(22, 163, 74, 0.2);
-        }
-
-        .btn-submit.btn-success:hover {
-            box-shadow: 0 10px 30px rgba(22, 163, 74, 0.3);
-        }
-
-        .back-link {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            margin-top: 24px;
-            font-size: 14px;
-            color: var(--text-secondary);
-            text-decoration: none;
-            font-weight: 700;
-            transition: all 0.2s;
-            cursor: pointer;
-            background: none;
-            border: none;
-            font-family: inherit;
-        }
-
-        .back-link:hover {
-            color: var(--active-accent);
-            transform: translateX(-2px);
-        }
-
-        /* Dynamic feedback toast alert */
-        .toast {
-            padding: 12px 16px;
-            border-radius: var(--radius-interactive);
-            font-size: 13.5px;
-            margin-bottom: 20px;
-            font-weight: 600;
-            display: flex;
-            align-items: flex-start;
-            gap: 10px;
-            line-height: 1.45;
-            text-align: left;
-            animation: slideDown 0.5s cubic-bezier(0.16, 1, 0.3, 1);
-            border-left: 4px solid transparent;
-        }
-
-        @keyframes slideDown {
-            from {
-                transform: translateY(-12px);
-                opacity: 0;
+        @keyframes spin {
+            0% {
+                transform: rotate(0deg);
             }
 
-            to {
-                transform: translateY(0);
-                opacity: 1;
-            }
-        }
-
-        .toast.error {
-            background-color: #fef2f2;
-            color: #991b1b;
-            border: 1px solid #fca5a5;
-            border-left-color: #dc2626;
-        }
-
-        .toast.success {
-            background-color: #f0fdf4;
-            color: #166534;
-            border: 1px solid #bbf7d0;
-            border-left-color: #16a34a;
-        }
-
-        .portal-institutional-footer {
-            margin-top: 35px;
-            text-align: center;
-            font-size: 10px;
-            color: var(--text-secondary);
-            letter-spacing: 1.2px;
-            line-height: 1.7;
-            text-transform: uppercase;
-            font-weight: 700;
-            position: relative;
-            z-index: 10;
-        }
-
-        .portal-institutional-footer br {
-            display: none;
-        }
-
-        .portal-institutional-footer .footer-divider {
-            content: "•";
-            display: inline-block;
-            margin: 0 8px;
-            color: var(--text-muted);
-        }
-
-        /* Phone adaptive styling */
-        @media (max-width: 540px) {
-            body {
-                padding: 16px;
-            }
-
-            .forgot-frame {
-                padding: 40px 24px;
-                border-radius: var(--radius-interactive);
-            }
-
-            .portal-institutional-footer br {
-                display: block;
-            }
-
-            .portal-institutional-footer .footer-divider {
-                display: none;
+            100% {
+                transform: rotate(360deg);
             }
         }
     </style>
 </head>
 
 <body>
-
-    <!-- Majestic Eagle Watermark Background Silhouette -->
-    <div class="eagle-watermark-bg" style="top: 50%; opacity: 0.03; z-index: 1;">
-        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="0.8" stroke-linecap="round" stroke-linejoin="round" style="width:100%; height:100%;">
-            <path d="M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z" stroke-dasharray="2 2" stroke-opacity="0.3" />
-            <path d="M12 6c-1.5 1-3.5 1.5-6 1.5 2.5 2.5 4.5 4 6 5.5 1.5-1.5 3.5-3 6-5.5-2.5 0-4.5-.5-6-1.5z" fill="currentColor" fill-opacity="0.08" stroke-width="0.5" />
-            <path d="M12 11.5c-.8.8-1.8 1.2-3 1.2.8.8 1.5 1.8 1.8 2.8.3-1 .8-2 1.8-2.8z" fill="currentColor" fill-opacity="0.12" />
-            <path d="M4.5 9.5c.8 1 2 2 3.5 2.5C7 11.5 6 10.5 4.5 9.5z" fill="currentColor" fill-opacity="0.06" />
-            <path d="M19.5 9.5c-.8 1-2 2-3.5 2.5 1-.5 2-1.5 3.5-2.5z" fill="currentColor" fill-opacity="0.06" />
-        </svg>
-    </div>
-
-    <!-- Drifting organic blurs -->
-    <div class="ambient-sphere ambient-sphere-1"></div>
-    <div class="ambient-sphere ambient-sphere-2"></div>
-
-    <div class="forgot-frame">
-
-        <?php if (!empty($message)): ?>
-            <div class="toast <?php echo $message_type; ?>">
-                <i data-lucide="<?php echo ($message_type === 'error') ? 'alert-octagon' : 'check-circle'; ?>" style="width: 18px; height: 18px; flex-shrink: 0; margin-top: 1px;"></i>
-                <span><?php echo htmlspecialchars($message); ?></span>
-            </div>
-        <?php endif; ?>
-
-        <!-- REQUEST CODE STATE -->
-        <?php if ($step === 'request'): ?>
-            <div class="badge-header-box">
-                <div class="brand-icon-box">
-                    <i data-lucide="key-round" style="width: 40px; height: 40px;"></i>
+    <div class="auth-wrapper">
+        <div class="auth-card">
+            <!-- Visual Pane -->
+            <div class="auth-visual-pane" id="brandOverlay">
+                <!-- Branding Mascot Badge -->
+                <div class="brand-icon-box" id="brandBadge" style="margin-bottom: 8px; display: inline-flex; flex-direction: column; align-items: center; justify-content: center; position: relative; z-index: 50;">
+                    <?php include '../assets/mascot/mascot.php'; ?>
+                </div>
+                <div style="text-align: center; max-width: 320px; margin: 0 auto 0;">
+                    <h1 id="brandTitle" class="brand-title" style="color: white; font-weight: 800; margin-bottom: 4px; margin-top: 0; letter-spacing: -0.5px; font-family: 'Poppins', sans-serif;">Account Recovery</h1>
+                    <p id="brandSubLead" class="brand-sub-lead" style="color: white; opacity: 0.95; font-weight: 500; margin-top: 0; font-family: 'Plus Jakarta Sans', sans-serif;">Secure Password Reset</p>
                 </div>
             </div>
-            <h2>Forgot Password</h2>
-            <p>Enter your valid email address. A verification OTP will be sent to recover your password.</p>
 
-            <form action="" method="POST">
-                <input type="hidden" name="action" value="send_code">
-                <div class="field-box">
-                    <label>Account Email</label>
-                    <div class="input-group-with-icon">
-                        <i data-lucide="mail" class="prefix-icon" style="width: 18.5px; height: 18.5px;"></i>
-                        <input type="email" name="email" id="recoveryEmail" placeholder="example@mcnp.edu.ph" required autocomplete="email">
+            <!-- Form Pane -->
+            <div class="auth-form-pane bottom-sheet">
+                <div class="drag-handle"></div>
+
+                <?php if (!empty($message)): ?>
+                    <div class="mat-alert <?php echo ($message_type === 'error') ? 'mat-alert-error' : 'mat-alert-success'; ?>" style="margin-bottom: 24px;">
+                        <i data-lucide="info" style="width: 18px; height: 18px; flex-shrink: 0;"></i>
+                        <span><?php echo htmlspecialchars($message); ?></span>
                     </div>
-                </div>
-                <button type="submit" class="btn-submit">
-                    <span>Send Reset Code</span>
-                    <i data-lucide="send" style="width: 18px; height: 18px;"></i>
-                </button>
-            </form>
-            <a href="login.php" class="back-link">
-                <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
-                <span>Return to sign-in</span>
-            </a>
+                <?php endif; ?>
 
-            <!-- VERIFY OTP STATE -->
-        <?php elseif ($step === 'verify'): ?>
-            <div class="badge-header-box">
-                <div class="brand-icon-box">
-                    <i data-lucide="shield-question" style="width: 40px; height: 40px;"></i>
-                </div>
-            </div>
-            <h2>Verify Code</h2>
-            <p>A verification code was sent to<br><strong style="color: var(--active-accent);"><?php echo htmlspecialchars($_SESSION['reset_email']); ?></strong>.</p>
-
-            <form action="" method="POST" autocomplete="off">
-                <input type="hidden" name="action" value="verify_code">
-                <div class="field-box">
-                    <label>6-Digit Verification CODE</label>
-                    <div class="input-group-with-icon">
-                        <i data-lucide="key" class="prefix-icon" style="width: 18.5px; height: 18.5px;"></i>
-                        <input type="text" name="otp_code" placeholder="000000" maxlength="6" pattern="[0-9]{6}" required autofocus style="text-align: center; font-size: 20px; letter-spacing: 4px;">
+                <?php if ($step === 'request'): ?>
+                    <div class="auth-header">
+                        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; display: block;">Step 1 of 3</span>
+                        <h2>Forgot Password</h2>
+                        <p>Enter your valid email address to receive a recovery code.</p>
                     </div>
-                </div>
-                <button type="submit" class="btn-submit">
-                    <span>VERIFY</span>
-                </button>
-            </form>
 
-            <form action="" method="POST">
-                <input type="hidden" name="action" value="restart">
-                <button type="submit" class="back-link">
-                    <i data-lucide="refresh-cw" style="width: 15px; height: 15px;"></i>
-                    <span>Use a different email</span>
-                </button>
-            </form>
-
-            <!-- PASSWORD RESET STATE -->
-        <?php elseif ($step === 'reset'): ?>
-            <div class="badge-header-box">
-                <div class="brand-icon-box">
-                    <i data-lucide="lock" style="width: 40px; height: 40px;"></i>
-                </div>
-            </div>
-            <h2>Create New Password</h2>
-            <p>Verification successful! Create a brand new security password/PIN for your account.</p>
-
-            <form action="" method="POST">
-                <input type="hidden" name="action" value="update_password">
-                <div class="field-box">
-                    <label>New Security Passcode</label>
-                    <div class="input-group-with-icon">
-                        <i data-lucide="lock" class="prefix-icon" style="width: 18px; height: 18px;"></i>
-                        <input type="password" name="new_password" id="newPass" placeholder="••••••••" required autocomplete="new-password">
-                        <button type="button" class="password-toggle-btn" onclick="togglePassword('newPass', this)">
-                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+                    <form action="" method="POST" autocomplete="on">
+                        <input type="hidden" name="action" value="send_code">
+                        <div class="mat-input-group">
+                            <label>Account Email</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="mail" class="prefix-icon"></i>
+                                <input type="email" name="email" id="recoveryEmail" class="mat-input" placeholder="example@mcnp.edu.ph" required autocomplete="email">
+                            </div>
+                        </div>
+                        <button type="submit" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; margin-top: 8px;">
+                            <span>Send Recovery Code</span>
+                            <i data-lucide="send" style="width: 18px; height: 18px; margin-left: 8px;"></i>
                         </button>
+                    </form>
+                    <div style="text-align: center; margin-top: 24px;">
+                        <a href="login.php" style="font-size: 14px; color: var(--text-secondary); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
+                            <i data-lucide="arrow-left" style="width: 16px; height: 16px;"></i>
+                            Return to sign-in
+                        </a>
                     </div>
-                </div>
-                <div class="field-box" style="margin-bottom: 24px;">
-                    <label>Confirm Passcode</label>
-                    <div class="input-group-with-icon">
-                        <i data-lucide="repeat" class="prefix-icon" style="width: 18px; height: 18px;"></i>
-                        <input type="password" name="confirm_password" id="confirmPass" placeholder="••••••••" required autocomplete="new-password">
-                        <button type="button" class="password-toggle-btn" onclick="togglePassword('confirmPass', this)">
-                            <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
+
+                <?php elseif ($step === 'verify'): ?>
+                    <div class="auth-header">
+                        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; display: block;">Step 2 of 3</span>
+                        <h2>Verify Code</h2>
+                        <p>Enter the 6-digit code sent to <br><strong style="color: var(--primary-color);"><?php echo htmlspecialchars($_SESSION['reset_email']); ?></strong></p>
+                    </div>
+
+                    <form action="" method="POST" autocomplete="off" id="otpForm">
+                        <input type="hidden" name="action" value="verify_code">
+                        <input type="hidden" name="otp_code" id="actualOtpInput">
+
+                        <div id="timerDisplay" style="text-align: center; color: var(--primary-color); font-weight: 700; margin-bottom: 16px; font-size: 16px; display: none;"></div>
+
+                        <div class="otp-container">
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required autofocus>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                            <input type="text" class="otp-input" pattern="[0-9]*" inputmode="numeric" required>
+                        </div>
+
+                        <button type="submit" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; margin-top: 8px;">
+                            VERIFY
                         </button>
+                    </form>
+
+                    <form action="" method="POST" style="text-align: center; margin-top: 24px;">
+                        <input type="hidden" name="action" value="send_code">
+                        <input type="hidden" name="email" value="<?php echo htmlspecialchars($_SESSION['reset_email']); ?>">
+                        <button type="submit" id="resendBtn" class="mat-btn mat-btn-text" style="color: var(--primary-color); width: 100%; justify-content: center;">
+                            <i data-lucide="refresh-cw" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+                            <span id="resendText">Resend Code</span>
+                        </button>
+                    </form>
+
+                    <form action="" method="POST" style="text-align: center; margin-top: 8px;">
+                        <input type="hidden" name="action" value="restart">
+                        <button type="submit" class="mat-btn mat-btn-text" style="border: none; color: var(--text-secondary); width: 100%; justify-content: center;">
+                            <i data-lucide="arrow-left" style="width: 16px; height: 16px; margin-right: 6px;"></i>
+                            <span>Use a different email</span>
+                        </button>
+                    </form>
+
+                <?php elseif ($step === 'reset'): ?>
+                    <div class="auth-header">
+                        <span style="font-size: 11px; text-transform: uppercase; letter-spacing: 1.5px; color: var(--text-muted); font-weight: 700; margin-bottom: 8px; display: block;">Step 3 of 3</span>
+                        <h2>New Password</h2>
+                        <p>Create a secure new password for your account.</p>
                     </div>
-                </div>
-                <button type="submit" class="btn-submit">
-                    <span>CONFIRM</span>
-                </button>
-            </form>
 
-            <!-- SUCCESS VIEW -->
-        <?php elseif ($step === 'success'): ?>
-            <div class="badge-header-box">
-                <div class="brand-icon-box success-view">
-                    <i data-lucide="shield-check" style="width: 44px; height: 44px;"></i>
-                </div>
+                    <form action="" method="POST">
+                        <input type="hidden" name="action" value="update_password">
+                        <div class="mat-input-group">
+                            <label>New Password</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="lock" class="prefix-icon"></i>
+                                <input type="password" name="new_password" id="newPass" class="mat-input" placeholder="••••••••" required autocomplete="new-password">
+                                <button type="button" class="mat-btn mat-btn-text" onclick="togglePassword('newPass', this)" style="position: absolute; right: 4px; padding: 8px; min-width: auto; height: 36px;">
+                                    <i data-lucide="eye" style="width: 18px; height: 18px; margin: 0;"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <div class="mat-input-group">
+                            <label>Confirm Password</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="check-circle" class="prefix-icon"></i>
+                                <input type="password" name="confirm_password" id="confirmPass" class="mat-input" placeholder="••••••••" required autocomplete="new-password">
+                                <button type="button" class="mat-btn mat-btn-text" onclick="togglePassword('confirmPass', this)" style="position: absolute; right: 4px; padding: 8px; min-width: auto; height: 36px;">
+                                    <i data-lucide="eye" style="width: 18px; height: 18px; margin: 0;"></i>
+                                </button>
+                            </div>
+                        </div>
+                        <button type="submit" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; margin-top: 8px;">
+                            CONFIRM PASSWORD
+                        </button>
+                    </form>
+
+                <?php elseif ($step === 'success'): ?>
+                    <div style="text-align: center; padding: 24px 0;">
+                        <div style="display: inline-flex; align-items: center; justify-content: center; width: 80px; height: 80px; border-radius: 50%; background: rgba(34, 197, 94, 0.1); color: #22c55e; margin-bottom: 24px;">
+                            <i data-lucide="check" style="width: 40px; height: 40px;"></i>
+                        </div>
+                        <h2 style="font-size: 24px; font-weight: 700; color: var(--text-primary); margin-bottom: 12px; font-family: 'Poppins', sans-serif;">Password Updated!</h2>
+                        <p style="color: var(--text-secondary); margin-bottom: 32px; font-size: 15px; line-height: 1.6;">Your security credentials have been restored. You can now securely sign in to your dashboard.</p>
+
+                        <a href="login.php" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px; text-decoration: none;">
+                            PROCEED TO LOGIN
+                        </a>
+                    </div>
+                    <?php unset($_SESSION['reset_step']); ?>
+                <?php endif; ?>
+
             </div>
-            <h2 class="activated">Password Updated!</h2>
-            <p>Your PIN has been successfully updated. You may now securely sign into your account.</p>
-            <a href="login.php" class="btn-submit btn-success">
-                <span>LOGIN</span>
-            </a>
-            <?php unset($_SESSION['reset_step']); ?>
-        <?php endif; ?>
+        </div>
     </div>
 
-    <div class="portal-institutional-footer">
-        Medical Colleges of Northern Philippines
-        <span class="footer-divider">|</span>
-        <br>
-        International School of Asia and the Pacific
-    </div>
-
+    <script src="../assets/js/bottom-sheet.js"></script>
     <script>
-        // Initialize dynamic Lucide icons
         lucide.createIcons();
 
-        // Reveal/Obscure Password Inputs
+        // Countdown Timer Logic
+        const resendBtn = document.getElementById('resendBtn');
+        const resendText = document.getElementById('resendText');
+        const timerDisplay = document.getElementById('timerDisplay');
+
+        const codeExpires = <?php echo ($_SESSION['reset_code_expires'] ?? 0) * 1000; ?>;
+        const resendCooldown = <?php echo ($_SESSION['reset_resend_cooldown'] ?? 0) * 1000; ?>;
+
+        if (resendBtn && resendText) {
+            if (timerDisplay) timerDisplay.style.display = 'block';
+
+            function updateTimers() {
+                const now = new Date().getTime();
+
+                // 1. Code Expiration Timer (15 mins)
+                const codeDistance = codeExpires - now;
+                if (codeDistance > 0) {
+                    const cMins = Math.floor((codeDistance % (1000 * 60 * 60)) / (1000 * 60));
+                    const cSecs = Math.floor((codeDistance % (1000 * 60)) / 1000);
+                    if (timerDisplay) timerDisplay.textContent = `Code expires in: ${cMins < 10 ? "0"+cMins : cMins}:${cSecs < 10 ? "0"+cSecs : cSecs}`;
+                } else {
+                    if (timerDisplay) timerDisplay.textContent = 'Code expired!';
+                }
+
+                // 2. Resend Cooldown Timer (1 min)
+                const resendDistance = resendCooldown - now;
+                if (resendDistance > 0) {
+                    resendBtn.style.opacity = '0.5';
+                    resendBtn.style.pointerEvents = 'none';
+                    const rMins = Math.floor((resendDistance % (1000 * 60 * 60)) / (1000 * 60));
+                    const rSecs = Math.floor((resendDistance % (1000 * 60)) / 1000);
+                    resendText.textContent = `Wait ${rMins < 10 ? "0"+rMins : rMins}:${rSecs < 10 ? "0"+rSecs : rSecs}`;
+                } else {
+                    resendBtn.style.opacity = '1';
+                    resendBtn.style.pointerEvents = 'auto';
+                    resendText.textContent = 'Resend Code';
+                }
+
+                if (codeDistance <= 0 && resendDistance <= 0) {
+                    clearInterval(timerInterval);
+                }
+            }
+
+            updateTimers();
+            const timerInterval = setInterval(updateTimers, 1000);
+        }
+
         function togglePassword(inputId, btn) {
             const input = document.getElementById(inputId);
+            const icon = btn.querySelector('i');
+
             if (input.type === 'password') {
                 input.type = 'text';
-                btn.innerHTML = '<i data-lucide="eye-off" style="width: 18px; height: 18px;"></i>';
+                icon.setAttribute('data-lucide', 'eye-off');
             } else {
                 input.type = 'password';
-                btn.innerHTML = '<i data-lucide="eye" style="width: 18px; height: 18px;"></i>';
+                icon.setAttribute('data-lucide', 'eye');
             }
             lucide.createIcons();
         }
+        
+        // Mascot Password Interactions
+        document.addEventListener('DOMContentLoaded', () => {
+            const handleFocus = () => { if(window.Quill) window.Quill.coverEyes(); };
+            const handleBlur = () => { if(window.Quill) window.Quill.idle(); };
 
-        // Live Corporate Email Domain Color Theme Morph
-        const recoveryEmail = document.getElementById('recoveryEmail');
-        const root = document.documentElement;
+            const pass1 = document.getElementById('newPass');
+            const pass2 = document.getElementById('confirmPass');
+            if (pass1) { pass1.addEventListener('focus', handleFocus); pass1.addEventListener('blur', handleBlur); }
+            if (pass2) { pass2.addEventListener('focus', handleFocus); pass2.addEventListener('blur', handleBlur); }
 
-        function refreshThemeBranding() {
-            if (!recoveryEmail) return;
-            const val = recoveryEmail.value.toLowerCase().trim();
-            if (val.includes('isap')) {
-                root.style.setProperty('--active-accent', '#b91c1c');
-                root.style.setProperty('--active-glow', 'rgba(185, 28, 28, 0.12)');
-                const badge = document.querySelector('.brand-icon-box');
-                if (badge && !badge.classList.contains('success-view')) {
-                    badge.style.color = '#b91c1c';
+            const otpInputs = document.querySelectorAll('.otp-input');
+            otpInputs.forEach(input => {
+                input.addEventListener('focus', handleFocus);
+                input.addEventListener('blur', handleBlur);
+            });
+        });
+
+        const otpInputs = document.querySelectorAll('.otp-input');
+        const actualOtpInput = document.getElementById('actualOtpInput');
+
+        if (otpInputs.length > 0) {
+            otpInputs.forEach((input, index) => {
+                input.addEventListener('input', (e) => {
+                    let val = input.value.replace(/[^0-9]/g, '');
+
+                    if (val.length > 1) {
+                        for (let i = 0; i < val.length && index + i < 6; i++) {
+                            otpInputs[index + i].value = val[i];
+                            otpInputs[index + i].classList.add('filled');
+                        }
+                        let nextFocus = Math.min(index + val.length, 5);
+                        otpInputs[nextFocus].focus();
+                    } else {
+                        input.value = val;
+                        if (val) {
+                            input.classList.add('filled');
+                            if (index < 5) otpInputs[index + 1].focus();
+                        } else {
+                            input.classList.remove('filled');
+                        }
+                    }
+                    updateActualOtp();
+                });
+
+                input.addEventListener('keydown', (e) => {
+                    if (e.key === 'Backspace' && !input.value && index > 0) {
+                        otpInputs[index - 1].focus();
+                        otpInputs[index - 1].classList.remove('filled');
+                    }
+                });
+
+                input.addEventListener('paste', (e) => {
+                    e.preventDefault();
+                    const pastedData = e.clipboardData.getData('text').replace(/[^0-9]/g, '').slice(0, 6);
+                    if (pastedData) {
+                        for (let i = 0; i < pastedData.length; i++) {
+                            if (otpInputs[i]) {
+                                otpInputs[i].value = pastedData[i];
+                                otpInputs[i].classList.add('filled');
+                            }
+                        }
+                        if (pastedData.length < 6) {
+                            otpInputs[pastedData.length].focus();
+                        } else {
+                            otpInputs[5].focus();
+                        }
+                        updateActualOtp();
+                    }
+                });
+            });
+
+            function updateActualOtp() {
+                let val = '';
+                otpInputs.forEach(inp => val += inp.value);
+                if (actualOtpInput) {
+                    actualOtpInput.value = val;
                 }
-            } else {
-                root.style.setProperty('--active-accent', '#1e40af');
-                root.style.setProperty('--active-glow', 'rgba(30, 64, 175, 0.12)');
-                const badge = document.querySelector('.brand-icon-box');
-                if (badge && !badge.classList.contains('success-view')) {
-                    badge.style.color = '#1e40af';
+                if (val.length === 6) {
+                    performAjaxVerify(val);
                 }
             }
-        }
 
-        if (recoveryEmail) {
-            recoveryEmail.addEventListener('input', refreshThemeBranding);
-            window.addEventListener('load', () => setTimeout(refreshThemeBranding, 150));
+            function performAjaxVerify(code) {
+                const otpForm = document.getElementById('otpForm');
+                if (!otpForm) return;
+
+                const btn = otpForm.querySelector('button[type="submit"]');
+                const btnHtml = btn.innerHTML;
+
+                // Clear previous states
+                otpInputs.forEach(inp => {
+                    inp.classList.remove('success', 'error');
+                });
+                const container = document.querySelector('.otp-container');
+                container.classList.remove('shake');
+
+                // Loading state
+                btn.style.pointerEvents = 'none';
+                btn.innerHTML = '<div class="spinner"></div>';
+
+                const formData = new FormData();
+                formData.append('action', 'verify_code');
+                formData.append('otp_code', code);
+                formData.append('ajax_verify', '1');
+
+                fetch(window.location.href, {
+                        method: 'POST',
+                        body: formData
+                    })
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.status === 'success') {
+                            otpInputs.forEach(inp => inp.classList.add('success'));
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 500);
+                        } else {
+                            otpInputs.forEach(inp => inp.classList.add('error'));
+                            container.classList.add('shake');
+                            // Remove shake class so it can be re-triggered
+                            setTimeout(() => container.classList.remove('shake'), 400);
+
+                            // Restore button
+                            btn.style.pointerEvents = 'auto';
+                            btn.innerHTML = btnHtml;
+                        }
+                    })
+                    .catch(() => {
+                        // Fallback to standard form submission if network error
+                        otpForm.submit();
+                    });
+            }
+
+            const otpForm = document.getElementById('otpForm');
         }
     </script>
+    <script src="../assets/js/constellation.js"></script>
+    <script src="../assets/mascot/mascot.js"></script>
 </body>
 
 </html>

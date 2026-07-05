@@ -168,7 +168,30 @@ foreach ($uploads as $up) {
     }
 }
 
-$act_stmt = $pdo->prepare("SELECT * FROM activity_logs WHERE user_id = ? AND status_type = 'info' ORDER BY created_at DESC LIMIT 4");
+// Fetch Announcements
+try {
+    $stmt_ann = $pdo->query("SELECT * FROM announcements WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY created_at DESC LIMIT 1");
+    $announcements = $stmt_ann->fetchAll();
+} catch (Exception $e) {
+    $announcements = [];
+}
+
+// Fetch Action Required (notifications or warning logs)
+try {
+    $stmt_act = $pdo->prepare("SELECT title, message as description, created_at FROM notifications WHERE user_id = ? AND is_read = 0 ORDER BY created_at DESC LIMIT 4");
+    $stmt_act->execute([$user_id]);
+    $action_items = $stmt_act->fetchAll();
+
+    if (empty($action_items)) {
+        $stmt_act2 = $pdo->prepare("SELECT title, description, created_at, status_type FROM activity_logs WHERE user_id = ? AND status_type IN ('warning', 'error', 'success') ORDER BY created_at DESC LIMIT 4");
+        $stmt_act2->execute([$user_id]);
+        $action_items = $stmt_act2->fetchAll();
+    }
+} catch (Exception $e) {
+    $action_items = [];
+}
+
+$act_stmt = $pdo->prepare("SELECT * FROM activity_logs WHERE user_id = ? AND status_type = 'info' ORDER BY created_at DESC LIMIT 10");
 $act_stmt->execute([$user_id]);
 $recent_activities = $act_stmt->fetchAll();
 
@@ -200,9 +223,9 @@ if ($overall_avg >= 100) {
 }
 
 // Dynamic theme properties based on student department selection
-$theme_accent = ($department_code === 'ISAP') ? '#b91c1c' : '#1e40af';
-$theme_dark = ($department_code === 'ISAP') ? '#7f1d1d' : '#172554';
-$theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(30, 64, 175, 0.12)';
+$theme_accent = '#7c3aed';
+$theme_dark = '#6d28d9';
+$theme_glow = 'rgba(124, 58, 237, 0.12)';
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -214,7 +237,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
     <!-- Fonts - Inter as primary, Cinzel on brand only, JetBrains Mono for stats & times -->
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons CDN -->
-    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://unpkg.com/lucide@latest">
+    </script>
     <style>
         /* COLOR PALETTES */
         body.theme-blue {
@@ -290,7 +314,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
         body.theme-purple,
         body.theme-lavender {
-            --bg-canvas: #f5f3ff;
+            --bg-canvas: #ffffff;
             --bg-card: #ffffff;
             --text-primary: #4c1d95;
             --text-secondary: #5b21b6;
@@ -320,7 +344,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
         :root {
             /* Default Base Fallbacks */
-            --bg-canvas: #f3f7fa;
+            --bg-canvas: #ffffff;
             --bg-card: #ffffff;
             --text-primary: #0f172a;
             --text-secondary: #475569;
@@ -372,27 +396,14 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             transition: background-color 0.5s var(--smooth), color 0.4s var(--smooth);
         }
 
-        /* ── FULL-SCREEN DRIBBBLE-STYLE PASTEL GRADIENT BACKGROUND ── */
+        /* Clean Apple-style solid canvas — card auras stay on milestone cards only */
         body::before {
             content: '';
             position: fixed;
             inset: 0;
             z-index: 0;
             pointer-events: none;
-            /* Light theme: lavender/indigo/purple/pink pastel wash */
-            background:
-                radial-gradient(ellipse 80% 60% at -5% -10%, rgba(167, 139, 250, 0.22) 0%, transparent 55%),
-                /* top-left violet */
-                radial-gradient(ellipse 65% 55% at 110% 5%, rgba(196, 132, 252, 0.16) 0%, transparent 55%),
-                /* top-right purple */
-                radial-gradient(ellipse 70% 50% at 50% -5%, rgba(108, 99, 255, 0.10) 0%, transparent 50%),
-                /* top-center indigo */
-                radial-gradient(ellipse 55% 40% at 5% 90%, rgba(244, 114, 182, 0.12) 0%, transparent 50%),
-                /* bottom-left pink */
-                radial-gradient(ellipse 60% 45% at 95% 95%, rgba(124, 58, 237, 0.10) 0%, transparent 50%),
-                /* bottom-right violet */
-                radial-gradient(ellipse 40% 30% at 50% 110%, rgba(236, 72, 153, 0.08) 0%, transparent 50%);
-            /* bottom-center rose */
+            background: transparent;
             transition: opacity 0.6s var(--smooth);
         }
 
@@ -421,59 +432,43 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         /* App Frame - Frameless aesthetic but elevated */
         .app-dashboard-frame {
             width: 100%;
+            max-width: 1680px;
             height: 100%;
+            margin: 0 auto;
             display: flex;
             position: relative;
             gap: 24px;
             z-index: 10;
         }
 
-        /* MODIFIED MACOS FLOATING DOCK NAVIGATION */
+        /* FLUTTER-STYLE BOTTOM NAVIGATION DOCK */
         .app-dock-navigation {
             position: fixed;
             bottom: 28px;
             left: 50%;
             transform: translateX(-50%);
             width: auto;
-            height: 64px;
-            /* ── Borrowed glassmorphism on dock: semi-transparent + blur ── */
-            background: rgba(255, 255, 255, 0.72);
-            backdrop-filter: blur(24px) saturate(180%);
-            -webkit-backdrop-filter: blur(24px) saturate(180%);
-            border: 1.5px solid rgba(255, 255, 255, 0.55);
-            border-radius: 20px;
-            box-shadow: 0 8px 32px -4px rgba(108, 99, 255, 0.12), 0 2px 8px -1px rgba(15, 23, 42, 0.06);
+            height: 68px;
+            background: rgba(255, 255, 255, 0.94);
+            backdrop-filter: blur(20px) saturate(160%);
+            -webkit-backdrop-filter: blur(20px) saturate(160%);
+            border: 1px solid rgba(15, 23, 42, 0.06);
+            border-radius: 22px;
+            box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
             display: flex;
             flex-direction: row;
             align-items: center;
             justify-content: center;
-            padding: 8px 18px;
+            padding: 8px 20px;
             z-index: 500;
             transition: transform 0.4s var(--spring), background 0.4s var(--smooth), box-shadow 0.4s var(--smooth), bottom 0.4s var(--smooth);
-            gap: 16px;
-            /* Breathing glow pulse on the dock */
-            animation: dockGlowBreath 4s ease-in-out infinite;
+            gap: 14px;
         }
 
         body.theme-dark .app-dock-navigation {
-            background: rgba(21, 28, 36, 0.78);
+            background: rgba(21, 28, 36, 0.92);
             border-color: rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px -4px rgba(139, 92, 246, 0.18), 0 2px 8px -1px rgba(0, 0, 0, 0.3);
-        }
-
-        @keyframes dockGlowBreath {
-
-            /* More dramatic — clearly visible pulse */
-            0%,
-            100% {
-                box-shadow: 0 8px 24px -4px rgba(108, 99, 255, 0.10), 0 2px 8px -1px rgba(15, 23, 42, 0.05);
-                border-color: rgba(255, 255, 255, 0.45);
-            }
-
-            50% {
-                box-shadow: 0 16px 56px -4px rgba(167, 139, 250, 0.40), 0 4px 20px -2px rgba(108, 99, 255, 0.18);
-                border-color: rgba(167, 139, 250, 0.55);
-            }
+            box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.4), 0 2px 8px -2px rgba(0, 0, 0, 0.2);
         }
 
         /* macOS Window Traffic Lights */
@@ -592,55 +587,69 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         .dock-btn {
             background: transparent;
             border: none;
-            width: 44px;
-            height: 44px;
-            border-radius: 14px;
+            width: 48px;
+            height: 48px;
+            border-radius: 16px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--text-secondary);
+            color: #64748b;
+            opacity: 1;
             position: relative;
             transition: transform 0.25s var(--spring), color 0.25s var(--smooth), background-color 0.25s var(--smooth);
             z-index: 10;
         }
 
         .dock-btn svg {
-            width: 20px;
-            height: 20px;
+            width: 24px;
+            height: 24px;
             stroke-width: 2px;
             transition: transform 0.25s var(--spring);
         }
 
-        /* Hover Zoom Effect - Claude code / macOS inspiration */
         .dock-btn:hover {
-            color: var(--active-accent);
-            background-color: var(--active-glow);
-            transform: scale(1.15) translateY(-4px);
+            color: #0f172a;
+            background-color: rgba(15, 23, 42, 0.06);
+            transform: scale(1.08) translateY(-2px);
+        }
+
+        body.theme-dark .dock-btn {
+            color: #94a3b8;
+        }
+
+        body.theme-dark .dock-btn:hover {
+            color: #f8fafc;
+            background-color: rgba(255, 255, 255, 0.08);
         }
 
         .dock-btn:hover svg {
-            transform: scale(1.1);
+            transform: scale(1.05);
         }
 
-        /* Sleek Active State - White Pill Accent Indicator */
+        /* Active — purple accent only when selected */
         .dock-btn.active {
-            background-color: var(--active-accent);
-            color: #ffffff;
-            box-shadow: var(--shadow-md);
+            color: var(--active-accent);
+            background-color: var(--active-glow);
+            box-shadow: none;
         }
 
         .dock-btn.active::after {
-            content: '';
-            position: absolute;
-            bottom: -4px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 12px;
-            height: 3px;
-            background-color: var(--active-accent);
-            border-radius: 2px 2px 0 0;
-            transition: width 0.3s;
+            display: none;
+        }
+
+        /* Logout — neutral gray, red on hover */
+        .dock-btn.dock-btn-logout {
+            color: #64748b;
+        }
+
+        body.theme-dark .dock-btn.dock-btn-logout {
+            color: #94a3b8;
+        }
+
+        .dock-btn.dock-btn-logout:hover {
+            color: #ef4444;
+            background-color: rgba(239, 68, 68, 0.08);
         }
 
         /* Crisp Floating Tooltips */
@@ -711,7 +720,79 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             position: relative;
             background-color: transparent;
             z-index: 10;
-            padding-bottom: 90px;
+            padding-bottom: 100px;
+            width: 100%;
+        }
+
+        @media (min-width: 1200px) {
+            .main-workspace-content {
+                gap: 28px;
+                padding-bottom: 110px;
+            }
+
+            .header-title-container h1 {
+                font-size: 28px;
+            }
+
+            .stage-tabs-row {
+                gap: 20px;
+            }
+
+            .stage-card-tab {
+                padding: 22px 22px 24px;
+            }
+
+            .stage-card-tab h4 {
+                font-size: 14px;
+            }
+
+            .cp-ring-wrap {
+                width: 80px;
+                height: 80px;
+            }
+
+            .cp-svg {
+                width: 80px;
+                height: 80px;
+            }
+
+            .cp-pct {
+                font-size: 16px;
+            }
+
+            .workspace-core-grid {
+                gap: 28px;
+            }
+
+            .section-card {
+                padding: 28px;
+            }
+        }
+
+        @media (min-width: 1440px) {
+            body {
+                padding: 32px 40px;
+            }
+
+            .stage-tabs-row {
+                gap: 24px;
+            }
+
+            .stage-card-tab {
+                padding: 26px 26px 28px;
+                border-radius: 32px;
+            }
+
+            .card-floating-icon {
+                width: 48px;
+                height: 48px;
+            }
+
+            .card-floating-icon svg,
+            .card-floating-icon i {
+                width: 24px;
+                height: 24px;
+            }
         }
 
         /* NAVIGATION HEADER BAR */
@@ -769,33 +850,48 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .head-action-btn {
-            background-color: var(--bg-card);
-            border: 1px solid var(--border-subtle);
+            background-color: transparent;
+            border: none;
             width: 44px;
             height: 44px;
-            border-radius: 50%;
+            border-radius: 14px;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
             position: relative;
-            transition: all 0.3s var(--smooth);
+            transition: all 0.25s var(--smooth);
             text-decoration: none;
-            box-shadow: var(--shadow-sm);
-            color: var(--text-primary);
+            box-shadow: none;
+            color: #64748b;
         }
 
         .head-action-btn:hover {
-            color: var(--active-accent);
-            border-color: var(--active-accent);
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-md);
+            color: #0f172a;
+            background-color: rgba(15, 23, 42, 0.05);
+            transform: translateY(-1px);
+        }
+
+        @media (min-width: 1025px) {
+            .head-action-btn-notif svg {
+                color: var(--active-accent) !important;
+                stroke: var(--active-accent) !important;
+            }
+        }
+
+        body.theme-dark .head-action-btn {
+            color: #94a3b8;
+        }
+
+        body.theme-dark .head-action-btn:hover {
+            color: #f8fafc;
+            background-color: rgba(255, 255, 255, 0.06);
         }
 
         .head-action-btn svg {
-            width: 18px;
-            height: 18px;
-            stroke-width: 2.2px;
+            width: 20px;
+            height: 20px;
+            stroke-width: 2px;
         }
 
         .notification-ping {
@@ -817,11 +913,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .stage-card-tab {
-            /* Borrowed glassmorphism: lightly frosted, not full glass */
-            background: rgba(255, 255, 255, 0.7);
-            backdrop-filter: blur(10px) saturate(160%);
-            -webkit-backdrop-filter: blur(10px) saturate(160%);
-            border: 1.5px solid rgba(255, 255, 255, 0.5);
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.06);
             border-radius: 28px;
             position: relative;
             cursor: pointer;
@@ -830,23 +923,30 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             display: flex;
             flex-direction: column;
             align-items: center;
-            padding: 56px 20px 20px;
+            padding: 18px 18px 20px;
             opacity: 0;
             transform: translateY(15px);
-            margin-top: 34px;
+            margin-top: 0;
+            overflow: hidden;
             transition: transform 0.4s var(--spring), opacity 0.6s var(--smooth), border-color 0.4s var(--smooth), box-shadow 0.4s var(--smooth);
-            background-image: radial-gradient(ellipse 120% 80% at 50% 0%, var(--card-aura, rgba(30, 64, 175, 0.07)) 0%, transparent 70%);
-            /* NO overflow:hidden — that clips the protruding floating icon */
         }
 
         body.theme-dark .stage-card-tab {
-            background: rgba(21, 28, 36, 0.72);
+            background: #151c24;
             border-color: rgba(255, 255, 255, 0.07);
         }
 
         .stage-card-tab.visible {
             opacity: 1;
             transform: translateY(0);
+        }
+
+        .stage-card-tab:active {
+            transform: scale(0.98);
+        }
+
+        .stage-card-tab:hover:active {
+            transform: translateY(-4px) scale(0.99);
         }
 
         /* Shimmer sweep on card hover */
@@ -879,45 +979,59 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .stage-card-tab:hover {
-            transform: translateY(-10px) scale(1.025);
-            box-shadow: 0 28px 48px -12px rgba(15, 23, 42, 0.14), 0 12px 24px -8px var(--card-aura, var(--active-glow));
-            border-color: rgba(255, 255, 255, 0.8);
-            background: rgba(255, 255, 255, 0.85);
+            transform: translateY(-6px) scale(1.02);
+            box-shadow: 0 20px 40px -12px rgba(15, 23, 42, 0.12);
+            border-color: rgba(15, 23, 42, 0.08);
+            background-color: #ffffff;
         }
 
         body.theme-dark .stage-card-tab:hover {
             border-color: rgba(255, 255, 255, 0.12);
-            background: rgba(21, 28, 36, 0.88);
+            background: #1a222d;
         }
 
-        /* ── FLOATING PROTRUDING ICON ── */
+        /* ── IN-CARD ICON (tonal, no white box) ── */
+        .card-top-cluster {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 8px;
+            width: 100%;
+            min-height: 72px;
+            justify-content: flex-start;
+            padding-top: 2px;
+        }
+
         .card-floating-icon {
-            position: absolute;
-            top: -28px;
-            left: 50%;
-            transform: translateX(-50%);
-            width: 56px;
-            height: 56px;
-            border-radius: 20px;
-            /* squircle */
+            position: relative;
+            top: auto;
+            left: auto;
+            transform: none;
+            width: 44px;
+            height: 44px;
+            border-radius: 14px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border: 4px solid var(--bg-card);
-            transition: transform 0.35s var(--spring), box-shadow 0.35s var(--smooth);
-            z-index: 10;
+            background: rgba(124, 58, 237, 0.1);
+            background: color-mix(in srgb, var(--active-accent) 11%, transparent);
+            border: none;
+            flex-shrink: 0;
+            transition: transform 0.35s var(--spring), background 0.35s var(--smooth);
+            z-index: 2;
         }
 
         .card-floating-icon svg,
         .card-floating-icon i {
             width: 22px;
             height: 22px;
-            color: #ffffff !important;
-            stroke: #ffffff !important;
+            color: var(--active-accent) !important;
+            stroke: var(--active-accent) !important;
         }
 
         .stage-card-tab:hover .card-floating-icon {
-            transform: translateX(-50%) translateY(-5px) scale(1.12);
+            transform: scale(1.08);
+            background: color-mix(in srgb, var(--active-accent) 18%, transparent);
         }
 
         /* ── CARD INFO (3-DOT) BUTTON ── */
@@ -962,14 +1076,11 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             display: flex;
             align-items: center;
             gap: 5px;
-            background: var(--bg-card);
-            border: 1.5px solid var(--border-subtle);
+            background: rgba(124, 58, 237, 0.08);
+            border: none;
             border-radius: 20px;
             padding: 4px 10px 4px 7px;
-            box-shadow: var(--shadow-sm);
             pointer-events: none;
-            /* badge only — clicks pass through to card */
-            /* no backdrop-filter, no inset cover */
         }
 
         .lock-icon-circle {
@@ -1155,8 +1266,9 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .chip-pending {
-            background: #f1f5f9;
-            color: #475569;
+            background: #fef9c3;
+            color: #854d0e;
+            border: 1px solid #fde047;
         }
 
         .card-bottom-row {
@@ -1176,11 +1288,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .section-card {
-            /* Borrowed glassmorphism on section panels */
-            background: rgba(255, 255, 255, 0.65);
-            backdrop-filter: blur(12px) saturate(150%);
-            -webkit-backdrop-filter: blur(12px) saturate(150%);
-            border: 1px solid rgba(255, 255, 255, 0.5);
+            background: #ffffff;
+            border: 1px solid rgba(15, 23, 42, 0.06);
             border-radius: var(--radius-interactive);
             padding: 24px;
             box-shadow: var(--shadow-sm);
@@ -1189,13 +1298,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         body.theme-dark .section-card {
-            background: rgba(21, 28, 36, 0.65);
+            background: #151c24;
             border-color: rgba(255, 255, 255, 0.06);
         }
 
         .section-card:hover {
             box-shadow: var(--shadow-md);
-            border-color: rgba(255, 255, 255, 0.75);
+            border-color: rgba(124, 58, 237, 0.1);
         }
 
         .section-title-wrapper {
@@ -1467,6 +1576,125 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             line-height: 1.45;
         }
 
+        /* ── RESEARCH FUN FACTS (desktop only, under calendar) ── */
+        .research-fun-facts {
+            margin-top: 0px;
+            /* Removed margin to pull it up */
+            padding: 18px 20px;
+
+            /* The Grid Background */
+            background-color: #1e1b4b;
+            /* Deep brand purple */
+            background-image:
+                linear-gradient(rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
+                radial-gradient(circle at 80% 20%, #7c3aed 0%, transparent 50%),
+                radial-gradient(circle at 20% 80%, #6d28d9 0%, transparent 60%);
+            background-size: 20px 20px, 20px 20px, 100% 100%, 100% 100%;
+
+            border: 1px solid rgba(139, 92, 246, 0.3);
+            border-radius: 16px;
+            min-height: 96px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            position: relative;
+            overflow: hidden;
+            box-shadow: 0 4px 20px -4px rgba(109, 40, 217, 0.2);
+        }
+
+        .fun-facts-label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12.5px;
+            /* Bigger label */
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: #ffffff;
+            /* Crisp white */
+            z-index: 1;
+        }
+
+        .fun-facts-label svg {
+            width: 16px;
+            height: 16px;
+            stroke-width: 2.5px;
+            color: #f59e0b;
+            /* Yellow/amber twinkle icon */
+        }
+
+        .fun-facts-line {
+            font-size: 14.5px;
+            /* Bigger text */
+            line-height: 1.6;
+            color: #ffffff;
+            /* Crisp white for readability */
+            font-weight: 500;
+            min-height: 46px;
+            margin: 0;
+            z-index: 1;
+        }
+
+        .fun-facts-cursor {
+            display: inline-block;
+            width: 2px;
+            height: 1em;
+            background: #f59e0b;
+            /* Amber cursor */
+            margin-left: 2px;
+            vertical-align: text-bottom;
+            animation: funFactBlink 0.85s step-end infinite;
+            z-index: 1;
+        }
+
+        @keyframes funFactBlink {
+
+            0%,
+            100% {
+                opacity: 1;
+            }
+
+            50% {
+                opacity: 0;
+            }
+        }
+
+        .fun-facts-progress {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            z-index: 1;
+        }
+
+        .fun-facts-dot {
+            width: 6px;
+            height: 6px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.25);
+            transition: all 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+
+        .fun-facts-dot.active {
+            background: #f59e0b;
+            /* Yellow active dash */
+            width: 18px;
+            /* Makes it look like a dash `_` */
+            border-radius: 4px;
+        }
+
+        @media (max-width: 1024px) {
+            .research-fun-facts {
+                display: none !important;
+            }
+        }
+
+        body.theme-dark .research-fun-facts {
+            background-color: #0f0d22;
+            border-color: rgba(139, 92, 246, 0.2);
+        }
+
         .cal-controls {
             display: flex;
             gap: 6px;
@@ -1559,15 +1787,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             padding: 24px;
             display: none;
             opacity: 0;
-            transform: scale(0.96) translateY(20px);
-            transition: opacity 0.4s var(--smooth), transform 0.4s var(--smooth);
+            transition: opacity 0.2s ease-out;
         }
 
         .fullscreen-zoom-overlay.active {
             display: flex !important;
             flex-direction: column;
             opacity: 1;
-            transform: scale(1) translateY(0);
         }
 
         .overlay-iframe-container {
@@ -1579,21 +1805,26 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             box-shadow: var(--shadow-lg);
         }
 
+        .nav-back-wrapper {
+            padding: 16px 20px 8px 20px;
+            background-color: var(--bg-canvas);
+            border-bottom: 1px solid var(--border-subtle);
+            display: flex;
+            align-items: center;
+        }
+
         .btn-vector-left-back {
-            background-color: #ffffff;
-            border: 1px solid var(--border-subtle);
-            width: 44px;
-            height: 44px;
+            background-color: transparent;
+            border: none;
+            width: 40px;
+            height: 40px;
             border-radius: 50%;
             cursor: pointer;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 16px;
-            transition: all 0.25s var(--smooth);
+            transition: all 0.2s var(--smooth);
             color: var(--text-primary);
-            box-shadow: var(--shadow-sm);
-            align-self: flex-start;
         }
 
         .btn-vector-left-back:hover {
@@ -1947,6 +2178,10 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 gap: 0;
             }
 
+            .nav-back-wrapper {
+                display: none !important;
+            }
+
             /* Floating macOS Dock becomes beautiful floating Bottom iPad-like Dock */
             .app-dock-navigation {
                 position: fixed;
@@ -1954,15 +2189,15 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 left: 50%;
                 transform: translateX(-50%);
                 width: calc(100% - 24px);
-                max-width: 400px;
-                height: 68px;
+                max-width: 480px;
+                height: 72px;
                 flex-direction: row;
                 align-items: center;
                 justify-content: space-around;
-                gap: 8px;
-                padding: 8px 16px;
-                border-radius: 22px;
-                box-shadow: var(--shadow-xl);
+                gap: 6px;
+                padding: 10px 18px;
+                border-radius: 24px;
+                box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.14);
             }
 
             .dock-traffic-lights {
@@ -1991,24 +2226,18 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             }
 
             .dock-btn {
-                width: 40px;
-                height: 40px;
-                border-radius: 12px;
+                width: 46px;
+                height: 46px;
+                border-radius: 14px;
             }
 
             .dock-btn svg {
-                width: 18px;
-                height: 18px;
+                width: 26px;
+                height: 26px;
             }
 
             .dock-btn.active::after {
-                left: 50%;
-                bottom: -4px;
-                top: auto;
-                transform: translateX(-50%);
-                width: 12px;
-                height: 3px;
-                border-radius: 2px 2px 0 0;
+                display: none;
             }
 
             .dock-tooltip {
@@ -2032,6 +2261,33 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             }
         }
 
+        @media (min-width: 1025px) {
+            .stage-tabs-row {
+                grid-template-columns: repeat(4, minmax(0, 1fr));
+            }
+
+            .dock-btn svg {
+                width: 26px;
+                height: 26px;
+            }
+
+            .dock-btn {
+                width: 50px;
+                height: 50px;
+            }
+        }
+
+        @media (min-width: 768px) and (max-width: 1024px) {
+            .stage-tabs-row {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 16px;
+            }
+
+            .header-title-container h1 {
+                font-size: 20px;
+            }
+        }
+
         @media (min-width: 641px) {
             .desktop-hidden {
                 display: none !important;
@@ -2051,16 +2307,33 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             /* ── 2×2 card grid on mobile ── */
             .stage-tabs-row {
                 grid-template-columns: repeat(2, 1fr);
-                gap: 14px;
-                margin-top: 28px;
+                gap: 12px;
+                margin-top: 0;
             }
 
-            /* Keep cards vertical on mobile — no horizontal flip */
             .stage-card-tab {
                 flex-direction: column !important;
                 height: auto !important;
                 align-items: center !important;
-                padding: 48px 14px 16px !important;
+                padding: 14px 12px 16px !important;
+                border-radius: 22px;
+            }
+
+            .card-top-cluster {
+                min-height: 64px;
+                gap: 6px;
+            }
+
+            .card-floating-icon {
+                width: 40px;
+                height: 40px;
+                border-radius: 12px;
+            }
+
+            .card-floating-icon svg,
+            .card-floating-icon i {
+                width: 20px;
+                height: 20px;
             }
 
             .card-info-content {
@@ -2147,12 +2420,11 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             /* Slightly larger dock on mobile for easier tap */
             .app-dock-navigation {
                 width: calc(100% - 20px);
-                max-width: 330px;
-                /* Increased for better breathing room */
-                padding: 8px 16px;
+                max-width: 380px;
+                padding: 10px 14px;
                 gap: 0;
-                border-radius: 24px;
-                height: 66px;
+                border-radius: 26px;
+                height: 72px;
                 justify-content: space-between;
             }
 
@@ -2167,14 +2439,14 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             }
 
             .dock-btn {
-                width: 42px;
-                height: 42px;
-                border-radius: 12px;
+                width: 50px;
+                height: 50px;
+                border-radius: 14px;
             }
 
             .dock-btn svg {
-                width: 20px;
-                height: 20px;
+                width: 26px;
+                height: 26px;
             }
 
             .dock-avatar-wrapper {
@@ -2277,9 +2549,9 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             height: 72px;
             border-radius: 50%;
             padding: 2px;
-            border: 1.5px solid var(--active-accent);
+            border: 2px solid var(--active-accent);
             transition: transform 0.3s var(--spring), box-shadow 0.3s var(--smooth);
-            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15), 0 0 0 0 var(--active-glow);
+            box-shadow: 0 4px 16px rgba(15, 23, 42, 0.1);
             background: var(--bg-card);
             overflow: hidden;
             display: flex;
@@ -2289,8 +2561,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         }
 
         .dock-center-avatar-ring:hover {
-            transform: scale(1.1) translateY(-20px);
-            box-shadow: 0 12px 32px rgba(0, 0, 0, 0.2), 0 0 0 4px var(--active-glow);
+            transform: scale(1.06) translateY(-18px);
+            box-shadow: 0 8px 24px rgba(15, 23, 42, 0.14);
         }
 
         .dock-center-avatar-ring img {
@@ -2348,11 +2620,42 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         .theme-dark::view-transition-new(root) {
             z-index: 1;
         }
+
+
+        @media (max-width: 768px) {
+            .fullscreen-zoom-overlay {
+                padding: 0 !important;
+            }
+
+            .overlay-iframe-container {
+                border: none !important;
+                border-radius: 0 !important;
+            }
+        }
+
+        /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
+        @media (max-width: 768px) {
+            #zoom-proposal {
+                top: auto !important;
+                bottom: 0 !important;
+                height: 85vh !important;
+                transform: translateY(100%);
+                border-radius: 24px 24px 0 0 !important;
+                overflow: hidden !important;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.15) !important;
+                transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+                padding-top: 15px !important;
+            }
+
+            #zoom-proposal.active {
+                transform: translateY(0) !important;
+            }
+        }
     </style>
-    <meta name="theme-color" content="<?= ($department_code === 'ISAP') ? '#b91c1c' : '#1e40af' ?>">
+    <meta name="theme-color" content="#7c3aed">
 </head>
 
-<body class="<?= ($department_code === 'ISAP') ? 'theme-red' : 'theme-blue' ?>">
+<body class="theme-purple">
     <script>
         (function() {
             const savedTheme = localStorage.getItem('rd-portal-theme');
@@ -2382,7 +2685,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                     <!-- Activities (See All) -->
                     <li class="dock-item">
-                        <button class="dock-btn" data-view="activities" onclick="zoomLaunchModule('zoom-activities', 'activities_all.php'); selectDockItem(this)">
+                        <button class="dock-btn" data-view="activities" onclick="pushView('zoom-activities', 'activities_all.php'); selectDockItem(this)">
                             <i data-lucide="history"></i>
                         </button>
                         <span class="dock-tooltip">Activities</span>
@@ -2390,7 +2693,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                     <!-- Members (Desktop only) -->
                     <li class="dock-item mobile-hidden">
-                        <button class="dock-btn" data-view="members" onclick="zoomLaunchModule('zoom-members', 'members.php'); selectDockItem(this)">
+                        <button class="dock-btn" data-view="members" onclick="pushView('zoom-members', 'members.php'); selectDockItem(this)">
                             <i data-lucide="users-round"></i>
                         </button>
                         <span class="dock-tooltip">Members</span>
@@ -2411,13 +2714,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                                 <div class="dropdown-name"><?= htmlspecialchars($account_holder) ?></div>
                                 <div class="dropdown-role"><?= $rank_title ?></div>
                             </div>
-                            <a href="javascript:void(0)" onclick="zoomLaunchModule('zoom-profile', 'profile.php')" class="dropdown-item">
+                            <a href="javascript:void(0)" onclick="pushView('zoom-profile', 'profile.php')" class="dropdown-item">
                                 <i data-lucide="user" style="width: 16px; height: 16px;"></i> Profile
                             </a>
-                            <a href="javascript:void(0)" onclick="zoomLaunchModule('zoom-members', 'members.php')" class="dropdown-item desktop-hidden">
+                            <a href="javascript:void(0)" onclick="pushView('zoom-members', 'members.php')" class="dropdown-item desktop-hidden">
                                 <i data-lucide="users-round" style="width: 16px; height: 16px;"></i> Members
                             </a>
-                            <a href="javascript:void(0)" onclick="zoomLaunchModule('zoom-settings', 'settings.php')" class="dropdown-item desktop-hidden">
+                            <a href="javascript:void(0)" onclick="pushView('zoom-settings', 'settings.php')" class="dropdown-item desktop-hidden">
                                 <i data-lucide="settings" style="width: 16px; height: 16px;"></i> Settings
                             </a>
                         </div>
@@ -2427,7 +2730,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                     <li class="dock-item">
                         <button class="dock-btn" data-view="chat" onclick="openGroupChat(); selectDockItem(this)">
                             <div style="position: relative; display: flex; align-items: center;">
-                                <i data-lucide="message-square-more"></i>
+                                <i data-lucide="messages-square"></i>
                                 <span id="chat-badge" class="dock-chat-badge" style="display:none;"></span>
                             </div>
                         </button>
@@ -2436,7 +2739,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                     <!-- Settings (Desktop only) -->
                     <li class="dock-item mobile-hidden">
-                        <button class="dock-btn" data-view="settings" onclick="zoomLaunchModule('zoom-settings', 'settings.php'); selectDockItem(this)">
+                        <button class="dock-btn" data-view="settings" onclick="pushView('zoom-settings', 'settings.php'); selectDockItem(this)">
                             <i data-lucide="settings"></i>
                         </button>
                         <span class="dock-tooltip">Settings</span>
@@ -2446,8 +2749,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                     <!-- Logout Button -->
                     <li class="dock-item">
-                        <button class="dock-btn" data-view="logout" onclick="window.location.href='../auth/logout.php';">
-                            <i data-lucide="log-out"></i>
+                        <button class="dock-btn dock-btn-logout" data-view="logout" onclick="window.location.href='../auth/logout.php';">
+                            <i data-lucide="arrow-right-from-line"></i>
                         </button>
                         <span class="dock-tooltip">Logout</span>
                     </li>
@@ -2472,9 +2775,9 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 <div class="header-right-cluster">
                     <div id="weatherWidget"></div>
 
-                    <a href="javascript:void(0)" class="head-action-btn" onclick="toggleNotifDrawer()" title="View Notifications">
+                    <a href="javascript:void(0)" class="head-action-btn head-action-btn-notif" onclick="toggleNotifDrawer()" title="View Notifications">
                         <div class="notification-ping"></div>
-                        <i data-lucide="bell"></i>
+                        <i data-lucide="bell-ring"></i>
                     </a>
 
                     <!-- Pill Theme Toggle (replaces avatar in header) -->
@@ -2514,8 +2817,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             <section class="stage-tabs-row">
                 <!-- Proposal Card — pink/rose accent -->
                 <div class="stage-card-tab <?= $proposal_locked ? 'card-locked' : '' ?>"
-                    style="--active-accent:#ec4899; --active-glow:rgba(236,72,153,0.15); --card-aura:rgba(236,72,153,0.10);"
-                    onclick="zoomLaunchModule('zoom-proposal','module_proposal.php',this)">
+                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    onclick="pushView('zoom-proposal','module_proposal.php',this)">
+                    <?php if ($proposal_locked): ?>
+                        <div class="card-locked-blur">
+                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
+                        </div>
+                    <?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'proposal')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2523,17 +2831,18 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-floating-icon"
-                        style="background:linear-gradient(135deg,#ec4899,#be185d); box-shadow:0 10px 22px -4px rgba(236,72,153,0.45);">
-                        <i data-lucide="file-text"></i>
-                    </div>
                     <div class="card-info-content">
-                        <?php
-                        if ($proposal_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                        elseif ($proposal_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                        elseif ($proposal_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                        elseif ($proposal_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="file-text"></i> Pending</span>';
-                        ?>
+                        <div class="card-top-cluster">
+                            <div class="card-floating-icon">
+                                <i data-lucide="file-text"></i>
+                            </div>
+                            <?php
+                            if ($proposal_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
+                            elseif ($proposal_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
+                            elseif ($proposal_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
+                            elseif ($proposal_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            ?>
+                        </div>
                         <h4>1. Proposal Defense</h4>
                         <div class="card-bottom-row">
                             <div class="cp-ring-wrap">
@@ -2541,7 +2850,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $proposal_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $proposal_progress ?>"
-                                        style="stroke:#ec4899;" />
+                                        style="stroke:#7c3aed;" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $proposal_progress ?>%</span>
@@ -2553,8 +2862,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                 <!-- Final Defense Card -->
                 <div class="stage-card-tab <?= $final_locked ? 'card-locked' : '' ?>"
-                    style="--active-accent:#8b5cf6; --active-glow:rgba(139,92,246,0.15); --card-aura:rgba(139,92,246,0.10);"
-                    onclick="zoomLaunchModule('zoom-final','module_final.php',this)">
+                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    onclick="pushView('zoom-final','module_final.php',this)">
+                    <?php if ($final_locked): ?>
+                        <div class="card-locked-blur">
+                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
+                        </div>
+                    <?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'final')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2562,17 +2876,18 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-floating-icon"
-                        style="background:linear-gradient(135deg,#a78bfa,#6d28d9); box-shadow:0 10px 22px -4px rgba(139,92,246,0.45);">
-                        <i data-lucide="award"></i>
-                    </div>
                     <div class="card-info-content">
-                        <?php
-                        if ($final_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                        elseif ($final_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                        elseif ($final_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                        elseif ($final_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="file-text"></i> Pending</span>';
-                        ?>
+                        <div class="card-top-cluster">
+                            <div class="card-floating-icon">
+                                <i data-lucide="award"></i>
+                            </div>
+                            <?php
+                            if ($final_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
+                            elseif ($final_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
+                            elseif ($final_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
+                            elseif ($final_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            ?>
+                        </div>
                         <h4>2. Final Defense</h4>
                         <div class="card-bottom-row">
                             <div class="cp-ring-wrap">
@@ -2580,7 +2895,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $final_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $final_progress ?>"
-                                        style="stroke:#8b5cf6;" />
+                                        style="stroke:#7c3aed;" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $final_progress ?>%</span>
@@ -2592,8 +2907,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                 <!-- Statistics Card -->
                 <div class="stage-card-tab <?= $stats_locked ? 'card-locked' : '' ?>"
-                    style="--active-accent:#0d9488; --active-glow:rgba(13,148,136,0.15); --card-aura:rgba(13,148,136,0.10);"
-                    onclick="zoomLaunchModule('zoom-stats','module_statistics.php',this)">
+                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    onclick="pushView('zoom-stats','module_statistics.php',this)">
+                    <?php if ($stats_locked): ?>
+                        <div class="card-locked-blur">
+                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
+                        </div>
+                    <?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'stats')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2601,17 +2921,18 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-floating-icon"
-                        style="background:linear-gradient(135deg,#34d399,#0d9488); box-shadow:0 10px 22px -4px rgba(13,148,136,0.45);">
-                        <i data-lucide="calculator"></i>
-                    </div>
                     <div class="card-info-content">
-                        <?php
-                        if ($stats_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                        elseif ($stats_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                        elseif ($stats_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                        elseif ($stats_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="file-text"></i> Pending</span>';
-                        ?>
+                        <div class="card-top-cluster">
+                            <div class="card-floating-icon">
+                                <i data-lucide="calculator"></i>
+                            </div>
+                            <?php
+                            if ($stats_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
+                            elseif ($stats_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
+                            elseif ($stats_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
+                            elseif ($stats_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            ?>
+                        </div>
                         <h4>3. Statistics Review</h4>
                         <div class="card-bottom-row">
                             <div class="cp-ring-wrap">
@@ -2619,7 +2940,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $stats_progress == 100 ? 'approved' : ($stats_progress == 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $stats_progress ?>"
-                                        style="stroke:#0d9488;" />
+                                        style="stroke:#7c3aed;" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $stats_progress ?>%</span>
@@ -2631,8 +2952,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                 <!-- Plagiarism Card -->
                 <div class="stage-card-tab <?= $plag_locked ? 'card-locked' : '' ?>"
-                    style="--active-accent:#d97706; --active-glow:rgba(217,119,6,0.15); --card-aura:rgba(217,119,6,0.10);"
-                    onclick="zoomLaunchModule('zoom-plag','module_plagiarism.php',this)">
+                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    onclick="pushView('zoom-plag','module_plagiarism.php',this)">
+                    <?php if ($plag_locked): ?>
+                        <div class="card-locked-blur">
+                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
+                        </div>
+                    <?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'plag')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2640,17 +2966,18 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-floating-icon"
-                        style="background:linear-gradient(135deg,#fbbf24,#d97706); box-shadow:0 10px 22px -4px rgba(217,119,6,0.45);">
-                        <i data-lucide="shield-alert"></i>
-                    </div>
                     <div class="card-info-content">
-                        <?php
-                        if ($plag_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                        elseif ($plag_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                        elseif ($plag_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                        elseif ($plag_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="file-text"></i> Pending</span>';
-                        ?>
+                        <div class="card-top-cluster">
+                            <div class="card-floating-icon">
+                                <i data-lucide="shield-alert"></i>
+                            </div>
+                            <?php
+                            if ($plag_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
+                            elseif ($plag_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
+                            elseif ($plag_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
+                            elseif ($plag_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            ?>
+                        </div>
                         <h4>4. Plagiarism Test</h4>
                         <div class="card-bottom-row">
                             <div class="cp-ring-wrap">
@@ -2658,7 +2985,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $plag_progress == 100 ? 'approved' : ($plag_progress == 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $plag_progress ?>"
-                                        style="stroke:#d97706;" />
+                                        style="stroke:#7c3aed;" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $plag_progress ?>%</span>
@@ -2674,8 +3001,8 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
                 <div class="section-card mobile-hide-activities">
                     <div class="section-title-wrapper">
-                        <h3 class="section-title"><i data-lucide="history" style="width:16px;height:16px;"></i>Recent Group Activities</h3>
-                        <a href="javascript:void(0)" onclick="zoomLaunchModule('zoom-activities', 'activities_all.php')" class="btn-see-all">See All</a>
+                        <h3 class="section-title"><i data-lucide="history" style="width:16px;height:16px;color:#7c3aed;"></i>Recent Group Activities</h3>
+                        <a href="javascript:void(0)" onclick="pushView('zoom-activities', 'activities_all.php')" class="btn-see-all">See All</a>
                     </div>
 
                     <div class="activity-stream-box timeline-stream">
@@ -2709,22 +3036,35 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                     </div>
                 </div>
 
-                <div class="section-card">
-                    <div class="section-title-wrapper">
-                        <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;"></i>Availability & events</h3>
-                    </div>
-
-                    <div class="mini-calendar-wrapper">
-                        <div class="cal-header">
-                            <div class="cal-month-title" id="calMonthTitle">June 2026</div>
-                            <div class="cal-controls">
-                                <button class="cal-btn" onclick="changeMonth(-1)">&lt;</button>
-                                <button class="cal-btn" onclick="changeMonth(1)">&gt;</button>
-                            </div>
+                <div class="right-column-wrapper" style="display: flex; flex-direction: column; gap: 12px;">
+                    <div class="section-card">
+                        <div class="section-title-wrapper">
+                            <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i>Availability & events</h3>
                         </div>
-                        <div class="cal-grid" id="calendarGrid"></div>
+
+                        <div class="mini-calendar-wrapper">
+                            <div class="cal-header">
+                                <div class="cal-month-title" id="calMonthTitle">June 2026</div>
+                                <div class="cal-controls">
+                                    <button class="cal-btn" onclick="changeMonth(-1)">&lt;</button>
+                                    <button class="cal-btn" onclick="changeMonth(1)">&gt;</button>
+                                </div>
+                            </div>
+                            <div class="cal-grid" id="calendarGrid"></div>
+                        </div>
                     </div>
 
+                    <!-- Desktop-only fun facts (Duolingo-style tips) -->
+                    <div class="research-fun-facts" id="researchFunFacts" aria-live="polite">
+                        <div class="fun-facts-label">
+                            <i data-lucide="sparkles"></i>
+                            <span>Did you know?</span>
+                        </div>
+                        <p class="fun-facts-line">
+                            <span id="funFactTyped"></span><span class="fun-facts-cursor" aria-hidden="true"></span>
+                        </p>
+                        <div class="fun-facts-progress" id="funFactsProgress"></div>
+                    </div>
                 </div>
 
                 <?php if ($overall_complete): ?>
@@ -2742,49 +3082,67 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
 
         <!-- CINEMATIC ZOOM WINDOWS FOR ACTIVE MODULES -->
         <div class="fullscreen-zoom-overlay" id="zoom-stats">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-stats" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-plag">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-plag" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-proposal">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-proposal" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-final">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-final" class="overlay-iframe-container"></iframe>
         </div>
 
         <!-- FULL-SCREEN FRAME PREVIEWS -->
         <div class="fullscreen-zoom-overlay" id="zoom-activities">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-activities" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-chat">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-chat" class="overlay-iframe-container" scrolling="no"></iframe>
         </div>
 
         <!-- SIDEBAR FULLSCREEN ZOOM OVERLAYS -->
         <div class="fullscreen-zoom-overlay" id="zoom-profile">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-profile" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-members">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-members" class="overlay-iframe-container"></iframe>
         </div>
 
         <div class="fullscreen-zoom-overlay" id="zoom-settings">
-            <button class="btn-vector-left-back" onclick="collapseZoomModules()"><i data-lucide="arrow-left"></i></button>
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
             <iframe id="frame-settings" class="overlay-iframe-container"></iframe>
         </div>
     </div>
@@ -3024,6 +3382,26 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             height: 16px;
             stroke-width: 2.5px;
         }
+
+
+        /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
+        @media (max-width: 768px) {
+            #zoom-proposal {
+                top: auto !important;
+                bottom: 0 !important;
+                height: 85vh !important;
+                transform: translateY(100%);
+                border-radius: 24px 24px 0 0 !important;
+                overflow: hidden !important;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.15) !important;
+                transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+                padding-top: 15px !important;
+            }
+
+            #zoom-proposal.active {
+                transform: translateY(0) !important;
+            }
+        }
     </style>
 
     <script>
@@ -3086,6 +3464,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             const applyTheme = () => {
                 document.body.className = newTheme;
                 localStorage.setItem('rd-portal-theme', newTheme);
+                document.querySelectorAll('iframe').forEach(iframe => {
+                    try {
+                        if (iframe.contentWindow && iframe.contentWindow.document) {
+                            iframe.contentWindow.document.body.className = newTheme;
+                        }
+                    } catch (e) {}
+                });
             };
 
             // View Transitions API — circular reveal from click position
@@ -3114,8 +3499,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                     duration: 420,
                     easing: 'ease-in-out',
                     pseudoElement: isDark ?
-                        '::view-transition-old(root)' :
-                        '::view-transition-new(root)'
+                        '::view-transition-old(root)' : '::view-transition-new(root)'
                 });
             });
         }
@@ -3124,6 +3508,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         window.setThemeSafely = function(themeName) {
             document.body.className = themeName;
             localStorage.setItem('rd-portal-theme', themeName);
+            document.querySelectorAll('iframe').forEach(iframe => {
+                try {
+                    if (iframe.contentWindow && iframe.contentWindow.document) {
+                        iframe.contentWindow.document.body.className = themeName;
+                    }
+                } catch (e) {}
+            });
         };
 
         // Instantly synchronize theme changes across frames/tabs via localStorage events
@@ -3138,7 +3529,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             proposal: {
                 title: '1. Proposal Defense',
                 subtitle: 'Steps to complete this stage',
-                color: '#ec4899',
+                color: '#9333ea',
                 icon: 'file-text',
                 steps: [{
                         t: 'Upload required documents',
@@ -3163,7 +3554,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             final: {
                 title: '2. Final Defense',
                 subtitle: 'Requirements for the final thesis defense',
-                color: '#8b5cf6',
+                color: '#7c3aed',
                 icon: 'award',
                 steps: [{
                         t: 'Complete your full manuscript',
@@ -3188,7 +3579,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             stats: {
                 title: '3. Statistics Review',
                 subtitle: 'Submission for statistical validation',
-                color: '#0d9488',
+                color: '#6d28d9',
                 icon: 'calculator',
                 steps: [{
                         t: 'Prepare your data file',
@@ -3213,7 +3604,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             plag: {
                 title: '4. Plagiarism Test',
                 subtitle: 'Originality and integrity verification',
-                color: '#d97706',
+                color: '#5b21b6',
                 icon: 'shield-alert',
                 steps: [{
                         t: 'Prepare your manuscript PDF',
@@ -3266,7 +3657,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                         <div class="modal-step-text"><strong>${s.t}</strong><br>${s.d}</div>
                     </div>`).join('') +
                 `<button class="modal-cta-btn" style="background:${d.color}"
-                    onclick="closeCardModalNow(); zoomLaunchModule('${d.open}','${d.url}')">
+                    onclick="closeCardModalNow(); pushView('${d.open}','${d.url}')">
                     ${arrowSVG} Open ${d.title}
                 </button>`;
 
@@ -3339,20 +3730,25 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             if (view === 'dashboard') {
                 collapseZoomModules();
             } else if (view === 'activities') {
-                zoomLaunchModule('zoom-activities', 'activities_all.php');
+                pushView('zoom-activities', 'activities_all.php');
             } else if (view === 'profile') {
-                zoomLaunchModule('zoom-profile', 'profile.php');
+                pushView('zoom-profile', 'profile.php');
             } else if (view === 'members') {
-                zoomLaunchModule('zoom-members', 'members.php');
+                pushView('zoom-members', 'members.php');
             } else if (view === 'settings') {
-                zoomLaunchModule('zoom-settings', 'settings.php');
+                pushView('zoom-settings', 'settings.php');
             } else if (view === 'chat') {
                 openGroupChat();
             }
         }
 
         // Launch zoom dynamic modules
-        function zoomLaunchModule(panelId, url = null, triggerEl = null) {
+        function pushView(panelId, url = null, triggerEl = null) {
+            const moduleName = panelId.replace("zoom-", "");
+            history.pushState({
+                panelId: panelId,
+                url: url
+            }, "", "#" + moduleName);
             // Locked cards show cosmetic shake + info toast, but DO NOT block access
             if (triggerEl && triggerEl.classList.contains('card-locked')) {
                 const lockIcon = triggerEl.querySelector('.lock-icon-circle');
@@ -3441,7 +3837,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 const badge = document.getElementById('chat-badge');
                 if (badge) badge.style.display = 'none';
             });
-            zoomLaunchModule('zoom-chat', 'message.php');
+            pushView('zoom-chat', 'message.php');
         }
 
 
@@ -3464,17 +3860,17 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                         0: {
                             icon: 'sun',
                             text: 'Clear Sky',
-                            color: '#f59e0b'
+                            color: '#8b5cf6'
                         },
                         1: {
                             icon: 'cloud-sun',
                             text: 'Mainly Clear',
-                            color: '#f59e0b'
+                            color: '#8b5cf6'
                         },
                         2: {
                             icon: 'cloud-sun',
                             text: 'Partly Cloudy',
-                            color: '#94a3b8'
+                            color: '#a78bfa'
                         },
                         3: {
                             icon: 'cloud',
@@ -3484,12 +3880,12 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                         45: {
                             icon: 'cloud-fog',
                             text: 'Foggy',
-                            color: '#94a3b8'
+                            color: '#a78bfa'
                         },
                         48: {
                             icon: 'cloud-fog',
                             text: 'Foggy',
-                            color: '#94a3b8'
+                            color: '#a78bfa'
                         },
                         51: {
                             icon: 'cloud-drizzle',
@@ -3541,7 +3937,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                     const weather = weatherMapping[code] || {
                         icon: 'cloud',
                         text: 'Cloudy',
-                        color: '#94a3b8'
+                        color: '#a78bfa'
                     };
 
                     widgetEl.innerHTML = `
@@ -3563,7 +3959,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 .catch(err => {
                     widgetEl.innerHTML = `
                         <div class="weather-widget-box" style="display: flex; align-items: center; gap: 10px; background: var(--bg-card); border: 1px solid var(--border-subtle); padding: 8px 12px; border-radius: 12px;">
-                            <i data-lucide="sun" style="width: 18px; height: 18px; color: #f59e0b;"></i>
+                            <i data-lucide="sun" style="width: 18px; height: 18px; color: #8b5cf6;"></i>
                             <div style="text-align: left;">
                                 <div style="font-size: 10px; font-weight: 750; color: var(--text-muted); text-transform: uppercase;">Tuguegarao, PH</div>
                                 <div style="font-size: 13px; font-weight: 800; color: var(--text-primary);">28°C • Sunny</div>
@@ -3661,7 +4057,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 console.error("Failed to fetch holidays", e);
             }
         }
-        
+
         fetchHolidays(currentYear);
 
         function renderCalendar() {
@@ -3689,7 +4085,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 const fullDate = `${currentYear}-${String(currentMonth + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
                 const curDateObj = new Date(currentYear, currentMonth, d);
                 const dayOfWeek = curDateObj.getDay(); // 0 is Sunday, 6 is Saturday
-                
+
                 const dbEvents = events.filter(e => e.event_date === fullDate);
                 const holiday = holidaysData.find(h => h.date === fullDate);
 
@@ -3737,7 +4133,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                     currentMonth = 11;
                     currentYear--;
                 }
-                
+
                 if (prevYear !== currentYear) {
                     fetchHolidays(currentYear);
                 } else {
@@ -3760,11 +4156,11 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             const dayOfWeek = d.getDay();
             const dbEvents = events.filter(e => e.event_date === dateStr);
             const holiday = holidaysData.find(h => h.date === dateStr);
-            
+
             const greeter = document.getElementById('mascotGreeter');
             const mascotSub = document.querySelector('.mascot-sub');
             if (!greeter || !mascotSub) return;
-            
+
             let message = '';
 
             if (dayOfWeek === 0) {
@@ -3795,16 +4191,16 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             if (message === '') {
                 message = `Research office is fully available today! ✨`;
             }
-            
+
             mascotSub.innerText = message;
-            
+
             // Pop the mascot in
             greeter.classList.remove('mascot-out');
             greeter.classList.add('mascot-in');
-            
+
             // Clear any existing timer
             if (mascotAutoOutTimer) clearTimeout(mascotAutoOutTimer);
-            
+
             // Auto hide after 3.5 seconds
             mascotAutoOutTimer = setTimeout(() => {
                 greeter.classList.replace('mascot-in', 'mascot-out');
@@ -3824,6 +4220,77 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         });
 
         renderCalendar();
+
+        /* ── Desktop fun facts — typewriter rotation (Duolingo-style tips) ── */
+        (function initResearchFunFacts() {
+            if (!window.matchMedia('(min-width: 1025px)').matches) return;
+
+            const typedEl = document.getElementById('funFactTyped');
+            const progressEl = document.getElementById('funFactsProgress');
+            if (!typedEl || !progressEl) return;
+
+            const facts = [
+                "Finish your Proposal Defense first — it opens the door to every stage after!",
+                "Upload early and your coordinator gets extra time to help you shine.",
+                "Your group chat is the best spot to sync with your research teammates.",
+                "Sundays are rest days — the research office is closed, so plan ahead!",
+                "Each approved file pushes you one step closer to clearing day. Keep going!",
+                "Revision requests aren't setbacks — they're your roadmap to a stronger paper.",
+                "Statistics review and plagiarism checks unlock after Final Defense. Almost there!",
+                "Tap the three dots on any card to see exactly what you need to submit.",
+                "Groups that chat often finish faster — don't ghost your teammates!",
+                "Your rank goes up as you complete milestones. Legend status awaits!",
+                "Check the calendar for office availability before you visit in person.",
+                "Approved uploads turn green — that's your signal to celebrate and move on!"
+            ];
+
+            facts.forEach((_, i) => {
+                const dot = document.createElement('span');
+                dot.className = 'fun-facts-dot' + (i === 0 ? ' active' : '');
+                dot.setAttribute('aria-hidden', 'true');
+                progressEl.appendChild(dot);
+            });
+
+            let factIdx = 0;
+            let charIdx = 0;
+            let deleting = false;
+            let pauseTimer = null;
+
+            function setActiveDot() {
+                progressEl.querySelectorAll('.fun-facts-dot').forEach((d, i) => {
+                    d.classList.toggle('active', i === factIdx);
+                });
+            }
+
+            function tick() {
+                const fact = facts[factIdx];
+                if (!deleting) {
+                    typedEl.textContent = fact.slice(0, charIdx + 1);
+                    charIdx++;
+                    if (charIdx >= fact.length) {
+                        pauseTimer = setTimeout(() => {
+                            deleting = true;
+                            tick();
+                        }, 4200);
+                        return;
+                    }
+                    pauseTimer = setTimeout(tick, 38 + Math.random() * 22);
+                } else {
+                    typedEl.textContent = fact.slice(0, charIdx - 1);
+                    charIdx--;
+                    if (charIdx <= 0) {
+                        deleting = false;
+                        factIdx = (factIdx + 1) % facts.length;
+                        setActiveDot();
+                        pauseTimer = setTimeout(tick, 500);
+                        return;
+                    }
+                    pauseTimer = setTimeout(tick, 18);
+                }
+            }
+
+            setTimeout(tick, 900);
+        })();
 
         document.addEventListener("DOMContentLoaded", function() {
             const params = new URLSearchParams(window.location.search);
@@ -3878,7 +4345,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 };
 
                 if (moduleMap[moduleName]) {
-                    zoomLaunchModule('zoom-' + moduleName, moduleMap[moduleName]);
+                    pushView('zoom-' + moduleName, moduleMap[moduleName]);
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
             }
@@ -3942,7 +4409,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
     </div>
 
     <style>
-        /* ══ MASCOT GREETER ══ */
+        /* ══ MASCOT GREETER — original bubble, repositioned per breakpoint ══ */
         #mascotGreeter {
             position: fixed;
             bottom: 100px;
@@ -3953,21 +4420,56 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             align-items: flex-end;
             gap: 12px;
             transform: translateX(calc(100% + 20px));
-            /* starts off-screen to the right */
             transition: transform 0.7s cubic-bezier(0.175, 0.885, 0.32, 1.3);
             cursor: pointer;
             user-select: none;
+            pointer-events: none;
         }
 
         #mascotGreeter.mascot-in {
             transform: translateX(-24px);
-            /* slides in */
+            pointer-events: auto;
         }
 
         #mascotGreeter.mascot-out {
             transform: translateX(calc(100% + 40px));
-            /* slides back out */
             transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+            pointer-events: none;
+        }
+
+        /* Mobile — centered above dock */
+        @media (max-width: 1024px) {
+            #mascotGreeter {
+                bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+                left: 50%;
+                right: auto;
+                flex-direction: column-reverse;
+                align-items: center;
+                text-align: center;
+                transform: translateX(-50%) translateY(40px);
+                opacity: 0;
+                transition: transform 0.65s cubic-bezier(0.175, 0.885, 0.32, 1.25), opacity 0.5s var(--smooth);
+            }
+
+            #mascotGreeter.mascot-in {
+                transform: translateX(-50%) translateY(0);
+                opacity: 1;
+            }
+
+            #mascotGreeter.mascot-out {
+                transform: translateX(-50%) translateY(24px);
+                opacity: 0;
+            }
+        }
+
+        @media (max-width: 640px) {
+            #mascotGreeter {
+                bottom: calc(88px + env(safe-area-inset-bottom, 0px));
+            }
+
+            #mascotBody {
+                width: 72px;
+            }
         }
 
         #mascotBody {
@@ -4030,7 +4532,7 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             }
         }
 
-        /* Speech bubble */
+        /* Speech bubble — original glass design */
         #mascotBubble {
             background: rgba(255, 255, 255, 0.88);
             backdrop-filter: blur(16px);
@@ -4044,6 +4546,13 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
             gap: 3px;
             max-width: 180px;
             animation: bubblePop 0.4s 0.5s var(--spring, cubic-bezier(0.175, 0.885, 0.32, 1.275)) both;
+        }
+
+        @media (max-width: 1024px) {
+            #mascotBubble {
+                border-radius: 18px 18px 18px 4px;
+                max-width: 220px;
+            }
         }
 
         @keyframes bubblePop {
@@ -4083,6 +4592,26 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
         body.theme-dark #mascotMsg {
             color: #ede9fe;
         }
+
+
+        /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
+        @media (max-width: 768px) {
+            #zoom-proposal {
+                top: auto !important;
+                bottom: 0 !important;
+                height: 85vh !important;
+                transform: translateY(100%);
+                border-radius: 24px 24px 0 0 !important;
+                overflow: hidden !important;
+                box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.15) !important;
+                transition: transform 0.3s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1);
+                padding-top: 15px !important;
+            }
+
+            #zoom-proposal.active {
+                transform: translateY(0) !important;
+            }
+        }
     </style>
 
     <script>
@@ -4106,6 +4635,82 @@ $theme_glow = ($department_code === 'ISAP') ? 'rgba(185, 28, 28, 0.12)' : 'rgba(
                 greeter.classList.replace('mascot-in', 'mascot-out');
             });
         })();
+
+        // Handle native back button for slide-in modules
+        window.addEventListener('popstate', function(event) {
+            const hash = window.location.hash.replace('#', '');
+            if (!hash || !document.getElementById('zoom-' + hash)) {
+                collapseZoomModules();
+            } else {
+                const activeOverlays = document.querySelectorAll('.fullscreen-zoom-overlay.active');
+                if (activeOverlays.length > 0) {
+                    collapseZoomModules();
+                }
+            }
+        });
+    </script>
+
+    <script>
+        // Bottom Sheet Drag Logic for Proposal Defense
+        document.addEventListener('DOMContentLoaded', () => {
+            const proposalSheet = document.getElementById('zoom-proposal');
+            if (!proposalSheet) return;
+
+            let startY = 0;
+            let currentY = 0;
+            let isDragging = false;
+            const threshold = 150; // pixels to drag down before closing
+
+            // Create drag handle
+            const handle = document.createElement('div');
+            handle.className = 'sheet-drag-handle';
+            handle.style.cssText = 'width: 40px; height: 4px; background: #e2e8f0; border-radius: 2px; margin: 0 auto 15px auto; flex-shrink: 0;';
+            proposalSheet.insertBefore(handle, proposalSheet.firstChild);
+
+            proposalSheet.addEventListener('touchstart', (e) => {
+                if (window.innerWidth > 768) return;
+                // Only allow drag from the top 50px (header area) to avoid interfering with scrolling
+                const touchY = e.touches[0].clientY;
+                const rect = proposalSheet.getBoundingClientRect();
+                if (touchY - rect.top > 60) return;
+
+                startY = touchY;
+                isDragging = true;
+                proposalSheet.style.transition = 'none'; // Disable transition for direct manipulation
+            }, {
+                passive: true
+            });
+
+            proposalSheet.addEventListener('touchmove', (e) => {
+                if (!isDragging) return;
+                currentY = e.touches[0].clientY;
+                const deltaY = currentY - startY;
+
+                // Only allow dragging downwards
+                if (deltaY > 0) {
+                    proposalSheet.style.transform = `translateY(${deltaY}px)`;
+                }
+            }, {
+                passive: true
+            });
+
+            proposalSheet.addEventListener('touchend', (e) => {
+                if (!isDragging) return;
+                isDragging = false;
+
+                proposalSheet.style.transition = 'transform 0.4s cubic-bezier(0.2, 0.8, 0.2, 1), height 0.3s cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+                const deltaY = currentY - startY;
+                if (deltaY > threshold) {
+                    // Trigger close
+                    collapseZoomModules();
+                    proposalSheet.style.transform = ''; // reset for next open
+                } else {
+                    // Snap back
+                    proposalSheet.style.transform = 'translateY(0)';
+                }
+            });
+        });
     </script>
 </body>
 

@@ -1,0 +1,78 @@
+/* assets/mascot/mascot.css */
+
+#quill-container {
+    width: 130px;
+    height: 130px;
+    margin: 0; 
+    position: relative;
+    z-index: 10;
+    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+#quill-svg {
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+}
+
+/* Base Transitions */
+#quill-wingL,
+#quill-wingR,
+#quill-pupils,
+#quill-eyes-squash {
+    transition: transform 0.3s ease, opacity 0.2s ease;
+}
+
+/* ── IDLE STATE (Blinking) ── */
+.quill-idle #quill-eyes-squash {
+    animation: quillSquashBlink 4s infinite;
+}
+
+/* Proper anatomical blinking: the entire eye scales down vertically to a slit */
+@keyframes quillSquashBlink {
+    0%, 95%, 100% { transform: scaleY(1); }
+    97% { transform: scaleY(0.1); }
+}
+
+/* ── SHY STATE (Password Focus) ── */
+/* When covering eyes, translate to eyes globally, then rotate */
+.quill-shy #quill-wingL {
+    transform: translate(14px, -20px) rotate(140deg) scale(1.3);
+}
+
+.quill-shy #quill-wingR {
+    transform: translate(-14px, -20px) rotate(-140deg) scale(1.3);
+}
+
+/* Optionally make pupils look down when shy */
+.quill-shy #quill-pupils {
+    transform: translate(0, 3px);
+}
+
+/* ── WAVE STATE (Tiptoe & Wave) ── */
+.quill-wave #quill-body-group {
+    /* Pivot directly on the right planted foot so it never detaches */
+    transform-origin: 74px 130px !important;
+    transform: rotate(8deg);
+}
+
+.quill-wave #quill-footL {
+    /* Left foot lifts up and angles as the body pivots */
+    transform: translateY(-8px) rotate(15deg);
+}
+/* Right foot stays planted */
+
+.quill-wave #quill-wingL {
+    /* Left wing waves high */
+    animation: quillWaveHigh 0.4s ease-in-out infinite alternate;
+}
+
+@keyframes quillWaveHigh {
+    from { transform: translate(-2px, -4px) rotate(-130deg) scale(1.1); }
+    to { transform: translate(-4px, -6px) rotate(-170deg) scale(1.1); }
+}
+
+.quill-wave #quill-wingR {
+    /* Right wing tucks in for balance */
+    transform: rotate(30deg) translate(-5px, 5px);
+}

@@ -95,7 +95,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
                 // Log the auto-approval
                 $log_stmt = $pdo->prepare("
                     INSERT INTO activity_logs (user_id, title, description, status_type, created_at)
-                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                                VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
                 ");
                 $item_name = ($item_id == 15) ? 'Data Gathering Tool' : 'Literature Matrix';
                 $log_stmt->execute([

@@ -7,7 +7,17 @@ if (!isset($_SESSION['user_id'])) { header("Location: ../auth/login.php"); exit(
 $user_id = $_SESSION['user_id'];
 $me_role = $_SESSION['role'];
 
-// Resilient self-bootstrapping table check/creation for group_messages
+function timeAgo($datetime) {
+    if (!$datetime) return '';
+    $time = strtotime($datetime);
+    $diff = time() - $time;
+    if ($diff < 60) return 'Just now';
+    if ($diff < 3600) return floor($diff / 60) . 'm';
+    if ($diff < 86400) return floor($diff / 3600) . 'h';
+    if ($diff < 172800) return 'Yesterday';
+    return date('M j', $time);
+}
+
 try {
     $pdo->exec("CREATE TABLE IF NOT EXISTS group_messages (
         message_id INT AUTO_INCREMENT PRIMARY KEY,
@@ -16,51 +26,19 @@ try {
         message_text TEXT NOT NULL,
         attachment_path VARCHAR(255) DEFAULT NULL,
         attachment_name VARCHAR(255) DEFAULT NULL,
+        reaction VARCHAR(50) DEFAULT NULL,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )");
-} catch (Exception $e) {
-    try {
-        $pdo->exec("CREATE TABLE IF NOT EXISTS group_messages (
-            message_id INTEGER PRIMARY KEY AUTOINCREMENT,
-            group_identifier INTEGER NOT NULL,
-            sender_id INTEGER NOT NULL,
-            message_text TEXT NOT NULL,
-            attachment_path TEXT DEFAULT NULL,
-            attachment_name TEXT DEFAULT NULL,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )");
-    } catch (Exception $e2) {
-        try {
-            $pdo->exec("CREATE TABLE IF NOT EXISTS group_messages (
-                message_id SERIAL PRIMARY KEY,
-                group_identifier INTEGER NOT NULL,
-                sender_id INTEGER NOT NULL,
-                message_text TEXT NOT NULL,
-                attachment_path VARCHAR(255) DEFAULT NULL,
-                attachment_name VARCHAR(255) DEFAULT NULL,
-                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )");
-        } catch (Exception $e3) { }
-    }
-}
+} catch (Exception $e) {}
 
-// Resilient column checks/additions for existing deployments
-try {
-    $pdo->exec("ALTER TABLE group_messages ADD COLUMN attachment_path VARCHAR(255) DEFAULT NULL");
-} catch (Exception $e) { }
-try {
-    $pdo->exec("ALTER TABLE group_messages ADD COLUMN attachment_name VARCHAR(255) DEFAULT NULL");
-} catch (Exception $e) { }
+$stmt_leader_check = $pdo->prepare("SELECT leader_id FROM users WHERE user_id = ?");
+$stmt_leader_check->execute([$user_id]);
+$u_data = $stmt_leader_check->fetch();
+$is_leader = ($me_role === 'Student' && empty($u_data['leader_id']));
+$leader_id = ($me_role === 'Student') ? (!empty($u_data['leader_id']) ? $u_data['leader_id'] : $user_id) : 0;
+$group_identifier = $leader_id;
 
-// Determine effective leader_id if student (students share same chat feed inside their own research group)
-if ($me_role === 'Student') {
-    $stmt_leader_check = $pdo->prepare("SELECT leader_id FROM users WHERE user_id = ?");
-    $stmt_leader_check->execute([$user_id]);
-    $u_data = $stmt_leader_check->fetch();
-    $leader_id = $u_data['leader_id'] ?? $user_id; // If they have no leader, they are the leader themselves
-    $group_identifier = $leader_id;
-} else {
-    // Coordinator sees all messages directed to departments or general
+if ($me_role !== 'Student') {
     $chat_context = $_GET['chat_context'] ?? '0';
     if (strpos($chat_context, 'group_') === 0) {
         $group_identifier = intval(str_replace('group_', '', $chat_context));
@@ -68,272 +46,1049 @@ if ($me_role === 'Student') {
         $group_identifier = intval($chat_context);
     }
 }
+if (empty($group_identifier) && $me_role === 'Student') { $group_identifier = $user_id; }
 
-if (empty($group_identifier)) {
-    $group_identifier = $user_id;
-}
-
-$me_username = $_SESSION['username'];
+$me_username = $_SESSION['username'] ?? 'User';
 $selected_avatar = $_SESSION['profile_pic'] ?? "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($me_username);
 
-// API/Form action to post message with potential file attachment
+// Handle AJAX group message reaction
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'react_group_message') {
+    $msg_id = intval($_POST['message_id'] ?? 0);
+    $reaction = $_POST['reaction'] ?? '';
+    if ($msg_id > 0) {
+        $stmt = $pdo->prepare("UPDATE group_messages SET reaction = ? WHERE message_id = ?");
+        $stmt->execute([$reaction, $msg_id]);
+    }
+    echo json_encode(['status' => 'success']);
+    exit;
+}
+
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['action'] === 'send_message') {
     $msg_text = trim($_POST['message_text'] ?? '');
     
-    $attachment_path = null;
-    $attachment_name = null;
-    
-    // File upload logic
-    if (isset($_FILES['attachment']) && $_FILES['attachment']['error'] === UPLOAD_ERR_OK) {
-        $file = $_FILES['attachment'];
-        $original_name = basename($file['name']);
-        $ext = strtolower(pathinfo($original_name, PATHINFO_EXTENSION));
-        
-        $allowed_exts = ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'jpg', 'jpeg', 'png', 'gif', 'zip'];
-        if (in_array($ext, $allowed_exts)) {
-            $upload_dir = '../uploads/';
-            if (!is_dir($upload_dir)) {
-                mkdir($upload_dir, 0777, true);
-            }
-            $new_filename = 'msg_' . time() . '_' . rand(1000, 9999) . '.' . $ext;
-            $file_path = $upload_dir . $new_filename;
-            if (move_uploaded_file($file['tmp_name'], $file_path)) {
-                $attachment_path = '../uploads/' . $new_filename;
-                $attachment_name = $original_name;
-            }
-        }
+    if (!empty($msg_text)) {
+        $stmt_send = $pdo->prepare("INSERT INTO group_messages (group_identifier, sender_id, message_text) VALUES (?, ?, ?)");
+        $stmt_send->execute([$group_identifier, $user_id, $msg_text]);
     }
-    
-    if (!empty($msg_text) || !empty($attachment_path)) {
-        $stmt_send = $pdo->prepare("INSERT INTO group_messages (group_identifier, sender_id, message_text, attachment_path, attachment_name) VALUES (?, ?, ?, ?, ?)");
-        $stmt_send->execute([$group_identifier, $user_id, $msg_text, $attachment_path, $attachment_name]);
-    }
-    
-    // Return simple JSON if AJAX, otherwise regular redirect
     if (!empty($_SERVER['HTTP_X_REQUESTED_WITH']) && strtolower($_SERVER['HTTP_X_REQUESTED_WITH']) == 'xmlhttprequest') {
         echo json_encode(['status' => 'success']);
         exit;
     }
-    header("Location: message.php?chat_context=group_" . urlencode($group_identifier));
+    header("Location: message.php?chat_context=group_" . urlencode($group_identifier) . "&active_contact=group_chat");
     exit;
 }
 
-// Fetch messages joined with users to get sender details
+$group_messages = [];
 try {
     $stmt_msg = $pdo->prepare("SELECT gm.*, u.username as sender_name, u.profile_pic as sender_avatar FROM group_messages gm LEFT JOIN users u ON gm.sender_id = u.user_id WHERE gm.group_identifier = ? ORDER BY gm.created_at ASC LIMIT 100");
     $stmt_msg->execute([$group_identifier]);
-    $messages = $stmt_msg->fetchAll();
-} catch (Exception $e) {
-    $messages = [];
+    $group_messages = $stmt_msg->fetchAll();
+} catch (Exception $e) {}
+
+$contacts = [];
+if ($me_role === 'Student') {
+    $stmt_last_grp = $pdo->prepare("SELECT message_text, attachment_path, created_at FROM group_messages WHERE group_identifier = ? ORDER BY created_at DESC LIMIT 1");
+    $stmt_last_grp->execute([$leader_id]);
+    $last_grp = $stmt_last_grp->fetch();
+    
+    $grp_preview = $last_grp ? ($last_grp['message_text'] ?: 'Sent an attachment') : 'Start a conversation';
+    $grp_time = $last_grp ? timeAgo($last_grp['created_at']) : '';
+    
+    $contacts[] = ['id' => 'group_chat', 'name' => 'My Research Group', 'type' => 'group', 'icon' => 'users', 'unread' => 0, 'preview' => $grp_preview, 'time' => $grp_time, 'category' => 'groups'];
+    
+    if ($is_leader) {
+        $roles = ['Research Coordinator', 'Statistician', 'Research Director'];
+        foreach ($roles as $r) {
+            $stmt = $pdo->prepare("SELECT conversation_id, status FROM staff_conversations WHERE group_leader_id = ? AND staff_role = ?");
+            $stmt->execute([$user_id, $r]);
+            $conv = $stmt->fetch();
+            $unread = 0;
+            $preview = 'No messages yet';
+            $time = '';
+            
+            if ($conv) {
+                $stmt2 = $pdo->prepare("SELECT COUNT(*) FROM staff_messages sm LEFT JOIN staff_message_reads smr ON sm.conversation_id = smr.conversation_id AND smr.user_id = ? WHERE sm.conversation_id = ? AND (smr.last_read_at IS NULL OR sm.created_at > smr.last_read_at) AND sm.sender_id != ?");
+                $stmt2->execute([$user_id, $conv['conversation_id'], $user_id]);
+                $unread = $stmt2->fetchColumn();
+                
+                $stmt_last_staff = $pdo->prepare("SELECT message_text, created_at FROM staff_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1");
+                $stmt_last_staff->execute([$conv['conversation_id']]);
+                $last_staff = $stmt_last_staff->fetch();
+                if ($last_staff) {
+                    $preview = $last_staff['message_text'];
+                    $time = timeAgo($last_staff['created_at']);
+                }
+            }
+            $icon = ($r === 'Research Coordinator') ? 'landmark' : (($r === 'Statistician') ? 'bar-chart-2' : 'graduation-cap');
+            $contacts[] = [
+                'id' => 'role_' . str_replace(' ', '_', $r), 'name' => $r, 'type' => 'role', 'role' => $r,
+                'icon' => $icon, 'status' => $conv ? $conv['status'] : 'none', 'unread' => $unread, 'preview' => $preview, 'time' => $time, 'category' => 'staff'
+            ];
+        }
+    }
+} else {
+    $stmt = $pdo->prepare("
+        SELECT sc.conversation_id, sc.group_leader_id, sc.status, sc.updated_at, u.research_group_name 
+        FROM staff_conversations sc JOIN users u ON sc.group_leader_id = u.user_id WHERE sc.staff_role = ? ORDER BY sc.updated_at DESC
+    ");
+    $stmt->execute([$me_role]);
+    $convs = $stmt->fetchAll();
+    foreach ($convs as $c) {
+        $stmt2 = $pdo->prepare("SELECT COUNT(*) FROM staff_messages sm LEFT JOIN staff_message_reads smr ON sm.conversation_id = smr.conversation_id AND smr.user_id = ? WHERE sm.conversation_id = ? AND (smr.last_read_at IS NULL OR sm.created_at > smr.last_read_at) AND sm.sender_id != ?");
+        $stmt2->execute([$user_id, $c['conversation_id'], $user_id]);
+        $unread = $stmt2->fetchColumn();
+        
+        $preview = 'No messages yet';
+        $time = '';
+        $stmt_last_staff = $pdo->prepare("SELECT message_text, created_at FROM staff_messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 1");
+        $stmt_last_staff->execute([$c['conversation_id']]);
+        $last_staff = $stmt_last_staff->fetch();
+        if ($last_staff) {
+            $preview = $last_staff['message_text'];
+            $time = timeAgo($last_staff['created_at']);
+        }
+        
+        $grp_name = $c['research_group_name'] ?: 'Group ' . $c['group_leader_id'];
+        $contacts[] = [
+            'id' => 'group_' . $c['group_leader_id'], 'name' => $grp_name, 'type' => 'role', 'group_id' => $c['group_leader_id'],
+            'icon' => 'users', 'status' => $c['status'], 'unread' => $unread, 'preview' => $preview, 'time' => $time, 'category' => 'groups'
+        ];
+    }
 }
+
+$is_single_contact = (count($contacts) === 1);
+$active_contact_id = $_GET['active_contact'] ?? '';
+
+if (empty($active_contact_id) && $is_single_contact) {
+    $active_contact_id = $contacts[0]['id'];
+    $show_chat_mobile = true;
+} else if (empty($active_contact_id)) {
+    $active_contact_id = $contacts[0]['id'] ?? '';
+    $show_chat_mobile = false;
+} else {
+    $show_chat_mobile = true;
+}
+
+$active_contact_info = null;
+foreach ($contacts as $c) {
+    if ($c['id'] === $active_contact_id) {
+        $active_contact_info = $c;
+        break;
+    }
+}
+
+$pinned_contacts = array_filter($contacts, fn($c) => $c['id'] === 'group_chat');
+$normal_contacts = array_filter($contacts, fn($c) => $c['id'] !== 'group_chat');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Research Messenger Desk</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Research Messenger</title>
+    <script src="https://unpkg.com/lucide@latest"></script>
     <style>
-        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
+        
         :root { 
-            --bg-beige: #f9f7f2; --bg-white: #ffffff; --mcnp-teal: #0c343d; --mcnp-hover: #144652;
-            --border-line: #e5e7eb; --text-muted: #6b7280; --text-dark: #1f2937;
-            --bubble-self: #0c343d; --text-self: #ffffff;
-            --bubble-other: #f3f4f6; --text-other: #1f2937;
+            --bg-white: #ffffff; 
+            --bg-beige: #f9f7f2;
+            --bg-hover: #f1f5f9;
+            --bg-chat-stream: #faf9f6; 
+            --mcnp-teal: #0f172a; 
+            --accent: #7c3aed;
+            --accent-transparent: rgba(124, 58, 237, 0.08);
+            --border-line: #e2e8f0; 
+            --text-muted: #64748b; 
+            --text-lighter: #94a3b8; 
+            --text-dark: #0f172a;
+            
+            --bubble-self: var(--accent); 
+            --text-self: #ffffff; 
+            --bubble-other: #ffffff; 
+            --text-other: var(--text-dark); 
+            
             --ui-sans: 'Inter', system-ui, -apple-system, sans-serif;
+            --sidebar-width: 340px;
         }
+        
+        body.theme-dark { 
+            --bg-beige: #0f1214; --bg-white: #1e293b; --bg-hover: #334155; --bg-chat-stream: #0f172a; --mcnp-teal: #38bdf8; --accent: #38bdf8; 
+            --accent-transparent: rgba(56, 189, 248, 0.1);
+            --border-line: #334155; --text-muted: #94a3b8; --text-lighter: #475569; --text-dark: #f8fafc; 
+            --bubble-other: #334155; --text-other: #f8fafc;
+        }
+        body.theme-green { --bg-beige: #f2f8f2; --bg-chat-stream: #f8fbf8; --mcnp-teal: #1e3f20; --accent: #2d5f30; --border-line: #cbdacd; }
+        body.theme-red { --bg-beige: #f9f5f5; --bg-chat-stream: #fcfaf8; --mcnp-teal: #571616; --accent: #731e1e; --border-line: #dbc8c8; }
+        body.theme-purple { --bg-beige: #f6f4fa; --bg-chat-stream: #f9f8fc; --mcnp-teal: #3b1e5a; --accent: #7c3aed; --border-line: #ddd6fe; }
+
         * { box-sizing: border-box; margin: 0; padding: 0; }
         html, body { height: 100%; width: 100%; overflow: hidden; }
-        body { font-family: 'Cambria', serif; background-color: var(--bg-white); color: var(--text-dark); display: flex; flex-direction: column; transition: 0.3s; }
         
-        .chat-app-container {
-            position: fixed;
-            top: 0;
-            bottom: 0;
-            left: 0;
-            right: 0;
-            display: flex;
-            flex-direction: column;
-            background: var(--bg-white);
-        }
-        
-        /* Coordinator Context Panel selection layout elements optionally compiled */
-        
-        .chat-main-panel {
-            display: flex;
-            flex-direction: column;
-            height: 100%;
-            width: 100%;
-            overflow: hidden;
-            background: var(--bg-white);
-        }
-        
-        /* Chat Area Header */
-        .chat-header { display: flex; align-items: center; justify-content: space-between; padding: 18px 24px; border-bottom: 1px solid var(--border-line); background: var(--bg-white); flex-shrink: 0; }
-        .chat-header-info h3 { font-family: var(--ui-sans); font-size: 16px; font-weight: 800; color: var(--mcnp-teal); }
-        .chat-header-info p { font-size: 12px; color: var(--text-muted); }
- 
-        /* Messages Stream Area SCROLL */
-        .messages-stream-box {
-            flex: 1;
-            min-height: 0;
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
+        body { 
+            font-family: var(--ui-sans); 
+            background: transparent; 
+            color: var(--text-dark); 
+            display: flex; 
             padding: 24px;
+        }
+        
+        .chat-app-container { 
+            display: flex; 
+            height: 100%; 
+            width: 100%; 
+            background: var(--bg-white);
+            border-radius: 16px;
+            box-shadow: 0 4px 24px -8px rgba(0,0,0,0.06);
+            border: 1px solid var(--border-line);
+            overflow: hidden;
+        }
+        
+        /* Sidebar */
+        .chat-sidebar { 
+            width: var(--sidebar-width); 
+            background: var(--bg-white); 
+            border-right: 1px solid var(--border-line); 
+            display: flex; 
+            flex-direction: column; 
+            flex-shrink: 0; 
+            z-index: 10;
+        }
+        .sidebar-header { 
+            padding: 24px 20px 16px 20px; 
+            border-bottom: 1px solid var(--border-line); 
             display: flex;
             flex-direction: column;
-            gap: 15px;
-            background: var(--bg-beige);
+            gap: 16px;
+            background: var(--bg-white);
         }
-        .messages-stream-box::-webkit-scrollbar { width: 6px; }
-        .messages-stream-box::-webkit-scrollbar-thumb { background-color: rgba(0,0,0,0.15); border-radius: 10px; }
+        .sidebar-header h2 { 
+            font-size: 20px; 
+            font-weight: 800; 
+            color: var(--text-dark); 
+            letter-spacing: -0.02em;
+        }
         
-        .message-row { display: flex; gap: 12px; max-width: 70%; width: fit-content; align-items: flex-end; }
-        .message-row.self { margin-left: auto; flex-direction: row-reverse; max-width: 70%; }
+        /* Search */
+        .search-box {
+            display: flex;
+            align-items: center;
+            background: var(--bg-hover);
+            border-radius: 8px;
+            padding: 8px 12px;
+            gap: 8px;
+            transition: all 0.2s;
+            border: 1px solid transparent;
+        }
+        .search-box:focus-within {
+            background: var(--bg-white);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+        }
+        .search-box input {
+            border: none;
+            background: transparent;
+            outline: none;
+            font-family: var(--ui-sans);
+            font-size: 14px;
+            color: var(--text-dark);
+            width: 100%;
+        }
+        .search-box i { color: var(--text-muted); width: 16px; height: 16px; }
+
+        /* Filter Chips */
+        .filter-chips {
+            display: flex;
+            gap: 8px;
+            overflow-x: auto;
+            padding-bottom: 4px;
+            scrollbar-width: none;
+        }
+        .filter-chips::-webkit-scrollbar { display: none; }
+        .filter-chip {
+            padding: 4px 12px;
+            background: var(--bg-hover);
+            color: var(--text-muted);
+            border-radius: 12px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.2s;
+            white-space: nowrap;
+        }
+        .filter-chip.active {
+            background: var(--text-dark);
+            color: var(--bg-white);
+        }
+        .filter-chip:hover:not(.active) {
+            background: var(--border-line);
+        }
         
-        .sender-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; border: 1.5px solid var(--mcnp-teal); background: white; flex-shrink: 0; }
+        .contact-list { 
+            flex: 1; 
+            overflow-y: auto; 
+            padding: 12px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 4px; 
+            background: var(--bg-white);
+        }
         
-        .message-bubble-data { display: flex; flex-direction: column; gap: 4px; }
-        .message-bubble-data .sender-title { font-family: var(--ui-sans); font-size: 11px; font-weight: bold; color: var(--text-muted); padding-left: 6px; }
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: var(--border-line); border-radius: 10px; }
+        ::-webkit-scrollbar-thumb:hover { background: var(--text-lighter); }
+
+        .list-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-lighter);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 12px 12px 4px 12px;
+        }
+
+        /* Contact Items */
+        .contact-item { 
+            display: flex; 
+            align-items: center; 
+            gap: 14px; 
+            padding: 12px; 
+            border-radius: 12px; 
+            cursor: pointer; 
+            transition: all 0.15s ease; 
+            text-decoration: none; 
+            color: inherit; 
+            background: transparent;
+            position: relative;
+        }
+        .contact-item:hover { background: var(--bg-hover); }
+        .contact-item.active { 
+            background: var(--bg-hover); 
+        }
+        
+        /* Pinned Group overrides */
+        .contact-item.pinned {
+            background: var(--accent-transparent);
+            border: 1px solid rgba(124, 58, 237, 0.1);
+        }
+        .contact-item.pinned:hover {
+            background: rgba(124, 58, 237, 0.12);
+        }
+        .contact-item.pinned.active {
+            background: var(--accent);
+            color: white;
+            box-shadow: 0 4px 12px rgba(124, 58, 237, 0.2);
+        }
+        
+        /* Avatar & Icon */
+        .contact-avatar { 
+            width: 44px; 
+            height: 44px; 
+            border-radius: 50%; 
+            background: var(--bg-white); 
+            border: 1px solid var(--border-line); 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            flex-shrink: 0; 
+            color: var(--text-dark); 
+            position: relative;
+        }
+        .contact-item.active:not(.pinned) .contact-avatar {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .contact-item.pinned:not(.active) .contact-avatar {
+            border-color: var(--accent);
+            color: var(--accent);
+        }
+        .contact-item.pinned.active .contact-avatar {
+            background: rgba(255,255,255,0.2);
+            border-color: transparent;
+            color: white;
+        }
+        
+        .contact-avatar svg { width: 20px; height: 20px; }
+        
+        /* Online Status Dot */
+        .status-dot {
+            position: absolute;
+            bottom: 0;
+            right: 0;
+            width: 12px;
+            height: 12px;
+            background: #10b981;
+            border: 2px solid var(--bg-white);
+            border-radius: 50%;
+        }
+        .contact-item.active .status-dot { border-color: var(--bg-hover); }
+        .contact-item.pinned.active .status-dot { border-color: var(--accent); }
+
+        .contact-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .contact-header { display: flex; justify-content: space-between; align-items: center; }
+        .contact-name { font-weight: 600; font-size: 14px; color: var(--text-dark); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .contact-time { font-size: 11px; color: var(--text-lighter); font-weight: 500; flex-shrink: 0; }
+        
+        .contact-footer { display: flex; justify-content: space-between; align-items: center; }
+        .contact-preview { font-size: 13px; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 180px; }
+        
+        /* Active text colors */
+        .contact-item.pinned.active .contact-name,
+        .contact-item.pinned.active .contact-time,
+        .contact-item.pinned.active .contact-preview { color: white; }
+        
+        .badge-unread { background: var(--accent); color: white; font-size: 11px; font-weight: 700; padding: 2px 6px; border-radius: 12px; display: inline-block; flex-shrink: 0; line-height: 1.2; }
+        .contact-item.pinned.active .badge-unread { background: white; color: var(--accent); }
+
+        /* Main Panel */
+        .chat-main-panel { 
+            flex: 1; 
+            display: flex; 
+            flex-direction: column; 
+            min-width: 0; 
+            background: var(--bg-chat-stream); 
+            position: relative;
+        }
+
+        /* Chat Header */
+        .chat-main-header {
+            padding: 16px 28px;
+            border-bottom: 1px solid var(--border-line);
+            background: var(--bg-white);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            z-index: 5;
+            box-shadow: 0 4px 20px -10px rgba(0,0,0,0.02);
+        }
+        .chat-main-header-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        .header-avatar {
+            width: 40px; height: 40px;
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-transparent);
+        }
+        .header-avatar svg { width: 18px; height: 18px; }
+        .header-avatar .status-dot { border-color: var(--bg-white); }
+        .header-text-container { display: flex; flex-direction: column; }
+        .header-name { font-weight: 700; font-size: 15.5px; color: var(--text-dark); letter-spacing: -0.01em; }
+        .header-status { font-size: 12px; font-weight: 500; color: #10b981; }
+
+        .chat-main-header-actions {
+            display: flex;
+            gap: 8px;
+        }
+        /* Call buttons removed as requested */
+        .icon-btn {
+            width: 36px; height: 36px;
+            border-radius: 50%;
+            border: 1px solid transparent;
+            background: transparent;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .icon-btn:hover {
+            background: var(--bg-hover);
+            color: var(--text-dark);
+            border-color: var(--border-line);
+        }
+        .icon-btn svg { width: 18px; height: 18px; }
+
+        .messages-stream-box { 
+            flex: 1; 
+            min-height: 0; 
+            overflow-y: auto; 
+            padding: 24px 32px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px; 
+            background: transparent; 
+        }
+
+        .date-separator {
+            text-align: center;
+            margin: 10px 0;
+            position: relative;
+        }
+        .date-separator::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 50%; width: 100%; height: 1px;
+            background: var(--border-line);
+            z-index: 0;
+        }
+        .date-separator-text {
+            background: var(--bg-chat-stream);
+            padding: 0 12px;
+            color: var(--text-lighter);
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            position: relative;
+            z-index: 1;
+        }
+
+        .message-row { display: flex; gap: 12px; max-width: 75%; width: fit-content; align-items: flex-end; position: relative; }
+        .message-row.self { margin-left: auto; flex-direction: row-reverse; }
+        
+        .sender-avatar { 
+            width: 32px; 
+            height: 32px; 
+            border-radius: 50%; 
+            object-fit: cover; 
+            border: 2px solid var(--bg-white); 
+            background: white; 
+            flex-shrink: 0; 
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+        }
+        .message-bubble-data { display: flex; flex-direction: column; gap: 6px; }
+        .message-bubble-data .sender-title { font-size: 11.5px; font-weight: 700; color: var(--text-muted); padding-left: 6px; }
         .message-row.self .message-bubble-data .sender-title { text-align: right; padding-right: 6px; }
         
-        .chat-text-balloon { padding: 12px 18px; border-radius: 18px; font-size: 14px; font-family: var(--ui-sans); line-height: 1.45; word-break: break-word; box-shadow: 0 4px 10px rgba(0,0,0,0.02); }
-        .message-row.self .chat-text-balloon { background: var(--bubble-self); color: var(--text-self); border-bottom-right-radius: 4px; }
-        .message-row.other .chat-text-balloon { background: var(--bubble-other); color: var(--text-other); border-bottom-left-radius: 4px; }
-        
-        .time-label { font-size: 9px; color: var(--text-muted); padding: 0 6px; font-family: var(--ui-sans); margin-top: 2px; }
-        .message-row.self .time-label { text-align: right; }
-
-        /* Input control desk footer */
-        .chat-keyboard-bar { padding: 16px 24px; border-top: 1px solid var(--border-line); background: var(--bg-white); flex-shrink: 0; }
-        .chat-input-form { display: flex; align-items: center; gap: 12px; }
-        .chat-msg-textarea { flex: 1; padding: 14px 18px; border-radius: 24px; border: 1.5px solid var(--border-line); background: var(--bg-beige); font-family: var(--ui-sans); font-size: 14px; resize: none; outline: none; height: 48px; line-height: 1.2; }
-        .chat-msg-textarea:focus { border-color: var(--mcnp-teal); background: var(--bg-white); }
-        
-        .btn-attach { width: 48px; height: 48px; border-radius: 50%; border: 1.5px solid var(--border-line); background: var(--bg-white); color: var(--text-muted); display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.2s; flex-shrink: 0; }
-        .btn-attach:hover { color: var(--mcnp-teal); border-color: var(--mcnp-teal); background: var(--bg-beige); }
-        .btn-attach svg { width: 20px; height: 20px; stroke-width: 2.5px; fill: none; stroke: currentColor; }
-
-        .btn-post-msg { font-family: var(--ui-sans); width: 48px; height: 48px; border-radius: 50%; border: none; background: linear-gradient(to bottom right, var(--mcnp-teal), var(--mcnp-hover)); color: white; display: flex; align-items: center; justify-content: center; cursor: pointer; box-shadow: 0 4px 6px rgba(0,0,0,0.1); transition: 0.2s; flex-shrink: 0; }
-        .btn-post-msg:hover { transform: scale(1.05); }
-        .btn-post-msg svg { width: 18px; height: 18px; stroke-width: 2.5px; fill: none; stroke: currentColor; }
-
-        /* Attachment preview styling */
-        .attachment-preview-bar { display: none; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--bg-beige); border-radius: 12px; margin-bottom: 8px; font-size: 13px; font-family: var(--ui-sans); color: var(--text-dark); border: 1px solid var(--border-line); }
-        .attachment-preview-name { display: flex; align-items: center; gap: 8px; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .btn-remove-attachment { background: none; border: none; color: #ef4444; font-size: 18px; font-weight: bold; cursor: pointer; padding: 0 4px; display: flex; align-items: center; justify-content: center; }
-
-        /* Mobile specific styling */
-        @media (max-width: 640px) {
-            .chat-header { display: none !important; }
-            .messages-stream-box { padding: 16px; gap: 12px; }
-            .message-row { max-width: 85%; }
-            .message-row.self { max-width: 85%; }
-            .chat-keyboard-bar { padding: 10px 16px !important; padding-bottom: max(10px, env(safe-area-inset-bottom)) !important; }
-            .chat-msg-textarea { padding: 12px 14px; height: 42px; font-size: 16px !important; border-radius: 18px; }
-            .btn-post-msg { width: 42px; height: 42px; }
-            .btn-attach { width: 42px; height: 42px; }
-            .chat-text-balloon { padding: 10px 14px; font-size: 13.5px; }
+        .chat-text-balloon { 
+            padding: 12px 18px; 
+            border-radius: 20px; 
+            font-size: 14.5px; 
+            line-height: 1.5; 
+            word-break: break-word; 
+            box-shadow: 0 2px 6px rgba(0,0,0,0.04);
+            position: relative;
+            cursor: pointer; /* indicates interactability */
+            user-select: none;
+        }
+        .message-row.self .chat-text-balloon { 
+            background: var(--bubble-self); 
+            color: var(--text-self); 
+            border-bottom-right-radius: 4px; 
+        }
+        .message-row.other .chat-text-balloon { 
+            background: var(--bubble-other); 
+            color: var(--text-other); 
+            border-bottom-left-radius: 4px; 
+            border: 1px solid rgba(0,0,0,0.02);
         }
 
-        body.theme-default, body.theme-blue { --bg-beige: #e8f0ff; --bg-white: #ffffff; --text-dark: #1c2a44; --text-muted: #5f6f8a; --border-line: #c6d4e9; --mcnp-teal: #4a7c8c; --mcnp-hover: #3b6370; --bubble-self: #4a7c8c; --bubble-other: #f1f5f9; }
-        body.theme-red { --bg-beige: #ffe8e8; --bg-white: #ffffff; --text-dark: #4c1f20; --text-muted: #9d5b5c; --border-line: #f2c7c7; --mcnp-teal: #d65a5a; --mcnp-hover: #c04f4f; --bubble-self: #d65a5a; --bubble-other: #f5ecec; }
-        body.theme-pink, body.theme-rose { --bg-beige: #fde8f5; --bg-white: #ffffff; --text-dark: #4c2346; --text-muted: #9f628d; --border-line: #f3c7dc; --mcnp-teal: #c56ba8; --mcnp-hover: #ac5e94; --bubble-self: #c56ba8; --bubble-other: #ece3ea; }
-        body.theme-green { --bg-beige: #e8f6ea; --bg-white: #ffffff; --text-dark: #2f4a33; --text-muted: #6d8b75; --border-line: #c9dec9; --mcnp-teal: #4a9e7b; --mcnp-hover: #3a8565; --bubble-self: #4a9e7b; --bubble-other: #e3ece8; }
-        body.theme-dark { --bg-beige: #1a1d21; --bg-white: #24282d; --text-dark: #e0e0e0; --text-muted: #b0ada8; --border-line: #3a3f45; --mcnp-teal: #4e9cae; --mcnp-hover: #5fb3c8; --bubble-self: #4e9cae; --bubble-other: #3a3f45; --text-other: #e0e0e0; }
+        /* REACTION UI */
+        .reaction-trigger {
+            opacity: 0;
+            transition: opacity 0.2s;
+            background: var(--bg-white);
+            border: 1px solid var(--border-line);
+            border-radius: 50%;
+            width: 28px; height: 28px;
+            display: flex; align-items: center; justify-content: center;
+            color: var(--text-muted);
+            cursor: pointer;
+            position: absolute;
+            bottom: 24px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.05);
+        }
+        .message-row.self .reaction-trigger { left: -36px; }
+        .message-row.other .reaction-trigger { right: -36px; }
+        
+        @media (hover: hover) {
+            .message-row:hover .reaction-trigger { opacity: 1; }
+        }
+
+        .reaction-trigger:hover { color: var(--text-dark); background: var(--bg-hover); }
+
+        .reaction-picker {
+            position: absolute;
+            bottom: 100%;
+            background: var(--bg-white);
+            border: 1px solid var(--border-line);
+            border-radius: 24px;
+            padding: 6px 12px;
+            display: flex;
+            gap: 8px;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.1);
+            z-index: 50;
+            opacity: 0; pointer-events: none;
+            transform: translateY(10px);
+            transition: all 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        }
+        .message-row.self .reaction-picker { right: 0; }
+        .message-row.other .reaction-picker { left: 0; }
+        .reaction-picker.show { opacity: 1; pointer-events: auto; transform: translateY(-5px); }
+
+        .reaction-emoji {
+            font-size: 22px;
+            cursor: pointer;
+            transition: transform 0.1s;
+            user-select: none;
+        }
+        .reaction-emoji:hover { transform: scale(1.3); }
+
+        .reaction-badge {
+            position: absolute;
+            bottom: -10px;
+            background: var(--bg-white);
+            border: 1px solid var(--border-line);
+            border-radius: 12px;
+            padding: 2px 6px;
+            font-size: 13px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+            z-index: 10;
+        }
+        .message-row.self .reaction-badge { right: 10px; }
+        .message-row.other .reaction-badge { left: 10px; }
+
+
+        .time-label { 
+            font-size: 10px; 
+            color: var(--text-lighter); 
+            padding: 0 6px; 
+            margin-top: 0px; 
+            font-weight: 600; 
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        .message-row.self .time-label { justify-content: flex-end; }
+
+        /* Empty State */
+        .empty-state {
+            text-align: center; color: var(--text-muted); margin: auto; display: flex; flex-direction: column; align-items: center; gap: 16px;
+        }
+        .empty-icon {
+            width: 64px; height: 64px; border-radius: 50%; background: var(--bg-white); border: 1px solid var(--border-line); display: flex; align-items: center; justify-content: center; color: var(--text-lighter); box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+        }
+        .empty-text { font-size: 14px; font-weight: 500; line-height: 1.5; }
+
+        /* Input Area */
+        .chat-keyboard-bar { 
+            padding: 18px 28px; 
+            border-top: 1px solid var(--border-line); 
+            background: var(--bg-white); 
+            flex-shrink: 0; 
+            z-index: 5;
+        }
+        .chat-input-form { 
+            display: flex; 
+            align-items: center; 
+            gap: 12px; 
+        }
+        
+        .chat-msg-textarea { 
+            flex: 1; 
+            border: 1px solid var(--border-line); 
+            background: var(--bg-chat-stream); 
+            border-radius: 24px;
+            font-family: var(--ui-sans); 
+            font-size: 14.5px; 
+            resize: none; 
+            outline: none; 
+            height: 48px; 
+            padding: 13px 20px; 
+            line-height: 20px; 
+            color: var(--text-dark);
+            transition: all 0.2s ease;
+            box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
+            overflow: hidden; 
+        }
+        .chat-msg-textarea:focus {
+            border-color: var(--accent);
+            background: var(--bg-white);
+            box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+        }
+        .chat-msg-textarea::placeholder {
+            color: var(--text-lighter);
+        }
+        
+        .btn-post-msg { 
+            width: 48px; 
+            height: 48px; 
+            border-radius: 50%; 
+            border: none; 
+            background: var(--text-dark); 
+            color: white; 
+            display: flex; 
+            align-items: center; 
+            justify-content: center; 
+            cursor: pointer; 
+            transition: all 0.2s; 
+            flex-shrink: 0;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+        }
+        .btn-post-msg:hover { background: var(--accent); transform: scale(1.05); }
+        .btn-post-msg svg { width: 20px; height: 20px; margin-left: 2px; }
+        
+        #staffChatPanel, #groupChatPanel { flex: 1; flex-direction: column; overflow: hidden; display: flex; }
+
+        .chat-app-container.single-contact-mode .chat-sidebar { display: none !important; }
+        
+        @media (max-width: 768px) {
+            body { padding: 0; }
+            .chat-app-container { border-radius: 0; border: none; box-shadow: none; }
+            .chat-app-container.mobile-show-chat .chat-sidebar { display: none !important; }
+            .chat-app-container.mobile-show-list .chat-main-panel { display: none !important; }
+            .chat-sidebar { width: 100%; border-right: none; }
+            .chat-main-header { padding: 12px 16px; }
+            .messages-stream-box { padding: 16px; }
+            .chat-keyboard-bar { padding: 12px 16px; }
+        }
     </style>
 </head>
 <body>
-    <div class="chat-app-container">
-        <div class="chat-main-panel">
-            <div class="chat-header">
-                <div class="chat-header-info">
-                    <h3>Group Message Thread</h3>
-                    <p>Submitting research topics and coordination feedback within your group circle.</p>
+    <div class="chat-app-container <?= $show_chat_mobile ? 'mobile-show-chat' : 'mobile-show-list' ?> <?= $is_single_contact ? 'single-contact-mode' : '' ?>" id="appContainer">
+        
+        <!-- Sidebar -->
+        <div class="chat-sidebar">
+            <div class="sidebar-header">
+                <h2>Messages</h2>
+                
+                <!-- Search & Filters -->
+                <div class="search-box">
+                    <i data-lucide="search"></i>
+                    <input type="text" id="contactSearch" placeholder="Search conversations...">
+                </div>
+                <div class="filter-chips" id="filterChips">
+                    <div class="filter-chip active" data-filter="all">All</div>
+                    <div class="filter-chip" data-filter="unread">Unread</div>
+                    <div class="filter-chip" data-filter="groups">Groups</div>
+                    <div class="filter-chip" data-filter="staff">Staff</div>
                 </div>
             </div>
-
-            <!-- Messages Stream -->
-            <div class="messages-stream-box" id="messageStream">
-                <?php if (count($messages) == 0): ?>
-                    <p style="text-align: center; color: var(--text-muted); margin: auto; font-family: var(--ui-sans); font-size: 13px;">No messages sent yet. Start the conversation!</p>
-                <?php else: ?>
-                    <?php foreach ($messages as $msg): 
-                        $is_self = ($msg['sender_id'] == $user_id);
-                        $formatted_time = date('h:i A', strtotime($msg['created_at']));
-                    ?>
-                        <div class="message-row <?= $is_self ? 'self' : 'other' ?>">
-                            <img src="<?= htmlspecialchars($msg['sender_avatar'] ?: "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($msg['sender_name'])) ?>" class="sender-avatar">
-                            <div class="message-bubble-data">
-                                <?php if (!$is_self): ?>
-                                    <span class="sender-title"><?= htmlspecialchars($msg['sender_name']) ?></span>
-                                <?php endif; ?>
-                                <div class="chat-text-balloon">
-                                    <?php if (!empty($msg['message_text'])): ?>
-                                        <div class="msg-body-text" style="white-space: pre-wrap;"><?= htmlspecialchars($msg['message_text']) ?></div>
-                                    <?php endif; ?>
-                                    
-                                    <?php if (!empty($msg['attachment_path'])): 
-                                        $file_path = $msg['attachment_path'];
-                                        $file_name = $msg['attachment_name'];
-                                        $ext = strtolower(pathinfo($file_name, PATHINFO_EXTENSION));
-                                        $is_image = in_array($ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']);
-                                    ?>
-                                        <div class="msg-attachment-box" style="margin-top: <?= !empty($msg['message_text']) ? '10px' : '0px' ?>;">
-                                            <?php if ($is_image): ?>
-                                                <a href="<?= htmlspecialchars($file_path) ?>" target="_blank">
-                                                    <img src="<?= htmlspecialchars($file_path) ?>" alt="<?= htmlspecialchars($file_name) ?>" style="max-width: 100%; max-height: 200px; border-radius: 10px; display: block; border: 1px solid rgba(0,0,0,0.1);" referrerPolicy="no-referrer">
-                                                </a>
-                                            <?php else: ?>
-                                                <a href="<?= htmlspecialchars($file_path) ?>" target="_blank" download="<?= htmlspecialchars($file_name) ?>" style="display: inline-flex; align-items: center; gap: 8px; padding: 10px 14px; background: rgba(0,0,0,0.06); border-radius: 10px; color: inherit; text-decoration: none; font-size: 13px; font-family: var(--ui-sans); font-weight: 500;">
-                                                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                                                    </svg>
-                                                    <span style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 150px;"><?= htmlspecialchars($file_name) ?></span>
-                                                </a>
-                                            <?php endif; ?>
-                                        </div>
+            
+            <div class="contact-list" id="contactList">
+                
+                <?php if (!empty($pinned_contacts)): ?>
+                    <div class="list-label">Pinned</div>
+                    <?php foreach($pinned_contacts as $c): ?>
+                        <a href="?active_contact=<?= urlencode($c['id']) ?>" class="contact-item pinned <?= ($active_contact_id === $c['id']) ? 'active' : '' ?>" data-category="<?= $c['category'] ?>" data-unread="<?= $c['unread'] ?>">
+                            <div class="contact-avatar">
+                                <i data-lucide="<?= $c['icon'] ?>"></i>
+                                <div class="status-dot"></div>
+                            </div>
+                            <div class="contact-info">
+                                <div class="contact-header">
+                                    <div class="contact-name"><?= htmlspecialchars($c['name']) ?></div>
+                                    <div class="contact-time"><?= htmlspecialchars($c['time']) ?></div>
+                                </div>
+                                <div class="contact-footer">
+                                    <div class="contact-preview"><?= htmlspecialchars($c['preview']) ?></div>
+                                    <?php if($c['unread'] > 0): ?>
+                                        <span class="badge-unread"><?= $c['unread'] ?></span>
                                     <?php endif; ?>
                                 </div>
-                                <span class="time-label"><?= $formatted_time ?></span>
                             </div>
-                        </div>
+                        </a>
                     <?php endforeach; ?>
                 <?php endif; ?>
-            </div>
 
-            <!-- Text Area keyboard input desk footer -->
-            <div class="chat-keyboard-bar">
-                <!-- File Attachment Preview Bar -->
-                <div id="attachmentPreviewBar" class="attachment-preview-bar">
-                    <div id="attachmentNameSpan" class="attachment-preview-name"></div>
-                    <button type="button" class="btn-remove-attachment" onclick="clearAttachment()">&times;</button>
-                </div>
-
-                <form id="chatForm" method="POST" class="chat-input-form" onsubmit="sendMessage(event)">
-                    <input type="hidden" name="action" value="send_message">
-                    
-                    <button type="button" class="btn-attach" onclick="triggerFileSelect()">
-                        <svg viewBox="0 0 24 24">
-                            <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                        </svg>
-                    </button>
-                    <input type="file" id="chatFileInput" name="attachment" style="display: none;" onchange="handleFileSelected()">
-
-                    <textarea class="chat-msg-textarea" name="message_text" id="chatMsgInput" placeholder="Write group message..." required onkeydown="checkSubmit(event)"></textarea>
-                    
-                    <button type="submit" class="btn-post-msg">
-                        <svg viewBox="0 0 24 24">
-                            <line x1="22" y1="2" x2="11" y2="13"></line>
-                            <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
-                        </svg>
-                    </button>
-                </form>
+                <?php if (!empty($normal_contacts)): ?>
+                    <div class="list-label" style="margin-top: 8px;">Recent</div>
+                    <?php foreach($normal_contacts as $c): ?>
+                        <a href="?active_contact=<?= urlencode($c['id']) ?>" class="contact-item <?= ($active_contact_id === $c['id']) ? 'active' : '' ?>" data-category="<?= $c['category'] ?>" data-unread="<?= $c['unread'] ?>">
+                            <div class="contact-avatar">
+                                <i data-lucide="<?= $c['icon'] ?>"></i>
+                            </div>
+                            <div class="contact-info">
+                                <div class="contact-header">
+                                    <div class="contact-name"><?= htmlspecialchars($c['name']) ?></div>
+                                    <div class="contact-time"><?= htmlspecialchars($c['time']) ?></div>
+                                </div>
+                                <div class="contact-footer">
+                                    <div class="contact-preview"><?= htmlspecialchars($c['preview']) ?></div>
+                                    <?php if($c['unread'] > 0): ?>
+                                        <span class="badge-unread"><?= $c['unread'] ?></span>
+                                    <?php endif; ?>
+                                </div>
+                            </div>
+                        </a>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+                
             </div>
         </div>
+
+        <!-- Main Panel -->
+        <div class="chat-main-panel">
+            
+            <?php if ($active_contact_info): ?>
+            <!-- Dynamic Chat Header -->
+            <div class="chat-main-header">
+                <div class="chat-main-header-info">
+                    <div class="contact-avatar header-avatar">
+                        <i data-lucide="<?= $active_contact_info['icon'] ?>"></i>
+                        <div class="status-dot"></div>
+                    </div>
+                    <div class="header-text-container">
+                        <div class="header-name"><?= htmlspecialchars($active_contact_info['name']) ?></div>
+                        <div class="header-status">Online</div>
+                    </div>
+                </div>
+                <div class="chat-main-header-actions">
+                    <button class="icon-btn" title="More Options"><i data-lucide="more-vertical"></i></button>
+                </div>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($active_contact_id === 'group_chat'): ?>
+            
+                <div id="groupChatPanel">
+                    <div class="messages-stream-box" id="groupMessageStream">
+                        
+                        <?php if (count($group_messages) > 0): ?>
+                            <div class="date-separator"><span class="date-separator-text">Today</span></div>
+                        <?php endif; ?>
+
+                        <?php if (count($group_messages) == 0): ?>
+                            <div class="empty-state">
+                                <div class="empty-icon"><i data-lucide="messages-square" style="width: 32px; height: 32px;"></i></div>
+                                <p class="empty-text">No messages sent yet.<br>Start the conversation with your team!</p>
+                            </div>
+                        <?php else: ?>
+                            <?php foreach ($group_messages as $msg): 
+                                $is_self = ($msg['sender_id'] == $user_id);
+                                $formatted_time = date('h:i A', strtotime($msg['created_at']));
+                                $mid = $msg['message_id'];
+                            ?>
+                                <div class="message-row <?= $is_self ? 'self' : 'other' ?>" data-msgid="<?= $mid ?>">
+                                    <?php if (!$is_self): ?>
+                                        <img src="<?= htmlspecialchars($msg['sender_avatar'] ?: "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($msg['sender_name'])) ?>" class="sender-avatar">
+                                    <?php endif; ?>
+                                    
+                                    <div class="message-bubble-data">
+                                        <?php if (!$is_self): ?><span class="sender-title"><?= htmlspecialchars($msg['sender_name']) ?></span><?php endif; ?>
+                                        <div class="chat-text-balloon" oncontextmenu="toggleReactionPicker(this); return false;">
+                                            <?php if (!empty($msg['message_text'])): ?>
+                                                <div style="white-space: pre-wrap;"><?= htmlspecialchars($msg['message_text']) ?></div>
+                                            <?php endif; ?>
+                                            
+                                            <!-- Reaction Badge if exists -->
+                                            <?php if(!empty($msg['reaction'])): ?>
+                                                <div class="reaction-badge" id="badge-grp-<?= $mid ?>"><?= htmlspecialchars($msg['reaction']) ?></div>
+                                            <?php else: ?>
+                                                <div class="reaction-badge" id="badge-grp-<?= $mid ?>" style="display:none;"></div>
+                                            <?php endif; ?>
+                                            
+                                        </div>
+                                        <span class="time-label">
+                                            <?= $formatted_time ?> 
+                                            <?php if($is_self): ?>
+                                                <i data-lucide="check-check" style="width:14px;height:14px;margin-left:2px;color:var(--accent);"></i>
+                                            <?php endif; ?>
+                                        </span>
+                                    </div>
+                                    
+                                    <!-- Reaction Trigger for Desktop Hover -->
+                                    <div class="reaction-trigger" onclick="toggleReactionPicker(this)">
+                                        <i data-lucide="smile" style="width:14px;height:14px;"></i>
+                                    </div>
+                                    
+                                    <!-- Emoji Picker Box -->
+                                    <div class="reaction-picker">
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '❤️', 'group')">❤️</span>
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '👍', 'group')">👍</span>
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '😂', 'group')">😂</span>
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '😮', 'group')">😮</span>
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '😢', 'group')">😢</span>
+                                        <span class="reaction-emoji" onclick="sendReaction(<?= $mid ?>, '🙏', 'group')">🙏</span>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        <?php endif; ?>
+                    </div>
+                    <div class="chat-keyboard-bar">
+                        <form method="POST" class="chat-input-form">
+                            <input type="hidden" name="action" value="send_message">
+                            <!-- Attachment removed -->
+                            <textarea class="chat-msg-textarea" name="message_text" placeholder="Write a message..."></textarea>
+                            <button type="submit" class="btn-post-msg"><i data-lucide="send"></i></button>
+                        </form>
+                    </div>
+                </div>
+
+            <?php else: ?>
+                
+                <div id="staffChatPanel">
+                    <div class="messages-stream-box" id="staffMessageStream">
+                        <!-- AJAX content -->
+                    </div>
+                    <div class="chat-keyboard-bar">
+                        <form id="staffChatForm" class="chat-input-form" onsubmit="sendStaffMessage(event)">
+                            <textarea class="chat-msg-textarea" id="staffMsgInput" placeholder="Write a message..." required></textarea>
+                            <button type="submit" class="btn-post-msg"><i data-lucide="send"></i></button>
+                        </form>
+                    </div>
+                </div>
+                
+                <script>
+                    const activeContact = "<?= htmlspecialchars($active_contact_id) ?>";
+                    let targetRole = "";
+                    let targetGroup = "";
+                    if (activeContact.startsWith('role_')) {
+                        targetRole = activeContact.replace('role_', '').replace(/_/g, ' ');
+                    } else if (activeContact.startsWith('group_')) {
+                        targetGroup = activeContact.replace('group_', '');
+                    }
+
+                    function loadStaffMessages() {
+                        const fd = new FormData();
+                        fd.append('action', 'get_messages');
+                        fd.append('target_role', targetRole);
+                        fd.append('target_group', targetGroup);
+                        
+                        fetch('staff_message_handler.php', { method: 'POST', body: fd })
+                        .then(r => r.json())
+                        .then(data => {
+                            if (data.status === 'success') {
+                                const stream = document.getElementById('staffMessageStream');
+                                stream.innerHTML = '';
+                                if (data.messages.length === 0) {
+                                    stream.innerHTML = `
+                                        <div class="empty-state">
+                                            <div class="empty-icon"><i data-lucide="messages-square" style="width: 32px; height: 32px;"></i></div>
+                                            <p class="empty-text">No messages yet.<br>Send a message to start.</p>
+                                        </div>
+                                    `;
+                                    lucide.createIcons();
+                                } else {
+                                    stream.insertAdjacentHTML('beforeend', '<div class="date-separator"><span class="date-separator-text">Today</span></div>');
+
+                                    data.messages.forEach(msg => {
+                                        const isSelf = (msg.sender_id == <?= $user_id ?>);
+                                        const dateStr = msg.created_at.replace(' ', 'T');
+                                        const time = new Date(dateStr).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
+                                        const checkIcon = isSelf ? `<i data-lucide="check-check" style="width:14px;height:14px;margin-left:2px;color:var(--accent);"></i>` : '';
+                                        const mid = msg.message_id;
+
+                                        let badgeHtml = msg.reaction ? 
+                                            `<div class="reaction-badge" id="badge-staff-${mid}">${msg.reaction}</div>` : 
+                                            `<div class="reaction-badge" id="badge-staff-${mid}" style="display:none;"></div>`;
+
+                                        const html = `
+                                            <div class="message-row ${isSelf ? 'self' : 'other'}" data-msgid="${mid}">
+                                                <div class="message-bubble-data">
+                                                    ${!isSelf ? `<span class="sender-title">${msg.display_name}</span>` : ''}
+                                                    <div class="chat-text-balloon" oncontextmenu="toggleReactionPicker(this); return false;">
+                                                        <div style="white-space: pre-wrap;">${msg.message_text}</div>
+                                                        ${badgeHtml}
+                                                    </div>
+                                                    <span class="time-label">${time} ${checkIcon}</span>
+                                                </div>
+                                                <div class="reaction-trigger" onclick="toggleReactionPicker(this)">
+                                                    <i data-lucide="smile" style="width:14px;height:14px;"></i>
+                                                </div>
+                                                <div class="reaction-picker">
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '❤️', 'staff')">❤️</span>
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '👍', 'staff')">👍</span>
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '😂', 'staff')">😂</span>
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '😮', 'staff')">😮</span>
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '😢', 'staff')">😢</span>
+                                                    <span class="reaction-emoji" onclick="sendReaction(${mid}, '🙏', 'staff')">🙏</span>
+                                                </div>
+                                            </div>
+                                        `;
+                                        stream.insertAdjacentHTML('beforeend', html);
+                                    });
+                                    lucide.createIcons();
+                                    stream.scrollTop = stream.scrollHeight;
+                                }
+                            }
+                        });
+                    }
+
+                    function sendStaffMessage(e) {
+                        e.preventDefault();
+                        const text = document.getElementById('staffMsgInput').value.trim();
+                        if (!text) return;
+                        
+                        const fd = new FormData();
+                        fd.append('action', 'send_message');
+                        fd.append('target_role', targetRole);
+                        fd.append('target_group', targetGroup);
+                        fd.append('message_text', text);
+                        
+                        document.getElementById('staffMsgInput').value = '';
+                        
+                        fetch('staff_message_handler.php', { method: 'POST', body: fd })
+                        .then(r => r.json())
+                        .then(data => {
+                            if(data.status === 'success') loadStaffMessages();
+                        });
+                    }
+                    
+                    if (targetRole || targetGroup) {
+                        loadStaffMessages();
+                        setInterval(loadStaffMessages, 5000); 
+                    }
+                </script>
+            <?php endif; ?>
+        </div>
     </div>
+    
     <script>
+        lucide.createIcons();
+
+        // Reactions logic
+        function toggleReactionPicker(el) {
+            // Close all others first
+            document.querySelectorAll('.reaction-picker.show').forEach(p => p.classList.remove('show'));
+            // Find picker in the same row
+            const row = el.closest('.message-row');
+            if (row) {
+                const picker = row.querySelector('.reaction-picker');
+                if (picker) picker.classList.toggle('show');
+            }
+        }
+        
+        // Hide pickers when clicking outside
+        document.addEventListener('click', e => {
+            if (!e.target.closest('.reaction-trigger') && !e.target.closest('.reaction-picker') && !e.target.closest('.chat-text-balloon')) {
+                document.querySelectorAll('.reaction-picker').forEach(p => p.classList.remove('show'));
+            }
+        });
+
+        // Double tap for mobile
+        let lastTap = 0;
+        document.addEventListener('touchstart', function(e) {
+            const balloon = e.target.closest('.chat-text-balloon');
+            if (balloon) {
+                const currentTime = new Date().getTime();
+                const tapLength = currentTime - lastTap;
+                if (tapLength < 500 && tapLength > 0) {
+                    toggleReactionPicker(balloon);
+                    e.preventDefault();
+                }
+                lastTap = currentTime;
+            }
+        }, {passive: false});
+
+        function sendReaction(msgId, emoji, type) {
+            const badge = document.getElementById(`badge-${type === 'group' ? 'grp' : 'staff'}-${msgId}`);
+            if (badge) {
+                badge.innerText = emoji;
+                badge.style.display = 'block';
+            }
+            // Close pickers
+            document.querySelectorAll('.reaction-picker.show').forEach(p => p.classList.remove('show'));
+            
+            // Save to DB
+            const fd = new FormData();
+            fd.append('message_id', msgId);
+            fd.append('reaction', emoji);
+            
+            if (type === 'group') {
+                fd.append('action', 'react_group_message');
+                fetch('message.php', { method: 'POST', body: fd });
+            } else {
+                fd.append('action', 'react_message');
+                fetch('staff_message_handler.php', { method: 'POST', body: fd });
+            }
+        }
+
+        // -------------------------
+
         const syncTheme = () => {
             const savedTheme = localStorage.getItem('rd-portal-theme') || 'theme-default';
             document.body.className = savedTheme;
@@ -344,114 +1099,84 @@ try {
             try {
                 if (window.parent && window.parent.document && window.parent.document.body) {
                     const pTheme = window.parent.document.body.className;
-                    if (pTheme && pTheme !== document.body.className) {
-                        document.body.className = pTheme;
-                    }
+                    if (pTheme && pTheme !== document.body.className) { document.body.className = pTheme; }
                 }
             } catch(e) {}
         }, 500);
 
-        function scrollToBottom() {
-            const m = document.getElementById('messageStream');
-            m.scrollTop = m.scrollHeight;
+        const gstream = document.getElementById('groupMessageStream');
+        if (gstream) gstream.scrollTop = gstream.scrollHeight;
+        
+        const gInput = document.querySelector('#groupChatPanel .chat-msg-textarea');
+        if (gInput) {
+            gInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); e.target.closest('form').submit(); }
+            });
         }
-        window.addEventListener('load', scrollToBottom);
-
-        function checkSubmit(e) {
-            if (e.key === 'Enter' && !e.shiftKey) {
-                e.preventDefault();
-                sendMessage(e);
-            }
-        }
-
-        function triggerFileSelect() {
-            document.getElementById('chatFileInput').click();
-        }
-
-        function handleFileSelected() {
-            const fileInput = document.getElementById('chatFileInput');
-            const previewBar = document.getElementById('attachmentPreviewBar');
-            const nameSpan = document.getElementById('attachmentNameSpan');
-            
-            if (fileInput.files.length > 0) {
-                const file = fileInput.files[0];
-                nameSpan.innerHTML = `
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"></path>
-                    </svg>
-                    <span>${file.name} (${formatBytes(file.size)})</span>
-                `;
-                previewBar.style.display = 'flex';
-                document.getElementById('chatMsgInput').removeAttribute('required');
-            } else {
-                clearAttachment();
-            }
-        }
-
-        function clearAttachment() {
-            const fileInput = document.getElementById('chatFileInput');
-            const previewBar = document.getElementById('attachmentPreviewBar');
-            if (fileInput) fileInput.value = '';
-            if (previewBar) previewBar.style.display = 'none';
-            
-            const input = document.getElementById('chatMsgInput');
-            if (input && input.value.trim() === '') {
-                input.setAttribute('required', 'required');
-            }
-        }
-
-        function formatBytes(bytes) {
-            if (bytes === 0) return '0 Bytes';
-            const k = 1024;
-            const sizes = ['Bytes', 'KB', 'MB'];
-            const i = Math.floor(Math.log(bytes) / Math.log(k));
-            return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-        }
-
-        // Handle dynamic required toggle
-        const inputEl = document.getElementById('chatMsgInput');
-        if (inputEl) {
-            inputEl.addEventListener('input', () => {
-                const fileInput = document.getElementById('chatFileInput');
-                if (inputEl.value.trim() !== '' || (fileInput && fileInput.files.length > 0)) {
-                    inputEl.removeAttribute('required');
-                } else {
-                    inputEl.setAttribute('required', 'required');
-                }
+        const sInput = document.getElementById('staffMsgInput');
+        if (sInput) {
+            sInput.addEventListener('keydown', e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendStaffMessage(e); }
             });
         }
 
-        function sendMessage(event) {
-            if (event && event.preventDefault) event.preventDefault();
-            const input = document.getElementById('chatMsgInput');
-            const text = input.value.trim();
-            const fileInput = document.getElementById('chatFileInput');
-            
-            if (text === '' && (!fileInput || fileInput.files.length === 0)) return;
+        // Filtering Logic
+        const searchInput = document.getElementById('contactSearch');
+        const filterChips = document.querySelectorAll('.filter-chip');
+        const contactItems = document.querySelectorAll('.contact-item');
+        let currentFilter = 'all';
 
-            const formData = new FormData();
-            formData.append('action', 'send_message');
-            formData.append('message_text', text);
-            if (fileInput && fileInput.files.length > 0) {
-                formData.append('attachment', fileInput.files[0]);
-            }
+        function applyFilters() {
+            const query = searchInput.value.toLowerCase();
             
-            // Clear input and attachment immediately for snappy feel
-            input.value = '';
-            if (fileInput) fileInput.value = '';
-            const previewBar = document.getElementById('attachmentPreviewBar');
-            if (previewBar) previewBar.style.display = 'none';
+            contactItems.forEach(item => {
+                const name = item.querySelector('.contact-name').innerText.toLowerCase();
+                const category = item.dataset.category;
+                const unread = parseInt(item.dataset.unread || "0");
+                
+                let matchesSearch = name.includes(query);
+                let matchesFilter = false;
+                
+                if (currentFilter === 'all') matchesFilter = true;
+                else if (currentFilter === 'unread' && unread > 0) matchesFilter = true;
+                else if (currentFilter === 'groups' && category === 'groups') matchesFilter = true;
+                else if (currentFilter === 'staff' && category === 'staff') matchesFilter = true;
 
-            const xhr = new XMLHttpRequest();
-            xhr.open("POST", "message.php", true);
-            xhr.setRequestHeader("X-Requested-With", "XMLHttpRequest");
-            xhr.onload = function () {
-                if (xhr.status === 200) {
-                    window.location.reload();
+                if (matchesSearch && matchesFilter) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
                 }
-            };
-            xhr.send(formData);
+            });
+            
+            // Hide section labels if all children are hidden
+            document.querySelectorAll('.list-label').forEach(label => {
+                let next = label.nextElementSibling;
+                let hasVisible = false;
+                while (next && next.classList.contains('contact-item')) {
+                    if (next.style.display !== 'none') {
+                        hasVisible = true;
+                        break;
+                    }
+                    next = next.nextElementSibling;
+                }
+                label.style.display = hasVisible ? 'block' : 'none';
+            });
         }
+
+        if (searchInput) searchInput.addEventListener('input', applyFilters);
+
+        if (filterChips) {
+            filterChips.forEach(chip => {
+                chip.addEventListener('click', () => {
+                    filterChips.forEach(c => c.classList.remove('active'));
+                    chip.classList.add('active');
+                    currentFilter = chip.dataset.filter;
+                    applyFilters();
+                });
+            });
+        }
+
     </script>
 </body>
 </html>

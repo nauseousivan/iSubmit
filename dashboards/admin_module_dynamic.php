@@ -107,7 +107,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
 
     // Mapping Institutional Guidelines Rules Set Criteria
     $decision_string = "Deferred";
-    
+
     if ($target_item_id === 3) {
         // Stats Form 011 has 7 items
         if ($yes_count === 7) {
@@ -147,10 +147,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
         $f_stmt = $pdo->prepare("SELECT * FROM form_stat_treatment WHERE user_id = ? ORDER BY date_submitted DESC LIMIT 1");
         $f_stmt->execute([$student_user_id]);
         $f_data = $f_stmt->fetch();
-        
+
         if ($f_data) {
             $form_id = $f_data['form_id'];
-            
+
             if ($target_item_id === 30) {
                 // Initial Data Approval -> Move to Payment
                 $new_state = ($upload_status === 'Approved') ? 'Waiting for Payment' : (($upload_status === 'Revision Requested' || $upload_status === 'revision') ? 'Initial Data Rejected' : 'Initial Data Uploaded');
@@ -168,7 +168,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
                     $upd_stmt->execute([$remarks, $form_id]);
                 }
             }
-            
+
             // Email student
             if (!empty($f_data['contact_email'])) {
                 $subject = "Statistical Treatment Update: " . $f_data['formatted_control_no'];
@@ -215,14 +215,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
         $form_id = $_POST['form_id'];
         $control_no = trim($_POST['control_no']);
         $student_id = $_POST['student_id'];
-        
+
         $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Payment Acknowledged', formatted_control_no = ? WHERE form_id = ?");
         $upd_stmt->execute([$control_no, $form_id]);
-        
+
         // Notify student
         $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Payment Acknowledged', 'Your statistical treatment payment has been acknowledged. Your Control Number is: $control_no. You may now upload the remaining deliverables.', 'success', CURRENT_TIMESTAMP)");
         $log_stmt->execute([$student_id]);
-        
+
         $message = "Payment acknowledged successfully for Control No: $control_no";
     }
 }
@@ -1879,12 +1879,15 @@ if ($phase === 'stats') {
             const allRadioInputs = document.querySelectorAll('.rubric-radio');
             const allCommentInputs = document.querySelectorAll('input[type="text"][name^="rubric"]');
 
-            allRadioInputs.forEach(r => { r.checked = false; r.required = false; });
+            allRadioInputs.forEach(r => {
+                r.checked = false;
+                r.required = false;
+            });
             allCommentInputs.forEach(c => c.value = '');
             document.getElementById('form008LiveScore').textContent = "0 / 22 Points (0%)";
             document.getElementById('form008LiveDecision').textContent = "Awaiting Form Input";
             document.getElementById('form008LiveDecision').style.color = "#f59e0b";
-            
+
             document.getElementById('form011LiveScore').textContent = "0 / 7 Points (0%)";
             document.getElementById('form011LiveDecision').textContent = "Awaiting Form Input";
             document.getElementById('form011LiveDecision').style.color = "#f59e0b";
@@ -1939,7 +1942,7 @@ if ($phase === 'stats') {
 
             const iframe = document.getElementById('previewFrame');
             const fileExt = (data.file_path || '').split('.').pop().toLowerCase();
-            
+
             if (!targetSrc.startsWith('view_stat_form.php') && ['doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx'].includes(fileExt)) {
                 iframe.removeAttribute('srcdoc');
                 const pathname = window.location.pathname;

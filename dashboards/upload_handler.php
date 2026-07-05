@@ -1,8 +1,13 @@
 <?php
 require_once '../config/db.php';
-if (session_status() === PHP_SESSION_NONE) { session_start(); }
+if (session_status() === PHP_SESSION_NONE) {
+    session_start();
+}
 
-if (!isset($_SESSION['user_id'])) { header("Location: ../auth/login.php"); exit(); }
+if (!isset($_SESSION['user_id'])) {
+    header("Location: ../auth/login.php");
+    exit();
+}
 
 $user_id = $_SESSION['user_id'];
 $me_role = $_SESSION['role'];
@@ -55,12 +60,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
     if (move_uploaded_file($file['tmp_name'], $file_path)) {
         // Insert into uploads database as 'Pending'
         $stmt = $pdo->prepare("INSERT INTO uploads (user_id, item_id, file_path, original_filename, verification_status) VALUES (?, ?, ?, ?, 'Pending')");
-        if ($stmt->execute([$effective_user_id, $item_id, $file_path, $original_name])) {            
+        if ($stmt->execute([$effective_user_id, $item_id, $file_path, $original_name])) {
             // Insert log action to group activities feed
             $item_name_stmt = $pdo->prepare("SELECT item_name FROM checklist_items WHERE item_id = ?");
             $item_name_stmt->execute([$item_id]);
             $item_name = $item_name_stmt->fetchColumn() ?: 'a file';
-            
+
             $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type) VALUES (?, ?, ?, 'info')");
             $log_stmt->execute([$effective_user_id, 'File Submitted: ' . $item_name, 'You uploaded a new file: ' . htmlspecialchars($original_name)]);
 
@@ -97,7 +102,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
             if (file_exists($upload_data['file_path'])) {
                 unlink($upload_data['file_path']);
             }
-            
+
             // Insert log action to group activities feed (using activity_logs)
             $item_name_stmt = $pdo->prepare("SELECT ci.item_name FROM uploads u JOIN checklist_items ci ON u.item_id = ci.item_id WHERE u.upload_id = ?");
             $item_name_stmt->execute([$upload_id]);

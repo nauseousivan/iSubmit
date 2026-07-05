@@ -903,7 +903,11 @@ $message_type = $_GET['type'] ?? '';
                         <div class="status-icon-box num-indicator"><?= str_pad($card_index, 2, '0', STR_PAD_LEFT) ?></div>
                         <div>
                             <h3 class="card-title"><?= htmlspecialchars($item['item_name']) ?></h3>
-                            <p class="card-meta"><?= htmlspecialchars($item['description']) ?></p>
+                            <?php if (in_array($item['item_id'], [13, 15, 16])): ?>
+                                <p class="card-meta">State updates automatically depending on the evaluation outcomes of your primary Capsule Proposal document.</p>
+                            <?php else: ?>
+                                <p class="card-meta"><?= htmlspecialchars($item['description']) ?></p>
+                            <?php endif; ?>
                         </div>
                     </div>
 

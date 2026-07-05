@@ -27,6 +27,11 @@ foreach ($checklist_items as $item) {
     $stmt->execute([$effective_user_id, $item['item_id']]);
     $latest_upload = $stmt->fetch();
 
+    // Full upload history for the timeline panel (read-only)
+    $hist_stmt = $pdo->prepare("SELECT upload_id, verification_status, remarks, file_path, original_filename, uploaded_at FROM uploads WHERE user_id = ? AND item_id = ? ORDER BY uploaded_at DESC");
+    $hist_stmt->execute([$effective_user_id, $item['item_id']]);
+    $upload_history = $hist_stmt->fetchAll();
+
     $item_statuses[$item['item_id']] = [
         'status' => $latest_upload['verification_status'] ?? 'No Upload',
         'remarks' => $latest_upload['remarks'] ?? '',
@@ -36,7 +41,8 @@ foreach ($checklist_items as $item) {
         'uploaded_at' => $latest_upload['uploaded_at'] ?? null,
         'form_008_data' => $latest_upload['form_008_data'] ?? null,
         'form_008_score' => $latest_upload['form_008_score'] ?? null,
-        'form_008_decision' => $latest_upload['form_008_decision'] ?? null
+        'form_008_decision' => $latest_upload['form_008_decision'] ?? null,
+        'history' => $upload_history
     ];
 }
 
@@ -736,6 +742,346 @@ $message_type = $_GET['type'] ?? '';
             font-weight: 800;
             letter-spacing: -1px;
         }
+
+        /* ---- WORKFLOW STEPS ---- */
+        .workflow-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+            margin-bottom: 18px;
+            background: #f8fafc;
+            border-radius: 14px;
+            padding: 14px 16px;
+            border: 1px solid #e2e8f0;
+        }
+        .workflow-step {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 5px 0;
+        }
+        .step-num {
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            background: #0f172a;
+            color: white;
+            font-size: 11px;
+            font-weight: 800;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-shrink: 0;
+        }
+        .step-text {
+            font-size: 13px;
+            color: #334155;
+            font-weight: 500;
+            line-height: 1.4;
+        }
+        .step-arrow {
+            padding-left: 4px;
+            color: #cbd5e1;
+        }
+
+        /* ---- HISTORY BUTTON ---- */
+        .btn-history {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: transparent;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .btn-history:active { opacity: 0.7; }
+
+        /* ---- UPLOAD OR DIVIDER ---- */
+        .upload-divider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .upload-divider::before,
+        .upload-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e2e8f0;
+        }
+
+        /* ---- SUBMISSION CARD ---- */
+        .submission-card {
+            display: flex;
+            align-items: center;
+            gap: 14px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 14px;
+            margin-top: 14px;
+            cursor: pointer;
+            transition: transform 0.15s, background 0.15s;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .submission-card:active {
+            background: #f1f5f9;
+            transform: scale(0.99);
+        }
+        .file-thumb-wrap {
+            width: 52px;
+            height: 52px;
+            border-radius: 10px;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .file-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .file-thumb-doc { background: #f1f5f9; }
+        .submission-info { flex: 1; min-width: 0; }
+        .submission-status-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            margin-bottom: 2px;
+        }
+        .tap-preview-hint {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            font-size: 11px;
+            color: #94a3b8;
+            margin-top: 4px;
+        }
+
+        /* ---- UPLOAD SPINNER ---- */
+        .upload-spinner {
+            width: 15px;
+            height: 15px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ---- TOAST ---- */
+        .toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: #0f172a;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 99999;
+            white-space: nowrap;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+            pointer-events: none;
+        }
+        .toast.toast-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.toast-success { background: #059669; }
+        .toast.toast-error { background: #dc2626; }
+
+        /* ---- DOWNLOAD PREVIEW MODAL ---- */
+        .dl-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 99998;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .dl-modal-overlay.open { display: flex; }
+        .dl-modal-box {
+            background: white;
+            border-radius: 24px 24px 0 0;
+            padding: 24px 24px 36px;
+            width: 100%;
+            max-width: 480px;
+            animation: slideUpModal 0.32s cubic-bezier(0.2,0.8,0.2,1) both;
+        }
+        .dl-modal-handle {
+            width: 36px;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin: 0 auto 20px;
+        }
+        .dl-modal-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 6px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        @keyframes slideUpModal {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        /* ---- HISTORY PANEL ---- */
+        .history-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.45);
+            z-index: 99990;
+        }
+        .history-backdrop.visible { display: block; }
+        .history-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            bottom: 0;
+            width: min(100vw, 380px);
+            background: white;
+            z-index: 99991;
+            display: flex;
+            flex-direction: column;
+            transform: translateX(100%);
+            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1);
+            box-shadow: -8px 0 40px rgba(0,0,0,0.12);
+        }
+        .history-panel.open { transform: translateX(0); }
+        .history-panel-header {
+            padding: 18px 20px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .history-panel-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        .history-close-btn {
+            background: #f1f5f9;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+        .history-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .history-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 14px 16px;
+        }
+        .history-item-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #94a3b8;
+            margin-bottom: 6px;
+        }
+        .history-status-pill {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .history-status-pill.approved { background: #ecfdf5; color: #047857; }
+        .history-status-pill.revision { background: #fef2f2; color: #b91c1c; }
+        .history-status-pill.review { background: #fffbeb; color: #b45309; }
+        .history-filename {
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 3px;
+        }
+        .history-date { font-size: 12px; color: #64748b; }
+        .history-remarks {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #92400e;
+            background: #fffbeb;
+            border-left: 3px solid #f59e0b;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-style: italic;
+        }
+
+        /* ---- DARK THEME — new components ---- */
+        body.theme-dark .workflow-steps { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .step-num { background: rgba(255,255,255,0.15); }
+        body.theme-dark .step-text { color: #94a3b8; }
+        body.theme-dark .step-arrow { color: #334155; }
+        body.theme-dark .btn-history { color: #64748b; border-color: rgba(255,255,255,0.1); }
+        body.theme-dark .submission-card { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .submission-card:active { background: rgba(255,255,255,0.08); }
+        body.theme-dark .file-thumb-doc { background: rgba(255,255,255,0.05); }
+        body.theme-dark .upload-divider { color: #475569; }
+        body.theme-dark .upload-divider::before,
+        body.theme-dark .upload-divider::after { background: rgba(255,255,255,0.08); }
+        body.theme-dark .history-panel { background: #1e293b; }
+        body.theme-dark .history-panel-header { border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .history-panel-header h3 { color: #f8fafc; }
+        body.theme-dark .history-close-btn { background: rgba(255,255,255,0.08); color: #94a3b8; }
+        body.theme-dark .history-item { background: #0f172a; border-color: rgba(255,255,255,0.05); }
+        body.theme-dark .history-filename { color: #f1f5f9; }
+        body.theme-dark .dl-modal-box { background: #1e293b; }
+        body.theme-dark .dl-modal-header { color: #f1f5f9; border-color: rgba(255,255,255,0.06); }
     </style>
     <script src="https://unpkg.com/lucide@latest"></script>
     <script>
@@ -912,14 +1258,39 @@ $message_type = $_GET['type'] ?? '';
                     </div>
 
                     <div class="card-body" onclick="event.stopPropagation()">
-                        <div class="status-pill <?= $status_class ?>"><?= $pill_text ?></div>
 
+                        <!-- Status + History button -->
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:16px;">
+                            <div class="status-pill <?= $status_class ?>"><?= $pill_text ?></div>
+                            <?php if (!empty($status_data['history'])): ?>
+                            <button onclick="openHistoryPanel(<?= $item['item_id'] ?>)" class="btn-history">
+                                <i data-lucide="clock" style="width:13px;height:13px;"></i> History
+                            </button>
+                            <?php endif; ?>
+                        </div>
+
+                        <!-- Workflow steps -->
                         <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
-                            <div class="instruction-box">
-                                <strong>Workflow:</strong> Download form &rarr; Hand to adviser for signature &rarr; Snap picture/Scan &rarr; Upload signed copy.
-                            </div>
+                        <div class="workflow-steps">
+                            <div class="workflow-step"><span class="step-num">1</span><span class="step-text">Download the blank form below</span></div>
+                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
+                            <div class="workflow-step"><span class="step-num">2</span><span class="step-text">Hand to your adviser for signature</span></div>
+                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
+                            <div class="workflow-step"><span class="step-num">3</span><span class="step-text">Capture a photo or scan the signed copy</span></div>
+                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
+                            <div class="workflow-step"><span class="step-num">4</span><span class="step-text">Upload using the button below</span></div>
+                        </div>
+                        <?php elseif ($item['item_id'] == 14): ?>
+                        <div class="workflow-steps">
+                            <div class="workflow-step"><span class="step-num">1</span><span class="step-text">Download the capsule template below</span></div>
+                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
+                            <div class="workflow-step"><span class="step-num">2</span><span class="step-text">Complete your capsule proposal document</span></div>
+                            <div class="step-arrow"><i data-lucide="arrow-down" style="width:13px;height:13px;"></i></div>
+                            <div class="workflow-step"><span class="step-num">3</span><span class="step-text">Upload your completed file below</span></div>
+                        </div>
                         <?php endif; ?>
 
+                        <!-- Cascaded items notice -->
                         <?php if (in_array($item['item_id'], [13, 15, 16])): ?>
                             <?php if ($current_status !== 'Approved'): ?>
                                 <div class="instruction-box">Awaiting Capsule Proposal Evaluation.</div>
@@ -928,48 +1299,83 @@ $message_type = $_GET['type'] ?? '';
                             <?php endif; ?>
                         <?php endif; ?>
 
-                        <?php if (!in_array($item['item_id'], [13, 15, 16]) && $current_status !== 'Approved'): ?>
-                            <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent">
-                                <input type="hidden" name="module_context" value="proposal">
-                                <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
-                                <label class="btn btn-primary">
-                                    <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
-                                    <input type="file" name="research_file" style="display:none;" onchange="this.form.submit()" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" required>
-                                </label>
-                            </form>
-                        <?php endif; ?>
-
-                        <?php if ($status_data['file_path']): ?>
-                            <div class="file-attachment">
-                                <i data-lucide="file-text" class="file-icon"></i>
-                                <div style="flex:1; overflow:hidden;">
-                                    <a href="<?= htmlspecialchars($status_data['file_path']) ?>" download class="file-name" style="text-decoration:none; white-space:nowrap; text-overflow:ellipsis;"><?= htmlspecialchars($status_data['original_filename']) ?></a>
-                                    <span class="file-sub">Latest submission</span>
-                                </div>
-                            </div>
-                        <?php endif; ?>
-
+                        <!-- Remarks -->
                         <?php if (!empty($status_data['remarks'])): ?>
-                            <div class="instruction-box" style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; margin-top:20px;">
+                            <div class="instruction-box" style="background:#fffbeb; color:#b45309; border:1px solid #fde68a; margin-bottom:16px;">
                                 <strong>Remarks:</strong> "<?= htmlspecialchars($status_data['remarks']) ?>"
                             </div>
                         <?php endif; ?>
 
-                        <div style="margin-top: 24px; display:flex; flex-direction:column; gap:12px;">
+                        <!-- Download button -->
+                        <?php if (in_array($item['item_id'], [11, 12, 13, 14])): ?>
+                        <div style="margin-bottom:14px;">
                             <?php if ($item['item_id'] === 11): ?>
-                                <a href="../assigned_adviser.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</a>
+                                <button onclick="openDownloadModal('../assigned_adviser.pdf', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
                             <?php elseif ($item['item_id'] === 12): ?>
-                                <a href="../endorsement.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</a>
+                                <button onclick="openDownloadModal('../endorsement.pdf', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
                             <?php elseif ($item['item_id'] === 13): ?>
-                                <a href="../proposal_review.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</a>
+                                <button onclick="openDownloadModal('../proposal_review.pdf', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
                             <?php elseif ($item['item_id'] === 14): ?>
-                                <a href="../capsule_form.pdf" download class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</a>
-                            <?php endif; ?>
-
-                            <?php if (in_array($item['item_id'], [13, 14]) && !empty($item_statuses[14]['form_008_data'])): ?>
-                                <button onclick="openStudentForm008(<?= htmlspecialchars(json_encode($item_statuses[14]['form_008_data'])) ?>, <?= $item_statuses[14]['form_008_score'] ?: 0 ?>, '<?= $item_statuses[14]['form_008_decision'] ?>')" class="btn btn-warning"><i data-lucide="eye" style="width:18px;height:18px;"></i> View Form 008 Findings</button>
+                                <button onclick="openDownloadModal('../capsule_form.pdf', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
                             <?php endif; ?>
                         </div>
+                        <?php endif; ?>
+
+                        <!-- Upload actions -->
+                        <?php if (!in_array($item['item_id'], [13, 15, 16]) && $current_status !== 'Approved'): ?>
+                        <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" onsubmit="handleUploadStart(this)" style="display:flex;flex-direction:column;gap:0;">
+                            <input type="hidden" name="module_context" value="proposal">
+                            <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
+                            <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
+                            <?php if (in_array($item['item_id'], [11, 12])): ?>
+                            <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-primary" onclick="triggerCamera(<?= $item['item_id'] ?>)">
+                                <i data-lucide="camera" style="width:18px;height:18px;"></i> Capture Photo
+                            </button>
+                            <div class="upload-divider"><span>or</span></div>
+                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-outline" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload Existing File
+                            </button>
+                            <?php else: ?>
+                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                            </button>
+                            <?php endif; ?>
+                        </form>
+                        <?php endif; ?>
+
+                        <!-- Latest submission card -->
+                        <?php if ($status_data['file_path']):
+                            $sub_fname = $status_data['original_filename'];
+                            $sub_fpath = $status_data['file_path'];
+                            $sub_fdate = $status_data['uploaded_at'] ? date('M j, Y', strtotime($status_data['uploaded_at'])) : '';
+                            $sub_ftime = $status_data['uploaded_at'] ? date('g:i A', strtotime($status_data['uploaded_at'])) : '';
+                            $sub_ext = strtolower(pathinfo($sub_fname, PATHINFO_EXTENSION));
+                            $sub_is_img = in_array($sub_ext, ['jpg','jpeg','png','gif','webp']);
+                        ?>
+                        <div class="submission-card" onclick="window.open('<?= htmlspecialchars($sub_fpath) ?>', '_blank')">
+                            <div class="file-thumb-wrap <?= $sub_is_img ? '' : 'file-thumb-doc' ?>">
+                                <?php if ($sub_is_img): ?>
+                                    <img src="<?= htmlspecialchars($sub_fpath) ?>" alt="Preview" class="file-thumb">
+                                <?php else: ?>
+                                    <i data-lucide="file-text" style="width:22px;height:22px;color:#64748b;"></i>
+                                <?php endif; ?>
+                            </div>
+                            <div class="submission-info">
+                                <div class="submission-status-row">
+                                    <i data-lucide="check-circle" style="width:13px;height:13px;color:#059669;"></i>
+                                    <span style="font-size:11px;font-weight:800;color:#059669;text-transform:uppercase;letter-spacing:0.05em;">Uploaded</span>
+                                </div>
+                                <div class="file-name" style="margin-top:3px;"><?= htmlspecialchars($sub_fname) ?></div>
+                                <?php if ($sub_fdate): ?><div class="file-sub"><?= $sub_fdate ?> &middot; <?= $sub_ftime ?></div><?php endif; ?>
+                                <div class="tap-preview-hint"><i data-lucide="eye" style="width:11px;height:11px;"></i> Tap to Preview</div>
+                            </div>
+                        </div>
+                        <?php endif; ?>
+
+                        <!-- Form 008 viewer -->
+                        <?php if (in_array($item['item_id'], [13, 14]) && !empty($item_statuses[14]['form_008_data'])): ?>
+                            <button onclick="openStudentForm008(<?= htmlspecialchars(json_encode($item_statuses[14]['form_008_data'])) ?>, <?= $item_statuses[14]['form_008_score'] ?: 0 ?>, '<?= $item_statuses[14]['form_008_decision'] ?>')" class="btn btn-warning" style="margin-top:12px;"><i data-lucide="eye" style="width:18px;height:18px;"></i> View Form 008 Findings</button>
+                        <?php endif; ?>
 
                     </div>
                 </div>
@@ -977,8 +1383,140 @@ $message_type = $_GET['type'] ?? '';
         <?php endforeach; ?>
     </div>
 
+    <?php if ($message): ?>
+    <div id="upload-toast" class="toast toast-<?= htmlspecialchars($message_type) ?>">
+        <i data-lucide="<?= $message_type === 'success' ? 'check-circle' : 'alert-circle' ?>" style="width:16px;height:16px;"></i>
+        <?= htmlspecialchars($message) ?>
+    </div>
+    <?php endif; ?>
+
+    <!-- Download Preview Modal -->
+    <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal()">
+        <div class="dl-modal-box">
+            <div class="dl-modal-handle"></div>
+            <div class="dl-modal-header">
+                <i data-lucide="file" style="width:18px;height:18px;color:#64748b;"></i>
+                <span id="dm-name">Document</span>
+            </div>
+            <p style="font-size:13px;color:#64748b;margin:12px 0 20px 0;line-height:1.5;">Open a preview or save a copy to your device.</p>
+            <div style="display:flex;flex-direction:column;gap:10px;">
+                <button id="dm-preview-btn" class="btn btn-primary"><i data-lucide="eye" style="width:18px;height:18px;"></i> Open Preview</button>
+                <button id="dm-download-btn" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download</button>
+                <button onclick="closeDlModal()" class="btn" style="background:transparent;color:#94a3b8;border:none;font-size:14px;padding:12px;">Cancel</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- History Panels -->
+    <?php foreach ($checklist_items as $hist_item):
+        $hist = $item_statuses[$hist_item['item_id']]['history'] ?? [];
+        if (empty($hist)) continue;
+    ?>
+    <div id="history-panel-<?= $hist_item['item_id'] ?>" class="history-panel">
+        <div class="history-panel-header">
+            <div>
+                <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#94a3b8;margin-bottom:2px;">Submission History</div>
+                <h3><?= htmlspecialchars($hist_item['item_name']) ?></h3>
+            </div>
+            <button onclick="closeHistoryPanel()" class="history-close-btn">
+                <i data-lucide="x" style="width:18px;height:18px;"></i>
+            </button>
+        </div>
+        <div class="history-panel-body">
+            <?php foreach ($hist as $hi => $hu):
+                $hu_st = $hu['verification_status'];
+                if ($hu_st === 'Approved') $hu_sc = 'approved';
+                elseif ($hu_st === 'Revision Requested') $hu_sc = 'revision';
+                else $hu_sc = 'review';
+                if ($hi === 0) $hu_label = 'Current Submission';
+                elseif ($hi === 1) $hu_label = 'Previous Submission';
+                else $hu_label = 'Older Submission';
+                $hu_date = $hu['uploaded_at'] ? date('M j, Y \a\t g:i A', strtotime($hu['uploaded_at'])) : '';
+            ?>
+            <div class="history-item">
+                <div class="history-item-label"><?= $hu_label ?></div>
+                <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
+                <div class="history-filename"><?= htmlspecialchars($hu['original_filename'] ?? 'Unknown file') ?></div>
+                <?php if ($hu_date): ?><div class="history-date"><?= $hu_date ?></div><?php endif; ?>
+                <?php if (!empty($hu['remarks'])): ?>
+                <div class="history-remarks"><?= htmlspecialchars($hu['remarks']) ?></div>
+                <?php endif; ?>
+            </div>
+            <?php endforeach; ?>
+        </div>
+    </div>
+    <?php endforeach; ?>
+    <div id="history-backdrop" class="history-backdrop" onclick="closeHistoryPanel()"></div>
+
     <script>
         lucide.createIcons();
+
+        // Toast
+        (function() {
+            const toast = document.getElementById('upload-toast');
+            if (!toast) return;
+            setTimeout(() => toast.classList.add('toast-visible'), 120);
+            setTimeout(() => toast.classList.remove('toast-visible'), 2700);
+        })();
+
+        // Download preview modal
+        function openDownloadModal(url, name) {
+            document.getElementById('dm-name').textContent = name;
+            document.getElementById('dm-preview-btn').onclick = function() { window.open(url, '_blank'); };
+            document.getElementById('dm-download-btn').onclick = function() {
+                const a = document.createElement('a');
+                a.href = url; a.download = ''; document.body.appendChild(a); a.click(); document.body.removeChild(a);
+            };
+            document.getElementById('download-modal').classList.add('open');
+            lucide.createIcons();
+        }
+        function closeDlModal() { document.getElementById('download-modal').classList.remove('open'); }
+
+        // Camera / file picker
+        function triggerCamera(itemId) {
+            const input = document.getElementById('file-input-' + itemId);
+            input.setAttribute('accept', 'image/*');
+            input.setAttribute('capture', 'environment');
+            input.click();
+        }
+        function triggerFilePicker(itemId) {
+            const input = document.getElementById('file-input-' + itemId);
+            input.setAttribute('accept', 'image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx');
+            input.removeAttribute('capture');
+            input.click();
+        }
+        function handleFileChange(input) {
+            if (!input.files || !input.files.length) return;
+            const form = input.closest('form');
+            form.querySelectorAll('button').forEach(b => {
+                b.disabled = true;
+                b.style.opacity = '0.65';
+                b.style.pointerEvents = 'none';
+            });
+            const primary = form.querySelector('.btn-primary');
+            if (primary) primary.innerHTML = '<span class="upload-spinner"></span> Uploading...';
+            form.submit();
+        }
+        function handleUploadStart(form) {
+            form.querySelectorAll('button').forEach(b => { b.disabled = true; });
+        }
+
+        // History panel
+        function openHistoryPanel(itemId) {
+            const panel = document.getElementById('history-panel-' + itemId);
+            const backdrop = document.getElementById('history-backdrop');
+            if (!panel) return;
+            panel.classList.add('open');
+            backdrop.classList.add('visible');
+            document.body.style.overflow = 'hidden';
+            lucide.createIcons();
+        }
+        function closeHistoryPanel() {
+            document.querySelectorAll('.history-panel.open').forEach(p => p.classList.remove('open'));
+            const backdrop = document.getElementById('history-backdrop');
+            if (backdrop) backdrop.classList.remove('visible');
+            document.body.style.overflow = '';
+        }
 
         function expandWalletCard(cardEl, event) {
             if (window.innerWidth > 768) return;

@@ -1235,7 +1235,21 @@ $message_type = $_GET['type'] ?? '';
             <p class="widget-subtext">Reqs Cleared</p>
         </div>
 
-        <!-- Next Milestone Widget Removed -->
+        <?php if ($overall_prop_status === 'Approved'): ?>
+        <!-- Premium Institutional Clearance Widget -->
+        <div class="widget-card clearance-widget" style="flex: 1; margin-left: 16px; border: 1px solid rgba(16, 185, 129, 0.3); box-shadow: 0 8px 24px rgba(16, 185, 129, 0.15); justify-content: space-between; padding: 16px 12px; position: relative; overflow: hidden;">
+            <div style="position: absolute; top: -20px; right: -20px; width: 60px; height: 60px; background: radial-gradient(circle, rgba(16, 185, 129, 0.15) 0%, transparent 70%); border-radius: 50%;"></div>
+            
+            <div style="display:flex; flex-direction:column; align-items:center; gap: 4px; z-index: 1;">
+                <i data-lucide="trophy" style="width:28px;height:28px;color:#10b981; filter: drop-shadow(0 2px 4px rgba(16,185,129,0.3));"></i>
+                <strong style="color:#064e3b; font-size:12px; font-family:'Inter', sans-serif; line-height:1.2; margin-top:2px; text-align:center;">Institutional<br>Clearance</strong>
+            </div>
+            
+            <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn premium-download-btn" style="width:100%; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 0; font-weight:600; font-family:'Inter', sans-serif; font-size: 11px; border-radius: 8px; box-shadow: 0 4px 12px rgba(16,185,129,0.2); transition: all 0.2s ease; z-index: 1; margin-top: auto;">
+                <i data-lucide="download" style="width:14px;height:14px;margin-right:4px;"></i> Download
+            </button>
+        </div>
+        <?php endif; ?>
     </div>
 
 
@@ -1526,7 +1540,7 @@ $message_type = $_GET['type'] ?? '';
             };
             document.getElementById('download-modal').classList.add('open');
             lucide.createIcons();
-            history.pushState({ modalOpen: true }, '', '#download');
+            try { history.pushState({ layer: 'download' }, '', ''); } catch(e) {}
         }
         function closeDlModal(fromPopstate = false) { 
             document.getElementById('download-modal').classList.remove('open'); 
@@ -1604,7 +1618,7 @@ $message_type = $_GET['type'] ?? '';
             lucide.createIcons();
             
             try {
-                history.pushState({ historyOpen: true }, '', '');
+                history.pushState({ layer: 'history' }, '', '');
             } catch(e) {}
         }
         function closeHistoryPanel(fromPopstate = false) {
@@ -1624,21 +1638,8 @@ $message_type = $_GET['type'] ?? '';
         function expandWalletCard(cardEl, event) {
             if (window.innerWidth > 768) return;
             if (cardEl.classList.contains('wallet-active')) return;
-
-            // 1. Create placeholder to keep the other cards still!
-            const rect = cardEl.getBoundingClientRect();
-            const placeholder = document.createElement('div');
-            placeholder.className = 'wallet-placeholder';
-            placeholder.style.height = rect.height + 'px';
-            placeholder.style.marginTop = '-85px';
-            // Also need relative position and z-index to maintain stack order if needed, but height/margin is enough for flow.
-            cardEl.parentNode.insertBefore(placeholder, cardEl);
-            // Save placeholder to card so we can remove it later
-            cardEl._walletPlaceholder = placeholder;
-
+            // Calculate exact position for seamless FLIP animation
             const grid = document.querySelector('.items-grid');
-            
-            // 2. Prepare animation from bottom
             cardEl.style.transition = 'none';
             cardEl.style.transform = 'translateY(100vh)';
             
@@ -1648,8 +1649,7 @@ $message_type = $_GET['type'] ?? '';
 
             // Force reflow
             void cardEl.offsetWidth;
-            
-            // 3. Animate to top: 5vh
+
             cardEl.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.2,1)';
             cardEl.style.transform = 'translateY(0)';
 
@@ -1865,7 +1865,202 @@ $message_type = $_GET['type'] ?? '';
             const m = document.getElementById('studentForm008Modal');
             m.style.display = 'flex';
             setTimeout(() => m.classList.add('open'), 10);
-            history.pushState({ form008Open: true }, '', '#form008');
+            try { history.pushState({ layer: 'form008' }, '', ''); } catch(e) {}
+        };
+
+        window.closeForm008Modal = function(fromPopstate = false) {
+            const m = document.getElementById('studentForm008Modal');
+            m.classList.remove('open');
+            setTimeout(() => { m.style.display = 'none'; }, 350);
+            if (!fromPopstate) history.back();
+        };
+
+        // Drag to dismiss for wallet cards
+        document.addEventListener('DOMContentLoaded', () => {
+            let cardStartY = 0;
+            let cardCurrentY = 0;
+            let isCardDragging = false;
+            let activeDraggingCard = null;
+
+            document.addEventListener('touchstart', (e) => {
+                const card = e.target.closest('.item-card.wallet-active');
+                if (!card) return;
+
+                // Only allow drag from the card header, not the scrollable body!
+                const header = e.target.closest('.card-inner-bg');
+                const body = e.target.closest('.card-body');
+                if (body) return; // if they are touching the body (which might scroll), don't drag
+
+                if (header) {
+                    cardStartY = e.touches[0].clientY;
+                    isCardDragging = true;
+                    activeDraggingCard = card;
+                    card.style.transition = 'none'; // disable CSS transition while dragging
+                }
+            }, {
+                passive: true
+            });
+
+            document.addEventListener('touchmove', (e) => {
+                if (!isCardDragging || !activeDraggingCard) return;
+
+                cardCurrentY = e.touches[0].clientY;
+                const deltaY = cardCurrentY - cardStartY;
+
+                // Only drag downwards
+                if (deltaY > 0) {
+                    activeDraggingCard.style.transform = `translateY(${deltaY}px)`;
+                }
+            }, {
+                passive: true
+            });
+
+            document.addEventListener('touchend', (e) => {
+                if (!isCardDragging || !activeDraggingCard) return;
+                isCardDragging = false;
+
+                activeDraggingCard.style.transition = 'all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1)';
+
+                const deltaY = cardCurrentY - cardStartY;
+
+                if (deltaY > 120) { // threshold
+                    // Trigger close button
+                    const backBtn = activeDraggingCard.querySelector('.wallet-back-btn');
+                    if (backBtn) {
+}
+    </style>
+    <div id="studentForm008Modal" style="display:none; position:fixed; top:5vh; left:0; right:0; bottom:0; background:white; z-index:99999; flex-direction:column; border-radius:24px 24px 0 0; box-shadow:0 -4px 20px rgba(0,0,0,0.05); overflow:hidden;">
+        <div style="background:white; width:100%; height:100%; display:flex; flex-direction:column; overflow:hidden;">
+            <div style="background:#0f172a; color:white; padding:20px 25px; display:flex; justify-content:space-between; align-items:center;">
+                <div>
+                    <span style="font-size:11px; font-family:'Inter', sans-serif; text-transform:uppercase; letter-spacing:0.05em; opacity:0.8;">Feedback Panel</span>
+                    <h3 style="margin:0; font-family:'Inter', sans-serif; font-size:18px;">Form 008 Evaluation Sheet</h3>
+                </div>
+            </div>
+            <div style="flex:1; overflow-y:auto; padding:25px; background:#f8fafc; font-family:'Inter', sans-serif;">
+                <div style="display:flex; justify-content:space-between; align-items:center; background:white; padding:20px; border-radius:16px; border:1px solid #e2e8f0; margin-bottom:24px;">
+                    <div>
+                        <span style="font-size:12px; color:#64748b; font-weight:800; text-transform:uppercase;">Evaluated Score</span>
+                        <h2 style="margin:4px 0 0 0; color:#0f172a; font-size:28px;" id="sModalScore">0 / 22</h2>
+                    </div>
+                    <div style="text-align:right;">
+                        <span style="font-size:12px; color:#64748b; font-weight:800; text-transform:uppercase;">Overall Decision</span>
+                        <h3 style="margin:4px 0 0 0; color:#d97706;" id="sModalDecision">Pending</h3>
+                    </div>
+                </div>
+                <div id="sModalContent" style="display:flex; flex-direction:column; gap:20px;"></div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const form008Questions = {
+            "Clarity of Research Objectives": {
+                "q1": "Are the research questions or objectives clearly articulated and well-defined?",
+                "q2": "Is there a logical rationale for the study?"
+            },
+            "Literature Review": {
+                "q3": "Does the literature review demonstrate a thorough understanding of existing research?",
+                "q4": "Is the literature review up-to-date and relevant?"
+            },
+            "Theoretical Framework": {
+                "q5": "Is there a well-developed theoretical framework guiding the research?",
+                "q6": "Does the theoretical framework align with research questions?"
+            },
+            "Research Design and Methodology": {
+                "q7": "Is the research design appropriate for addressing objectives?",
+                "q8": "Are methods described in sufficient detail?",
+                "q9": "Is sample size and sampling method justified?"
+            },
+            "Data Collection": {
+                "q10": "Are data collection methods clearly described and appropriate?",
+                "q11": "Is there a plan for ensuring credentials and validity?"
+            },
+            "Data Analysis": {
+                "q12": "Is data analysis approach suitable?",
+                "q13": "Are statistical methods appropriate?"
+            },
+            "Significance of the Study": {
+                "q14": "Does proposal articulate potential contributions to the field?",
+                "q15": "Is there discussion of practical implications?"
+            },
+            "Feasibility": {
+                "q16": "Are required resources realistically addressed?",
+                "q17": "Does researcher have access to necessary data/facilities?"
+            },
+            "Ethical Considerations": {
+                "q18": "Are ethical considerations adequately addressed?",
+                "q19": "Are there plans for consent and confidentiality?"
+            },
+            "Presentation and Communication": {
+                "q20": "Is proposal organized and clearly written?",
+                "q21": "Are ideas presented coherently?",
+                "q22": "Is the language appropriate and accessible?"
+            }
+        };
+
+        window.openStudentForm008 = function(jsonString, score, decision) {
+            try {
+                const data = typeof jsonString === 'string' ? JSON.parse(jsonString) : jsonString;
+                document.getElementById('sModalScore').textContent = `${score} / 22`;
+                const decEl = document.getElementById('sModalDecision');
+                decEl.textContent = decision ? decision.toUpperCase() : "EVALUATED";
+                if (score >= 15) decEl.style.color = "#059669";
+                else if (score >= 8) decEl.style.color = "#d97706";
+                else decEl.style.color = "#dc2626";
+
+                const container = document.getElementById('sModalContent');
+                container.innerHTML = '';
+
+                for (const [sectionTitle, questions] of Object.entries(form008Questions)) {
+                    let sectionHTML = `
+                        <div style="background:white; border:1px solid #e2e8f0; border-radius:16px; padding:20px;">
+                            <h4 style="margin:0 0 16px 0; color:#0f172a; font-size:15px; border-bottom:1px solid #e2e8f0; padding-bottom:12px; font-weight:800;">${sectionTitle}</h4>
+                            <div style="display:flex; flex-direction:column; gap:16px;">
+                    `;
+                    for (const [qKey, qText] of Object.entries(questions)) {
+                        const answerData = data && data[qKey] ? data[qKey] : {
+                            val: "N/A",
+                            comment: ""
+                        };
+                        let badgeStyle = "background:#f1f5f9; color:#475569;";
+                        if (answerData.val === "YES") badgeStyle = "background:#ecfdf5; color:#047857; border:1px solid #a7f3d0;";
+                        if (answerData.val === "NO") badgeStyle = "background:#fef2f2; color:#b91c1c; border:1px solid #fecaca;";
+
+                        let commentHTML = "";
+                        if (answerData.comment && answerData.comment.trim() !== "") {
+                            commentHTML = `
+                                <div style="margin-top:10px; background:#fffbeb; border-left:4px solid #f59e0b; padding:12px; border-radius:8px; font-size:13px; color:#92400e; font-style:italic;">
+                                    <strong>Evaluator Note:</strong> "${answerData.comment}"
+                                </div>
+                            `;
+                        }
+
+                        sectionHTML += `
+                            <div style="display:flex; flex-direction:column;">
+                                <div style="display:flex; gap:12px; align-items:flex-start;">
+                                    <span style="padding:6px 12px; border-radius:8px; font-size:12px; font-weight:800; height:fit-content; ${badgeStyle}">${answerData.val}</span>
+                                    <p style="margin:0; font-size:14px; color:#334155; line-height:1.5;">${qText}</p>
+                                </div>
+                                ${commentHTML}
+                            </div>
+                        `;
+                    }
+                    sectionHTML += `</div></div>`;
+                    container.innerHTML += sectionHTML;
+                }
+                window.openForm008Modal();
+            } catch (e) {
+                console.error(e);
+                alert("Error loading evaluation details.");
+            }
+        };
+
+        window.openForm008Modal = function() {
+            const m = document.getElementById('studentForm008Modal');
+            m.style.display = 'flex';
+            setTimeout(() => m.classList.add('open'), 10);
+            try { history.pushState({ layer: 'form008' }, '', ''); } catch(e) {}
         };
 
         window.closeForm008Modal = function(fromPopstate = false) {
@@ -1932,14 +2127,166 @@ $message_type = $_GET['type'] ?? '';
                         // fallback
                         activeDraggingCard.classList.remove('wallet-active');
                         document.body.classList.remove('has-active-wallet');
-                        document.querySelector('.items-grid').classList.remove('has-active-card');
-                    }
-                }
+                  window.collapseCard = function(cardEl, fromPopstate = false) {
+            const grid = document.querySelector('.items-grid');
+            
+            cardEl.style.transition = 'transform 0.35s cubic-bezier(0.2,0.8,0.2,1)';
+            cardEl.style.transform = 'translateY(100vh)';
+            
+            setTimeout(() => {
+                cardEl.classList.remove('wallet-active');
+                cardEl.style.transition = '';
+                cardEl.style.transform = '';
+                grid.classList.remove('has-active-card');
+                document.body.classList.remove('has-active-wallet');
+            }, 350);
 
-                // Reset transform
+            if (!fromPopstate) {
+                history.back();
+            }
+        };      // Reset transform
                 activeDraggingCard.style.transform = '';
                 activeDraggingCard = null;
             });
+        });
+    </script>
+    <style>
+        .premium-download-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 6px 16px rgba(16,185,129,0.3) !important;
+            filter: brightness(1.05);
+        }
+        .premium-download-btn:active {
+            transform: translateY(0);
+            box-shadow: 0 2px 8px rgba(16,185,129,0.2) !important;
+        }
+
+        /* Mascot Styles *        /* Mascot Styles */
+        #mascot-celebration-container {
+            position: fixed;
+            top: 20px;
+            right: 0;
+            width: 250px;
+            height: 250px;
+            pointer-events: none;
+            z-index: 999999;
+            transform: translateX(100%);
+            will-change: transform;
+        }
+
+        #mascot-celebration-container img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
+        }
+
+        .mascot-peek {
+            animation: mascotPeek 7.5s cubic-bezier(0.2, 0.8, 0.2, 1) forwards;
+        }
+
+        @keyframes mascotPeek {
+            0% { transform: translateX(100%); }
+            10% { transform: translateX(45%); } /* Half body peek */
+            90% { transform: translateX(45%); } /* Hold half body */
+            100% { transform: translateX(100%); } /* Exit */
+        }
+    </style>
+
+    <div id="mascot-celebration-container">
+        <img src="../assets/images/mascott_party.svg" alt="Party Mascot">
+    </div>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            const isApproved = <?= $overall_prop_status === 'Approved' ? 'true' : 'false' ?>;
+
+            if (isApproved) {
+                // Check for reduced motion
+                const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+                
+                if (!prefersReducedMotion) {
+                    setTimeout(() => {
+                        const mascot = document.getElementById('mascot-celebration-container');
+                        mascot.classList.add('mascot-peek');
+
+                        // Launch confetti immediately as it comes out
+                        launchConfetti();
+                    }, 500);
+                }
+            }
+            
+            function launchConfetti() {
+                const colors = ['#10b981', '#34d399', '#fcd34d', '#fbbf24', '#f87171', '#818cf8'];
+                const shapes = ['circle', 'square', 'triangle'];
+                
+                // Continuous slow rain, huge amount
+                let rainInterval = setInterval(() => {
+                    for (let i = 0; i < 8; i++) createParticle(colors, shapes);
+                }, 100);
+                
+                // Stop spawning after 6.5 seconds so it ends around when the mascot leaves
+                setTimeout(() => clearInterval(rainInterval), 6500);
+            }
+            
+            function createParticle(colors, shapes) {
+                const p = document.createElement('div');
+                const shape = shapes[Math.floor(Math.random() * shapes.length)];
+                
+                p.style.position = 'fixed';
+                // Origin near the mascot's horn at the top right
+                p.style.left = `calc(100vw - 120px + ${Math.random() * 60 - 30}px)`;
+                p.style.top = `calc(120px + ${Math.random() * 40 - 20}px)`;
+                p.style.width = `${Math.random() * 6 + 6}px`;
+                p.style.height = shape === 'triangle' ? '0' : `${Math.random() * 6 + 6}px`;
+                
+                if (shape === 'circle') p.style.borderRadius = '50%';
+                if (shape === 'triangle') {
+                    p.style.width = '0';
+                    p.style.borderLeft = '5px solid transparent';
+                    p.style.borderRight = '5px solid transparent';
+                    p.style.borderBottom = `10px solid ${colors[Math.random() * colors.length | 0]}`;
+                    p.style.backgroundColor = 'transparent';
+                } else {
+                    p.style.backgroundColor = colors[Math.random() * colors.length | 0];
+                }
+                
+                p.style.zIndex = '999998';
+                p.style.pointerEvents = 'none';
+                document.body.appendChild(p);
+                
+                // Random physics (gentle floating)
+                const angle = Math.random() * Math.PI * 0.5 + Math.PI * 0.75; // Shoot up/left slightly
+                const velocity = Math.random() * 2 + 1; // Extremely slow velocity
+                let vx = Math.cos(angle) * velocity - (Math.random() * 1); // Slight left wind
+                let vy = -Math.sin(angle) * velocity;
+                let rot = Math.random() * 360;
+                let drot = (Math.random() - 0.5) * 2; // Very slow rotation
+                
+                let x = 0;
+                let y = 0;
+                let opacity = 1;
+                
+                function animate() {
+                    vy += 0.03; // very light gravity for floating effect
+                    vx *= 0.99; // very slight air resistance
+                    x += vx;
+                    y += vy;
+                    rot += drot;
+                    
+                    if (y > window.innerHeight * 0.7) opacity -= 0.01; // Fade out near bottom
+                    
+                    p.style.transform = `translate(${x}px, ${y}px) rotate(${rot}deg)`;
+                    p.style.opacity = opacity;
+                    
+                    if (opacity > 0 && (y + 120) < window.innerHeight) {
+                        requestAnimationFrame(animate);
+                    } else {
+                        p.remove();
+                    }
+                }
+                
+                requestAnimationFrame(animate);
+            }
         });
     </script>
 </body>

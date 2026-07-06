@@ -4644,7 +4644,15 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             } else {
                 const activeOverlays = document.querySelectorAll('.fullscreen-zoom-overlay.active');
                 if (activeOverlays.length > 0) {
-                    collapseZoomModules();
+                    let shouldCollapse = true;
+                    activeOverlays.forEach(overlay => {
+                        if (overlay.id === 'zoom-' + hash) {
+                            shouldCollapse = false;
+                        }
+                    });
+                    if (shouldCollapse) {
+                        collapseZoomModules();
+                    }
                 }
             }
         });

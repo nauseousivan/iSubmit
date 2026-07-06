@@ -1,0 +1,66 @@
+<svg viewBox="0 0 200 200" xmlns="http://www.w3.org/2000/svg">
+    <!-- Confetti Burst (Scattered across the canvas) -->
+    <g id="confetti" opacity="0.9">
+        <rect x="40" y="40" width="8" height="8" fill="#ec4899" transform="rotate(15 40 40)" />
+        <circle cx="80" cy="30" r="5" fill="#f59e0b" />
+        <polygon points="20,80 26,90 14,90" fill="#3b82f6" transform="rotate(-20 20 80)" />
+        <rect x="90" y="90" width="6" height="10" fill="#10b981" transform="rotate(45 90 90)" />
+        <circle cx="50" cy="120" r="4" fill="#8b5cf6" />
+        <polygon points="120,50 128,55 124,65" fill="#ef4444" />
+        <rect x="20" y="140" width="8" height="8" fill="#f59e0b" transform="rotate(60 20 140)" />
+        <circle cx="70" cy="160" r="5" fill="#ec4899" />
+        <path d="M 60 60 Q 50 70 40 60" fill="none" stroke="#3b82f6" stroke-width="3" stroke-linecap="round" />
+        <path d="M 100 130 Q 110 140 100 150" fill="none" stroke="#10b981" stroke-width="3" stroke-linecap="round" />
+    </g>
+
+    <!-- Mascot leaning in from the Top Right -->
+    <!-- We translate him to the top right and rotate him -45 degrees -->
+    <g transform="translate(100, -10) rotate(-45, 60, 90)">
+        
+        <!-- Graduation cap -->
+        <g style="transform-origin: 60px 25px;">
+            <rect x="28" y="24" width="64" height="10" rx="3" fill="#1e1b4b" />
+            <polygon points="60,10 90,26 60,30 30,26" fill="#312e81" />
+            <line x1="90" y1="26" x2="96" y2="46" stroke="#312e81" stroke-width="2" />
+            <circle cx="96" cy="48" r="4" fill="#a78bfa" />
+        </g>
+
+        <!-- Body -->
+        <ellipse cx="60" cy="90" rx="34" ry="42" fill="#7c3aed" />
+        <ellipse cx="60" cy="96" rx="20" ry="26" fill="#ede9fe" />
+
+        <!-- Happy Eyes (Dark purple strokes - 100% visible) -->
+        <path d="M 36 72 Q 44 60 52 72" fill="none" stroke="#1e1b4b" stroke-width="4" stroke-linecap="round" />
+        <path d="M 68 72 Q 76 60 84 72" fill="none" stroke="#1e1b4b" stroke-width="4" stroke-linecap="round" />
+
+        <!-- Beak -->
+        <polygon points="60,76 48,85 72,85" fill="#f59e0b" />
+        <path d="M 48 85 Q 60 98 72 85" fill="#d97706" />
+
+        <!-- Torotot (Party Horn) sticking out of beak -->
+        <g id="torotot" transform="translate(50, 82) rotate(10)">
+            <!-- Plastic Mouthpiece -->
+            <rect x="-10" y="-4" width="10" height="8" rx="2" fill="white" />
+            <!-- Horn Cone -->
+            <polygon points="-10,-5 -60,-20 -60,20 -10,5" fill="#ec4899" />
+            <!-- Yellow Stripe -->
+            <polygon points="-20,-8 -30,-11 -30,11 -20,8" fill="#fbbf24" />
+            <!-- Blue Stripe -->
+            <polygon points="-40,-14 -50,-17 -50,17 -40,14" fill="#3b82f6" />
+            <!-- Paper Frills blowing out -->
+            <path d="M -60 -20 L -70 -25 L -65 -15 L -75 -5 L -65 5 L -75 15 L -60 20 Z" fill="#fbbf24" />
+        </g>
+
+        <!-- Wings (Raised high in celebration!) -->
+        <g style="transform-origin: 27px 90px;">
+            <ellipse cx="27" cy="98" rx="12" ry="20" fill="#6d28d9" transform="translate(0, -10) rotate(135,27,98)" />
+        </g>
+        <g style="transform-origin: 93px 90px;">
+            <ellipse cx="93" cy="98" rx="12" ry="20" fill="#6d28d9" transform="translate(0, -10) rotate(-135,93,98)" />
+        </g>
+
+        <!-- Feet -->
+        <ellipse cx="46" cy="130" rx="10" ry="5" fill="#6d28d9" />
+        <ellipse cx="74" cy="130" rx="10" ry="5" fill="#6d28d9" />
+    </g>
+</svg>

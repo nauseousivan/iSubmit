@@ -1,0 +1,1110 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;800&display=swap');
+
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 20px;
+            background: #ffffff;
+            color: #1f2937;
+            padding-top: 10px;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        /* Shared Styles (Progress Widget) */
+        .mobile-stack-hint {
+            display: none;
+        }
+
+        .hero-widgets {
+            display: flex;
+            flex-direction: row;
+            justify-content: flex-start;
+            margin-bottom: 24px;
+        }
+
+        .widget-card {
+            background: white;
+            border-radius: 20px;
+            padding: 16px;
+            text-align: center;
+            box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05);
+            border: 1px solid #f3f4f6;
+            width: 140px;
+            height: 140px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .circular-chart {
+            display: block;
+            margin: 0 auto;
+            max-width: 60px;
+            max-height: 60px;
+        }
+
+        .circle-bg {
+            fill: none;
+            stroke: #e2e8f0;
+            stroke-width: 3.5;
+        }
+
+        .circle {
+            fill: none;
+            stroke-width: 3.5;
+            stroke-linecap: round;
+            animation: progress 1s ease-out forwards;
+        }
+
+        @keyframes progress {
+            0% {
+                stroke-dasharray: 0 100;
+            }
+        }
+
+        .percentage {
+            fill: #1e293b;
+            font-family: 'Inter', sans-serif;
+            font-size: 8px;
+            font-weight: 800;
+            text-anchor: middle;
+            dominant-baseline: central;
+        }
+
+        .widget-label {
+            font-size: 11px;
+            font-weight: 700;
+            color: #64748b;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-top: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+
+        .widget-value {
+            font-size: 18px;
+            font-weight: 800;
+            color: #0f172a;
+            margin: 4px 0 2px 0;
+        }
+
+        .widget-subtext {
+            font-size: 11px;
+            color: #64748b;
+            margin: 0;
+        }
+
+        /* Buttons and Shared Form Elements */
+        .status-pill {
+            display: inline-flex;
+            font-size: 11px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+            padding: 6px 14px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .status-pill.review {
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        .status-pill.approved {
+            background: #ecfdf5;
+            color: #047857;
+            border: 1px solid #a7f3d0;
+        }
+
+        .status-pill.revision {
+            background: #fef2f2;
+            color: #b91c1c;
+            border: 1px solid #fecaca;
+        }
+
+        .status-pill.pending {
+            background: #f3f4f6;
+            color: #4b5563;
+            border: 1px solid #e5e7eb;
+        }
+
+        .status-pill.no-upload {
+            background: #f3e8ff;
+            color: #7e22ce;
+            border: 1px solid #d8b4fe;
+        }
+
+        .instruction-box {
+            background: #f0fdf4;
+            color: #166534;
+            padding: 16px;
+            border-radius: 12px;
+            font-size: 13px;
+            line-height: 1.5;
+            margin-bottom: 20px;
+        }
+
+        .instruction-box strong {
+            font-weight: 700;
+        }
+
+        .btn {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            width: 100%;
+            padding: 16px;
+            border-radius: 14px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            border: none;
+            text-decoration: none;
+            font-family: 'Inter', sans-serif;
+            transition: opacity 0.2s;
+        }
+
+        .btn:active {
+            opacity: 0.8;
+        }
+
+        .btn-primary {
+            background: #0f172a;
+            color: white;
+        }
+
+        .btn-outline {
+            background: transparent;
+            color: #0f172a;
+            border: 1.5px solid #e2e8f0;
+        }
+
+        .btn-warning {
+            background: #fffbeb;
+            color: #b45309;
+            border: 1px solid #fde68a;
+        }
+
+        .file-attachment {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8fafc;
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 10px;
+        }
+
+        .file-icon {
+            color: #64748b;
+        }
+
+        .file-name {
+            font-size: 14px;
+            font-weight: 700;
+            color: #0f172a;
+            display: block;
+        }
+
+        .file-sub {
+            font-size: 12px;
+            color: #64748b;
+            display: block;
+            margin-top: 2px;
+        }
+
+
+        /* ========================================================
+           MOBILE LAYOUT (Apple Wallet Stack)
+           ======================================================== */
+        @media (max-width: 768px) {
+            body {
+                padding: 12px 10px;
+                /* Reduced from 20px to make cards touch closer to the edges */
+            }
+
+            .sheet-drag-handle {
+                display: none !important;
+            }
+
+            .mobile-stack-hint {
+                display: flex;
+                align-items: center;
+                gap: 6px;
+                justify-content: flex-end;
+                font-size: 11px;
+                font-weight: 700;
+                color: #94a3b8;
+                text-transform: uppercase;
+                letter-spacing: 0.05em;
+                margin-bottom: 12px;
+                margin-top: 8px;
+                margin-right: 4px;
+                animation: pulseHint 2.5s infinite;
+            }
+
+            @keyframes pulseHint {
+
+                0%,
+                100% {
+                    opacity: 0.5;
+                }
+
+                50% {
+                    opacity: 1;
+                    transform: translateY(-2px);
+                }
+            }
+
+            .items-grid {
+                display: flex;
+                flex-direction: column;
+                padding-bottom: 40px;
+                position: relative;
+            }
+
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                position: relative;
+                width: 100%;
+                border-radius: 24px;
+                margin-top: -85px;
+                /* Slight adjustment for the new size */
+                /* 3D Physical Card Effect: Inner highlight borders + Halo outer shadow */
+                border-top: 1px solid rgba(255, 255, 255, 0.4);
+                border-left: 1px solid rgba(255, 255, 255, 0.2);
+                border-right: 1px solid rgba(255, 255, 255, 0.1);
+                box-shadow:
+                    0 -15px 30px -10px rgba(0, 0, 0, 0.25),
+                    /* Deep stacking shadow */
+                    0 15px 25px -10px rgba(0, 0, 0, 0.2);
+                /* Drop shadow */
+                transition: all 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+                cursor: pointer;
+                overflow: hidden;
+            }
+
+            /* Custom Colored Halo Shadows for each card status */
+            .item-card.approved {
+                box-shadow: 0 -15px 35px -10px rgba(16, 185, 129, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.review,
+            .item-card.pending {
+                box-shadow: 0 -15px 35px -10px rgba(245, 158, 11, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.revision {
+                box-shadow: 0 -15px 35px -10px rgba(239, 68, 68, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card.no-upload {
+                box-shadow: 0 -15px 35px -10px rgba(124, 58, 237, 0.4), 0 10px 20px -5px rgba(0, 0, 0, 0.2);
+            }
+
+            .item-card:first-child {
+                margin-top: 0;
+                box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+            }
+
+            .card-inner-bg {
+                width: 100%;
+                min-height: 140px;
+                transition: all 0.3s ease;
+            }
+
+            .item-card.review .card-inner-bg,
+            .item-card.pending .card-inner-bg,
+            .item-card.revision .card-inner-bg {
+                background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+            }
+
+            .item-card.approved .card-inner-bg {
+                background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+            }
+
+            .item-card.no-upload .card-inner-bg {
+                background: linear-gradient(135deg, #7c3aed 0%, #5b21b6 100%);
+            }
+
+            .card-header {
+                padding: 28px 24px;
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+                color: white;
+            }
+
+            .status-icon-box {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                background: rgba(255, 255, 255, 0.2);
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .card-title {
+                margin: 0 0 4px 0;
+                font-size: 14px;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0;
+                line-height: 1.2;
+                /* Allow 2 lines max, but 14px should fit most on 1 line */
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
+            .card-meta {
+                margin: 0;
+                font-size: 13.5px;
+                color: rgba(255, 255, 255, 0.95);
+                line-height: 1.4;
+                display: -webkit-box;
+                -webkit-line-clamp: 2;
+                -webkit-box-orient: vertical;
+                overflow: hidden;
+            }
+
+            body.has-active-wallet {
+                overflow: hidden;
+            }
+
+            .items-grid.has-active-card .item-card:not(.wallet-active) {
+                transform: translateY(100vh);
+                opacity: 0;
+                pointer-events: none;
+            }
+
+            .item-card.wallet-active {
+                position: fixed;
+                top: 5vh;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                margin-top: 0;
+                border-radius: 24px 24px 0 0;
+                box-shadow: 0 -4px 20px rgba(0,0,0,0.05);
+                z-index: 9999 !important;
+                cursor: default;
+                background-color: white !important;
+            }
+
+            .item-card.wallet-active .card-inner-bg {
+                height: 100%;
+                display: flex;
+                flex-direction: column;
+            }
+
+            .item-card.wallet-active .card-header {
+                padding-top: 30px;
+                padding-bottom: 40px;
+            }
+
+            .item-card.wallet-active .card-meta {
+                -webkit-line-clamp: unset;
+            }
+
+
+
+            .card-body {
+                background: white;
+                flex: 1;
+                border-radius: 0;
+                margin-top: -20px;
+                padding: 30px 24px;
+                display: none;
+                overflow-y: auto;
+                box-shadow: 0 -4px 15px rgba(0, 0, 0, 0.05);
+            }
+
+            .item-card.wallet-active .card-body {
+                display: block;
+                animation: slideBodyUp 0.4s ease forwards;
+            }
+
+            @keyframes slideBodyUp {
+                from {
+                    transform: translateY(40px);
+                    opacity: 0;
+                }
+
+                to {
+                    transform: translateY(0);
+                    opacity: 1;
+                }
+            }
+        }
+
+
+        /* ========================================================
+           DESKTOP LAYOUT (Grid Cards)
+           ======================================================== */
+        @media (min-width: 769px) {
+            .sheet-drag-handle {
+                display: none;
+            }
+
+            .wallet-close-btn {
+                display: none !important;
+            }
+
+            .mobile-stack-hint {
+                display: none;
+            }
+
+            .hero-widgets {
+                flex-direction: row;
+                gap: 24px;
+            }
+
+            .hero-widgets .widget-card {
+                flex: 1;
+            }
+
+            .items-grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+                gap: 24px;
+                margin-top: 30px;
+            }
+
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                background: white;
+                border-radius: 16px;
+                border: 1px solid #e5e7eb;
+                border-left: 5px solid #e5e7eb;
+                box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.05);
+                overflow: hidden;
+                display: flex;
+                flex-direction: column;
+                transition: transform 0.2s, box-shadow 0.2s;
+            }
+
+            .item-card:hover {
+                transform: translateY(-4px);
+                box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+            }
+
+            .item-card.approved {
+                border-left-color: #10b981;
+            }
+
+            .item-card.review,
+            .item-card.pending {
+                border-left-color: #f59e0b;
+            }
+
+            .item-card.revision {
+                border-left-color: #ef4444;
+            }
+
+            .card-header {
+                padding: 24px 24px 16px 24px;
+                display: flex;
+                align-items: flex-start;
+                gap: 16px;
+            }
+
+            .status-icon-box {
+                width: 44px;
+                height: 44px;
+                border-radius: 12px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .item-card.approved .status-icon-box {
+                background: #d1fae5;
+                color: #047857;
+            }
+
+            .item-card.review .status-icon-box,
+            .item-card.pending .status-icon-box {
+                background: #fef3c7;
+                color: #b45309;
+            }
+
+            .item-card.revision .status-icon-box {
+                background: #fee2e2;
+                color: #b91c1c;
+            }
+
+            .card-title {
+                margin: 0 0 6px 0;
+                font-size: 17px;
+                font-weight: 800;
+                color: #0f172a;
+                text-transform: uppercase;
+                letter-spacing: 0.02em;
+            }
+
+            .card-meta {
+                margin: 0;
+                font-size: 13px;
+                color: #64748b;
+                line-height: 1.5;
+            }
+
+            .card-body {
+                padding: 0 24px 24px 24px;
+                display: flex !important;
+                /* Force visible on desktop */
+                flex-direction: column;
+                flex: 1;
+            }
+
+            /* On desktop, the status pill is redundant with the left border, but we can keep it */
+            .status-pill {
+                align-self: flex-start;
+                margin-bottom: 16px;
+            }
+
+            .instruction-box {
+                margin-bottom: 16px;
+            }
+
+            .item-card form {
+                margin-top: auto;
+                /* Push to bottom */
+            }
+
+            /* Remove wallet functionality on desktop */
+            /* Aggressively disable text selection and tap highlights on ALL elements inside the card */
+            .item-card,
+            .item-card * {
+                -webkit-touch-callout: none;
+                /* iOS Safari */
+                -webkit-user-select: none;
+                /* Safari */
+                -moz-user-select: none;
+                /* Firefox */
+                -ms-user-select: none;
+                /* Internet Explorer/Edge */
+                user-select: none;
+                /* Non-prefixed version */
+                -webkit-tap-highlight-color: transparent;
+                /* Android Chrome Tap Highlight */
+                -webkit-tap-highlight-color: rgba(0, 0, 0, 0);
+            }
+
+            .item-card {
+                touch-action: pan-y;
+                /* Prevent browser handling of long-press gestures, allow scrolling */
+                cursor: default;
+            }
+        }
+
+        .num-indicator {
+            font-family: 'JetBrains Mono', 'Poppins', sans-serif;
+            font-size: 20px;
+            font-weight: 800;
+            letter-spacing: -1px;
+        }
+
+        /* ---- APPLE HIG WORKFLOW STEPS ---- */
+        .apple-workflow {
+            display: flex;
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 4px;
+            margin-bottom: 20px;
+            padding: 0;
+        }
+        .aw-step {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 13px;
+            font-weight: 500;
+            color: #334155;
+        }
+        .aw-step span {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            width: 18px;
+            height: 18px;
+            background: #e2e8f0;
+            color: #475569;
+            border-radius: 50%;
+            font-size: 10px;
+            font-weight: 800;
+        }
+        .aw-arrow {
+            margin-left: 5px;
+            color: #94a3b8;
+            font-size: 12px;
+        }
+
+        /* ---- HISTORY BUTTON ---- */
+        .btn-history {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            background: transparent;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            color: #64748b;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 6px 10px;
+            cursor: pointer;
+            font-family: 'Inter', sans-serif;
+            transition: all 0.2s;
+            flex-shrink: 0;
+        }
+        .btn-history:active { opacity: 0.7; }
+
+        /* ---- UPLOAD OR DIVIDER ---- */
+        .upload-divider {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 10px 0;
+            color: #94a3b8;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        .upload-divider::before,
+        .upload-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #e2e8f0;
+        }
+
+        /* ---- APPLE HIG FILE CARD ---- */
+        .apple-file-card {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 16px;
+            padding: 12px;
+            margin-top: 14px;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .afc-thumb-wrap {
+            width: 44px;
+            height: 44px;
+            border-radius: 10px;
+            overflow: hidden;
+            flex-shrink: 0;
+            background: #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .afc-thumb {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .afc-info {
+            flex: 1;
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        .afc-name {
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 2px;
+        }
+        .afc-meta {
+            font-size: 11px;
+            color: #64748b;
+        }
+        .afc-actions {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-shrink: 0;
+        }
+        .afc-btn {
+            background: white;
+            border: 1px solid #e2e8f0;
+            border-radius: 8px;
+            padding: 6px 10px;
+            font-size: 12px;
+            font-weight: 700;
+            color: #334155;
+            cursor: pointer;
+            transition: background 0.15s;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .afc-btn:active { background: #f1f5f9; }
+        .afc-delete { color: #dc2626; padding: 6px; }
+
+        /* ---- UPLOAD SPINNER ---- */
+        .upload-spinner {
+            width: 15px;
+            height: 15px;
+            border: 2px solid rgba(255,255,255,0.4);
+            border-top-color: white;
+            border-radius: 50%;
+            animation: spin 0.7s linear infinite;
+            display: inline-block;
+            vertical-align: middle;
+            flex-shrink: 0;
+        }
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* ---- TOAST ---- */
+        .toast {
+            position: fixed;
+            bottom: 90px;
+            left: 50%;
+            transform: translateX(-50%) translateY(20px);
+            background: #0f172a;
+            color: white;
+            padding: 12px 20px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 600;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            opacity: 0;
+            transition: opacity 0.3s ease, transform 0.3s ease;
+            z-index: 99999;
+            white-space: nowrap;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.25);
+            pointer-events: none;
+        }
+        .toast.toast-visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+        .toast.toast-success { background: #059669; }
+        .toast.toast-error { background: #dc2626; }
+
+        /* ---- DOWNLOAD PREVIEW MODAL ---- */
+        .dl-modal-overlay {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0);
+            z-index: 99998;
+            align-items: flex-end;
+            justify-content: center;
+        }
+        .dl-modal-overlay.open { display: flex; }
+        .dl-modal-box {
+            background: white;
+            border-radius: 0;
+            padding: 24px 24px 36px;
+            width: 100%;
+            max-width: 480px;
+            animation: slideUpModal 0.32s cubic-bezier(0.2,0.8,0.2,1) both;
+        }
+        .dl-modal-handle {
+            width: 36px;
+            height: 4px;
+            background: #e2e8f0;
+            border-radius: 2px;
+            margin: 0 auto 20px;
+        }
+        .dl-modal-header {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-size: 15px;
+            font-weight: 800;
+            color: #0f172a;
+            margin-bottom: 6px;
+            padding-bottom: 14px;
+            border-bottom: 1px solid #e2e8f0;
+        }
+        @keyframes slideUpModal {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        /* ---- FULL PAGE HISTORY MODAL / SHEET ---- */
+        .history-backdrop {
+            display: none;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0);
+            z-index: 99990;
+        }
+        .history-backdrop.visible { display: block; }
+        .history-panel {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            background: white;
+            z-index: 99991;
+            display: flex;
+            flex-direction: column;
+            transform: translateY(100%);
+            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1);
+            box-shadow: 0 -8px 40px rgba(0,0,0,0.12);
+            border-radius: 0;
+        }
+        @media (min-width: 769px) {
+            .history-panel {
+                width: 400px;
+                left: auto;
+                top: 0;
+                transform: translateX(100%);
+                border-radius: 0;
+            }
+            .history-panel.open { transform: translateX(0); }
+        }
+        @media (max-width: 768px) {
+            .history-panel.open { transform: translateY(0); }
+        }
+        .history-panel-header {
+            padding: 18px 20px 16px;
+            border-bottom: 1px solid #e2e8f0;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-shrink: 0;
+        }
+        .history-panel-header h3 {
+            margin: 0;
+            font-size: 14px;
+            font-weight: 800;
+            color: #0f172a;
+            text-transform: uppercase;
+            letter-spacing: 0.02em;
+        }
+        
+        .history-close-btn {
+            background: #f1f5f9;
+            border: none;
+            border-radius: 50%;
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            color: #64748b;
+            flex-shrink: 0;
+        }
+        .history-panel-body {
+            flex: 1;
+            overflow-y: auto;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+        .history-item {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 14px;
+            padding: 14px 16px;
+        }
+        .history-item-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: #94a3b8;
+            margin-bottom: 6px;
+        }
+        .history-status-pill {
+            display: inline-block;
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            padding: 4px 10px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+        }
+        .history-status-pill.approved { background: #ecfdf5; color: #047857; }
+        .history-status-pill.revision { background: #fef2f2; color: #b91c1c; }
+        .history-status-pill.review { background: #fffbeb; color: #b45309; }
+        .history-filename {
+            font-size: 13px;
+            font-weight: 700;
+            color: #0f172a;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            margin-bottom: 3px;
+        }
+        .history-date { font-size: 12px; color: #64748b; }
+        .history-remarks {
+            margin-top: 8px;
+            font-size: 12px;
+            color: #92400e;
+            background: #fffbeb;
+            border-left: 3px solid #f59e0b;
+            padding: 8px 10px;
+            border-radius: 6px;
+            font-style: italic;
+        }
+
+        /* ---- DARK THEME — new components ---- */
+        body.theme-dark .workflow-steps { background: rgba(255,255,255,0.03); border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .step-num { background: rgba(255,255,255,0.15); }
+        body.theme-dark .step-text { color: #94a3b8; }
+        body.theme-dark .step-arrow { color: #334155; }
+        body.theme-dark .btn-history { color: #64748b; border-color: rgba(255,255,255,0.1); }
+        body.theme-dark .submission-card { background: rgba(255,255,255,0.04); border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .submission-card:active { background: rgba(255,255,255,0.08); }
+        body.theme-dark .file-thumb-doc { background: rgba(255,255,255,0.05); }
+        body.theme-dark .upload-divider { color: #475569; }
+        body.theme-dark .upload-divider::before,
+        body.theme-dark .upload-divider::after { background: rgba(255,255,255,0.08); }
+        body.theme-dark .history-panel { background: #1e293b; }
+        body.theme-dark .history-panel-header { border-color: rgba(255,255,255,0.06); }
+        body.theme-dark .history-panel-header h3 { color: #f8fafc; }
+        body.theme-dark .history-close-btn { background: rgba(255,255,255,0.08); color: #94a3b8; }
+        @media (max-width: 768px) { body.theme-dark .history-close-btn { display: none !important; } }
+        body.theme-dark .history-item { background: #0f172a; border-color: rgba(255,255,255,0.05); }
+        body.theme-dark .history-filename { color: #f1f5f9; }
+        body.theme-dark .dl-modal-box { background: #1e293b; }
+        body.theme-dark .dl-modal-header { color: #f1f5f9; border-color: rgba(255,255,255,0.06); }
+
+/* Dark theme layout adjustments */
+
+        body.theme-dark {
+            background: #0f172a !important;
+            color: #f8fafc;
+        }
+
+        body.theme-dark .card-body,
+        body.theme-dark .item-card.wallet-active .card-body {
+            background: #1e293b !important;
+            color: #f1f5f9;
+        }
+
+        body.theme-dark .item-card {
+            background: #1e293b !important;
+            border-color: rgba(255, 255, 255, 0.06);
+            color: #f8fafc;
+        }
+
+        body.theme-dark .card-meta,
+        body.theme-dark .card-description {
+            color: #94a3b8;
+        }
+
+        body.theme-dark .wallet-close-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f1f5f9;
+        }
+
+        body.theme-dark .mobile-stack-hint {
+            color: #cbd5e1;
+            background: rgba(255, 255, 255, 0.05);
+        }
+
+        body.theme-dark .card-title {
+            color: #f8fafc;
+        }
+
+        body.theme-dark .status-pill {
+            background: #0f172a;
+            border-color: rgba(255, 255, 255, 0.1);
+        }
+
+        body.theme-dark .upload-btn {
+            background: rgba(255, 255, 255, 0.1);
+            color: #f8fafc;
+        }
+
+        body.theme-dark .upload-btn:hover {
+            background: rgba(255, 255, 255, 0.2);
+        }
+
+        body.theme-dark .feedback-box {
+            background: rgba(22, 101, 52, 0.2) !important;
+        }
+
+        body.theme-dark .feedback-box p {
+            color: #4ade80 !important;
+        }
+
+        /* Other theme colors */
+        body.theme-pink,
+        body.theme-rose {
+            background: #fde8f5 !important;
+        }
+
+        body.theme-green {
+            background: #e8f6ea !important;
+        }
+
+        body.theme-orange,
+        body.theme-amber {
+            background: #fffbeb !important;
+        }
+
+        body.theme-purple,
+        body.theme-lavender {
+            background: #ffffff !important;
+        }
+    

@@ -3775,8 +3775,14 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             if (panel) {
                 if (url) {
                     const iframe = panel.querySelector('iframe');
-                    let iframeSrc = url;
-                    iframe.src = iframeSrc;
+                    // Avoid pushing a duplicate history state when loading the iframe
+                    if (!iframe.src || !iframe.src.includes(url)) {
+                        if (iframe.contentWindow) {
+                            iframe.contentWindow.location.replace(url);
+                        } else {
+                            iframe.src = url;
+                        }
+                    }
                 }
                 panel.style.display = 'block';
                 document.body.classList.add('zoom-active');

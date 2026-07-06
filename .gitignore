@@ -1,0 +1,32 @@
+# Uploaded files and privacy data
+uploads/*
+!uploads/.gitkeep
+storage/*
+!storage/.gitkeep
+images/uploads/*
+!images/uploads/.gitkeep
+
+# Environment variables and config containing passwords
+.env
+.env.local
+.env.*
+config/database.php
+config/config.php
+
+# Agent Scratch Files
+scratch/
+scratch.php
+scratch_uploads.php
+
+# Dependencies
+vendor/
+node_modules/
+
+# OS Generated Files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db

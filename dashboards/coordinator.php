@@ -126,11 +126,17 @@ $pipeline_query = "
 $workflow_tracks = $pdo->query($pipeline_query)->fetchAll(PDO::FETCH_ASSOC);
 
 // Fetch coordinator alerts count
+// Coordinator acts on 'Pending' proposal submissions. Count only the LATEST upload per group per item
+// (mirrors the admin module) so old superseded versions don't inflate the nav badge.
 $pending_uploads_count = $pdo->query("
-    SELECT COUNT(*) 
-    FROM uploads 
-    WHERE verification_status = 'Pending' 
-    AND item_id IN (11, 12, 13, 14, 15, 16, 5, 4)
+    SELECT COUNT(*)
+    FROM uploads up
+    INNER JOIN (
+        SELECT user_id, item_id, MAX(uploaded_at) AS max_date
+        FROM uploads GROUP BY user_id, item_id
+    ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
+    WHERE up.verification_status = 'Pending'
+    AND up.item_id IN (11, 12, 13, 14, 15, 16)
 ")->fetchColumn();
 
 // Fetch Calendar Events

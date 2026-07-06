@@ -16,3 +16,8 @@ try {
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
+
+// CSRF token (per session). Used to protect state-changing proposal actions.
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}

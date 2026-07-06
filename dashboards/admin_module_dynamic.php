@@ -88,6 +88,10 @@ $rubric_stats_sections = [
 
 // Process Document Verifications
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'verify_upload') {
+    // CSRF protection (proposal flow only): reject forged proposal reviews.
+    if ($phase === 'proposal' && (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']))) {
+        exit('Invalid security token. Please refresh and try again.');
+    }
     $upload_id = $_POST['upload_id'];
     $status = $_POST['verification_status'];
     $remarks = trim($_POST['remarks']);
@@ -205,8 +209,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
         : "Your " . htmlspecialchars($req_name) . " has been reviewed by the " . $role . ". Status: " . $status . ".";
 
     $log_status = ($status === 'Approved') ? 'success' : 'warning';
-    $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)");
-    $log_stmt->execute([$student_user_id, $log_title, $log_desc, $log_status]);
+    $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, upload_id, title, description, status_type, created_at) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)");
+    $log_stmt->execute([$student_user_id, $upload_id, $log_title, $log_desc, $log_status]);
 }
 
 // Handle Statistician Acknowledging Payment
@@ -912,6 +916,60 @@ if ($phase === 'stats') {
             text-decoration: underline;
         }
 
+        /* Long filename handling: Document cell shows a single truncated line with full name on hover */
+        .file-name-btn {
+            max-width: 100%;
+        }
+
+        .file-name-btn .file-name-text {
+            display: inline-block;
+            max-width: 220px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            vertical-align: middle;
+        }
+
+        /* Primary evaluation CTA in the Review Action column (replaces the old dropdown + Update) */
+        .btn-evaluate {
+            background: var(--mcnp-teal);
+            color: #fff;
+            border: none;
+            padding: 9px 16px;
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 12.5px;
+            font-weight: 700;
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            white-space: nowrap;
+            transition: all 0.2s;
+            font-family: inherit;
+        }
+
+        .btn-evaluate:hover {
+            opacity: 0.92;
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(12, 52, 61, 0.15);
+        }
+
+        /* In the "Show History" version list, let long filenames wrap instead of breaking the card */
+        .history-content-box .file-link {
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: break-word;
+            text-align: left;
+        }
+
+        /* Keep the modal title on one truncated line regardless of filename length */
+        #modalTitle {
+            max-width: 100%;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
         /* Modal Layout Structures Enhancements for Split Window Console Panels */
         .preview-modal {
             display: none;
@@ -1261,17 +1319,17 @@ if ($phase === 'stats') {
 
             <!-- Status Filter Tabs -->
             <div class="status-tabs-container" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-line); padding-bottom: 14px; flex-wrap: wrap;">
-                <button type="button" class="status-filter-tab active" data-filter="all" onclick="filterByStatus('all')">
-                    <i data-lucide="layers" style="width: 14px; height: 14px;"></i> All Submissions
-                </button>
-                <button type="button" class="status-filter-tab" data-filter="pending" onclick="filterByStatus('pending')">
-                    <i data-lucide="clock" style="width: 14px; height: 14px;"></i> Pending / Under Review
-                </button>
-                <button type="button" class="status-filter-tab" data-filter="approved" onclick="filterByStatus('approved')">
-                    <i data-lucide="check-circle" style="width: 14px; height: 14px;"></i> Approved
+                <button type="button" class="status-filter-tab active" data-filter="action" onclick="filterByStatus('action')">
+                    <i data-lucide="inbox" style="width: 14px; height: 14px;"></i> Action Needed
                 </button>
                 <button type="button" class="status-filter-tab" data-filter="revision" onclick="filterByStatus('revision')">
-                    <i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i> Revision Requested
+                    <i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i> Revision History
+                </button>
+                <button type="button" class="status-filter-tab" data-filter="approved" onclick="filterByStatus('approved')">
+                    <i data-lucide="archive" style="width: 14px; height: 14px;"></i> Approved Archive
+                </button>
+                <button type="button" class="status-filter-tab" data-filter="all" onclick="filterByStatus('all')">
+                    <i data-lucide="layers" style="width: 14px; height: 14px;"></i> All Submissions
                 </button>
             </div>
 
@@ -1429,29 +1487,17 @@ if ($phase === 'stats') {
                                                 <?php endif; ?>
                                             </td>
                                             <td>
-                                                <button type="button" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub)) ?>, '<?= htmlspecialchars($item['item_name']) ?>', <?= $item_id ?>)" style="background:none; border:none; cursor:pointer;" class="file-link">
-                                                    <i data-lucide="eye" style="width: 14px; height: 14px;"></i>
-                                                    View & Evaluate
+                                                <button type="button" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub)) ?>, '<?= htmlspecialchars($item['item_name']) ?>', <?= $item_id ?>)" class="file-link file-name-btn" title="<?= htmlspecialchars($sub['original_filename']) ?>">
+                                                    <i data-lucide="file-text" style="width: 14px; height: 14px; flex-shrink:0;"></i>
+                                                    <span class="file-name-text"><?= htmlspecialchars($sub['original_filename'] ?: 'Document') ?></span>
                                                 </button>
                                                 <div style="font-size: 10px; color: #9ca3af; margin-top: 4px;"><?= date('M d, h:i A', strtotime($sub['uploaded_at'])) ?></div>
                                             </td>
                                             <td><span class="status-pill <?= $pill_class ?>"><?= htmlspecialchars($sub['verification_status']) ?></span></td>
                                             <td>
-                                                <form method="POST" class="action-form">
-                                                    <input type="hidden" name="action_type" value="verify_upload">
-                                                    <input type="hidden" name="upload_id" value="<?= $sub['upload_id'] ?>">
-                                                    <input type="hidden" name="student_user_id" value="<?= $sub['student_user_id'] ?>">
-                                                    <input type="hidden" name="req_name" value="<?= htmlspecialchars($item['item_name']) ?>">
-                                                    <input type="hidden" name="target_item_id" value="<?= $item_id ?>">
-
-                                                    <select name="verification_status" style="width: 130px;" required>
-                                                        <option value="" disabled selected>Action...</option>
-                                                        <option value="Approved">Approve</option>
-                                                        <option value="Revision Requested">Reject / Revise</option>
-                                                    </select>
-                                                    <input type="text" name="remarks" placeholder="Add feedback notes (optional)..." value="<?= htmlspecialchars($sub['remarks'] ?? '') ?>">
-                                                    <button type="submit" class="btn-update">Update</button>
-                                                </form>
+                                                <button type="button" class="btn-evaluate" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub)) ?>, '<?= htmlspecialchars($item['item_name']) ?>', <?= $item_id ?>)">
+                                                    <i data-lucide="eye" style="width: 15px; height: 15px;"></i> View &amp; Evaluate
+                                                </button>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>
@@ -1488,6 +1534,7 @@ if ($phase === 'stats') {
 
                     <form method="POST" class="action-form-modal" id="modalForm">
                         <input type="hidden" name="action_type" value="verify_upload">
+                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                         <input type="hidden" name="upload_id" id="modal_upload_id">
                         <input type="hidden" name="student_user_id" id="modal_student_id">
                         <input type="hidden" name="req_name" id="modal_req_name_input">
@@ -1627,7 +1674,7 @@ if ($phase === 'stats') {
 
         const groupProgressData = <?= json_encode($group_progress) ?>;
         let activeGroupId = null; // null means "all"
-        let activeStatusFilter = 'all'; // 'all', 'pending', 'approved', 'revision'
+        let activeStatusFilter = 'action'; // 'action' (Pending+Under Review), 'revision', 'approved', 'all'
 
         // Sidebar search filtering function
         function filterSidebarGroups() {
@@ -1721,7 +1768,8 @@ if ($phase === 'stats') {
                         const statusPill = row.querySelector('.status-pill');
                         if (statusPill) {
                             const statusText = statusPill.textContent.trim().toLowerCase();
-                            if (activeStatusFilter === 'pending') {
+                            if (activeStatusFilter === 'action' || activeStatusFilter === 'pending') {
+                                // Active queue: only submissions that still need an admin decision
                                 statusMatches = statusText === 'pending' || statusText === 'under review';
                             } else if (activeStatusFilter === 'approved') {
                                 statusMatches = statusText === 'approved';
@@ -1902,13 +1950,15 @@ if ($phase === 'stats') {
                 rubricContainer.style.display = 'flex';
                 activeContainer = rubricContainer;
                 runTallyFunc = runForm008Tally;
-                rubricContainer.querySelectorAll('.rubric-radio').forEach(r => r.required = true);
             } else if (parseInt(itemId) === 3) {
                 statRubricContainer.style.display = 'flex';
                 activeContainer = statRubricContainer;
                 runTallyFunc = runForm011Tally;
-                statRubricContainer.querySelectorAll('.rubric-radio').forEach(r => r.required = true);
             }
+            // NOTE: rubric radios are intentionally NOT HTML-`required`. Hidden required radios inside
+            // collapsed accordions caused native submit to fail silently ("control not focusable"),
+            // which broke Approve when re-evaluating a submission with no stored rubric. We validate
+            // completeness in the #modalForm submit handler instead (see below).
 
             if (activeContainer && data.form_008_data) {
                 try {
@@ -1960,10 +2010,38 @@ if ($phase === 'stats') {
         function closeDocumentModal() {
             document.getElementById('docModal').style.display = 'none';
             document.getElementById('previewFrame').src = 'about:blank';
-
-            // Restore required validation properties back to fallback defaults
-            document.querySelectorAll('.rubric-radio').forEach(r => r.required = true);
+            document.querySelectorAll('.rubric-radio').forEach(r => r.required = false);
         }
+
+        // Validate the rubric in JS (not via hidden HTML5 `required`) so submit never fails silently.
+        document.getElementById('modalForm').addEventListener('submit', function (e) {
+            const box008 = document.getElementById('form008RubricBox');
+            const box011 = document.getElementById('form011RubricBox');
+            const activeBox = (box008.style.display !== 'none') ? box008
+                : ((box011.style.display !== 'none') ? box011 : null);
+
+            if (activeBox) {
+                // Group radios by name and ensure each criterion has a selected YES/NO
+                const answered = {};
+                activeBox.querySelectorAll('.rubric-radio').forEach(r => {
+                    if (!(r.name in answered)) answered[r.name] = false;
+                    if (r.checked) answered[r.name] = true;
+                });
+                const firstUnanswered = Object.keys(answered).find(name => !answered[name]);
+                if (firstUnanswered) {
+                    e.preventDefault();
+                    const radio = activeBox.querySelector('.rubric-radio[name="' + firstUnanswered.replace(/"/g, '\\"') + '"]');
+                    const section = radio ? radio.closest('.rubric-accordion-content') : null;
+                    if (section && !section.classList.contains('open')) {
+                        const btn = section.previousElementSibling;
+                        if (btn && btn.classList.contains('rubric-accordion-btn')) toggleAccordion(section.id, btn);
+                    }
+                    if (radio) radio.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                    alert('Please complete every rubric criterion (YES / NO) before submitting the evaluation.');
+                    return false;
+                }
+            }
+        });
 
         async function runAIPrescore() {
             const uploadId = document.getElementById('modal_upload_id').value;
@@ -2008,6 +2086,9 @@ if ($phase === 'stats') {
                 lucide.createIcons();
             }
         }
+
+        // Apply the default "Action Needed" filter on load so Approved submissions start in the archive
+        filterTableRows();
     </script>
 </body>
 

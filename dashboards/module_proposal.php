@@ -23,16 +23,19 @@ $checklist_items = $checklist_stmt->fetchAll();
 // Prepare an array to hold the latest status and remarks for each item, including Form 008 data
 $item_statuses = [];
 foreach ($checklist_items as $item) {
-    $stmt = $pdo->prepare("SELECT verification_status, remarks, file_path, original_filename, uploaded_at, form_008_data, form_008_score, form_008_decision FROM uploads WHERE user_id = ? AND item_id = ? ORDER BY uploaded_at DESC LIMIT 1");
+    $stmt = $pdo->prepare("SELECT upload_id, verification_status, remarks, file_path, original_filename, uploaded_at, form_008_data, form_008_score, form_008_decision FROM uploads WHERE user_id = ? AND item_id = ? ORDER BY uploaded_at DESC LIMIT 1");
     $stmt->execute([$effective_user_id, $item['item_id']]);
     $latest_upload = $stmt->fetch();
 
-    // Full upload history for the timeline panel (read-only)
-    $hist_stmt = $pdo->prepare("SELECT upload_id, verification_status, remarks, file_path, original_filename, uploaded_at FROM uploads WHERE user_id = ? AND item_id = ? ORDER BY uploaded_at DESC");
+    // Upload history for the timeline panel (read-only). Only officially processed versions belong here:
+    // un-reviewed 'Pending' drafts are shown on the current submission card and can still be deleted, so they
+    // are intentionally excluded from history until a reviewer acts on them.
+    $hist_stmt = $pdo->prepare("SELECT upload_id, verification_status, remarks, file_path, original_filename, uploaded_at FROM uploads WHERE user_id = ? AND item_id = ? AND verification_status IN ('Under Review', 'Approved', 'Revision Requested') ORDER BY uploaded_at DESC");
     $hist_stmt->execute([$effective_user_id, $item['item_id']]);
     $upload_history = $hist_stmt->fetchAll();
 
     $item_statuses[$item['item_id']] = [
+        'upload_id' => $latest_upload['upload_id'] ?? 0,
         'status' => $latest_upload['verification_status'] ?? 'No Upload',
         'remarks' => $latest_upload['remarks'] ?? '',
         'file_path' => $latest_upload['file_path'] ?? '',
@@ -263,6 +266,7 @@ $message_type = $_GET['type'] ?? '';
                         <?php if (!in_array($item['item_id'], [13, 15, 16]) && $current_status !== 'Approved'): ?>
                         <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" onsubmit="handleUploadStart(this)" style="display:flex;flex-direction:column;gap:0;">
                             <input type="hidden" name="module_context" value="proposal">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                             <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
                             <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
                             <?php if (in_array($item['item_id'], [11, 12])): ?>
@@ -307,9 +311,11 @@ $message_type = $_GET['type'] ?? '';
                             </div>
                             <div class="afc-actions">
                                 <button type="button" class="afc-btn" onclick="openDownloadModal('<?= htmlspecialchars($sub_fpath) ?>', '<?= htmlspecialchars($sub_fname) ?>'); event.stopPropagation();">View</button>
-                                <button type="button" class="afc-btn afc-delete" onclick="deleteUpload(<?= $latest_upload['upload_id'] ?? 0 ?>, 'proposal'); event.stopPropagation();">
+                                <?php if ($current_status === 'Pending'): // Only an un-reviewed draft can be deleted; once reviewed it is locked into history ?>
+                                <button type="button" class="afc-btn afc-delete" onclick="deleteUpload(<?= $status_data['upload_id'] ?? 0 ?>, 'proposal'); event.stopPropagation();">
                                     <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
                                 </button>
+                                <?php endif; ?>
                             </div>
                         </div>
                         <?php endif; ?>
@@ -365,25 +371,22 @@ $message_type = $_GET['type'] ?? '';
             </button>
         </div>
         <div class="history-panel-body">
-            <?php foreach ($hist as $hi => $hu):
+            <?php
+            $hist_total = count($hist);
+            foreach ($hist as $hi => $hu):
                 $hu_st = $hu['verification_status'];
                 if ($hu_st === 'Approved') $hu_sc = 'approved';
                 elseif ($hu_st === 'Revision Requested') $hu_sc = 'revision';
                 else $hu_sc = 'review';
-                if ($hi === 0) $hu_label = 'Current Submission';
-                elseif ($hi === 1) $hu_label = 'Previous Submission';
-                else $hu_label = 'Older Submission';
+                // $hist is ordered newest-first; number versions chronologically (oldest = Version 1)
+                $hu_label = 'Version ' . ($hist_total - $hi) . ($hi === 0 ? ' (Latest Reviewed)' : '');
                 $hu_date = $hu['uploaded_at'] ? date('M j, Y \a\t g:i A', strtotime($hu['uploaded_at'])) : '';
             ?>
             <div class="history-item">
-                <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                    <div>
-                        <div class="history-item-label"><?= $hu_label ?></div>
-                        <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
-                    </div>
-                    <button type="button" class="afc-btn afc-delete" style="padding:4px;" onclick="deleteUpload(<?= $hu['upload_id'] ?>, 'proposal'); event.stopPropagation();">
-                        <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
-                    </button>
+                <!-- History is a read-only audit trail: processed versions cannot be deleted -->
+                <div>
+                    <div class="history-item-label"><?= $hu_label ?></div>
+                    <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
                 </div>
                 <div class="history-filename"><?= htmlspecialchars($hu['original_filename'] ?? 'Unknown file') ?></div>
                 <?php if ($hu_date): ?><div class="history-date"><?= $hu_date ?></div><?php endif; ?>
@@ -397,6 +400,7 @@ $message_type = $_GET['type'] ?? '';
     <?php endforeach; ?>
     <div id="history-backdrop" class="history-backdrop" onclick="closeHistoryPanel()"></div>
 
+    <script>window.CSRF_TOKEN = '<?= htmlspecialchars($_SESSION['csrf_token']) ?>';</script>
     <script src="../assets/js/dashboard-cards.js"></script>
         <?php include 'components/form008_modal.php'; ?>
 

@@ -21,10 +21,14 @@ function openDownloadModal(url, name) {
     try { history.pushState({ layer: 'download' }, '', ''); } catch (e) { }
 }
 function closeDlModal(fromPopstate = false) {
-    document.getElementById('download-modal').classList.remove('open');
+    // Manual close (Cancel/backdrop): step back in history and let the popstate handler
+    // close THIS layer. Removing the class here first would make popstate fall through
+    // and collapse the underlying wallet card instead of returning to the same requirement.
     if (!fromPopstate) {
         history.back();
+        return;
     }
+    document.getElementById('download-modal').classList.remove('open');
 }
 
 // Camera / file picker
@@ -80,6 +84,14 @@ function deleteUpload(uploadId, context) {
     contextInput.name = 'module_context';
     contextInput.value = context;
     form.appendChild(contextInput);
+
+    if (window.CSRF_TOKEN) {
+        const csrfInput = document.createElement('input');
+        csrfInput.type = 'hidden';
+        csrfInput.name = 'csrf_token';
+        csrfInput.value = window.CSRF_TOKEN;
+        form.appendChild(csrfInput);
+    }
 
     document.body.appendChild(form);
     form.submit();

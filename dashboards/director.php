@@ -247,12 +247,19 @@ $recent_activities = $pdo->query("
 ")->fetchAll();
 
 // Fetch pending counts for the sidebar badges (Director handles 'Under Review' status)
+// Director acts on 'Under Review' submissions. Count only the LATEST upload per group per item
+// (mirrors the admin module's $uploads_by_item logic) so superseded versions don't inflate the badges.
 $pending_counts = $pdo->query("
-    SELECT 
-        SUM(CASE WHEN up.item_id = 14 THEN 1 ELSE 0 END) as proposal_pending,
-        SUM(CASE WHEN up.item_id IN (25,27) THEN 1 ELSE 0 END) as final_pending,
+    SELECT
+        SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16) THEN 1 ELSE 0 END) as proposal_pending,
+        SUM(CASE WHEN up.item_id IN (21,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
+        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35) THEN 1 ELSE 0 END) as stats_pending,
         SUM(CASE WHEN up.item_id = 4 THEN 1 ELSE 0 END) as plag_pending
     FROM uploads up
+    INNER JOIN (
+        SELECT user_id, item_id, MAX(uploaded_at) AS max_date
+        FROM uploads GROUP BY user_id, item_id
+    ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
     WHERE up.verification_status = 'Under Review'
 ")->fetch();
 
@@ -890,6 +897,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 </button></li>
                 <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
                     <i data-lucide="calculator"></i> Statistics Clearance
+                    <?= $pending_counts['stats_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['stats_pending'] . '</span>' : '' ?>
                 </button></li>
                 <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
                     <i data-lucide="file-warning"></i> Plagiarism Verify

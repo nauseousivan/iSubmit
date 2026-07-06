@@ -23,6 +23,13 @@ All notable changes to the `iSubmit` project will be documented in this file.
 - **Favicon**: Created `favicon.svg` featuring Quill the Mascot and linked it across all authentication pages.
 
 ### Changed
+- **Coordinator = Director sibling (`coordinator.php`)**: The Coordinator sidebar now exposes all review
+  modules like the Director — **Proposal Defense, Final Manuscript, Statistics Clearance, Plagiarism Verify**
+  (the shared `admin_module_dynamic.php` already permitted coordinators on every phase) — each with a
+  latest-per-student pending badge. The Coordinator **Master Dashboard** was replaced with the Director-style
+  overview (stats grid, interactive group explorer, recent-activity feed + logs modal) via a new shared
+  partial `dashboards/_master_overview.php`. Approval semantics are unchanged for now
+  (Coordinator → Under Review); the two roles will be refactored/differentiated later.
 - **Admin Review UI (`admin_module_dynamic.php`)**: Consolidated the per-submission review into a single
   **View & Evaluate** entry point — removed the redundant inline status dropdown + **Update** button. The
   Document column now shows a truncated filename (full name on hover) so long titles no longer break the card.

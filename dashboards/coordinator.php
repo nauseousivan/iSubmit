@@ -125,19 +125,26 @@ $pipeline_query = "
 ";
 $workflow_tracks = $pdo->query($pipeline_query)->fetchAll(PDO::FETCH_ASSOC);
 
-// Fetch coordinator alerts count
-// Coordinator acts on 'Pending' proposal submissions. Count only the LATEST upload per group per item
-// (mirrors the admin module) so old superseded versions don't inflate the nav badge.
-$pending_uploads_count = $pdo->query("
-    SELECT COUNT(*)
+// Fetch coordinator alerts count.
+// Coordinator acts on 'Pending' submissions. Count only the LATEST upload per group per item
+// (mirrors the admin module) so old superseded versions don't inflate the nav badges.
+// Coordinator is a sibling of Director and can review every phase, so we count all phases here.
+$pending_counts = $pdo->query("
+    SELECT
+        SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16) THEN 1 ELSE 0 END) as proposal_pending,
+        SUM(CASE WHEN up.item_id IN (21,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
+        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35) THEN 1 ELSE 0 END) as stats_pending,
+        SUM(CASE WHEN up.item_id = 4 THEN 1 ELSE 0 END) as plag_pending
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date
         FROM uploads GROUP BY user_id, item_id
     ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
     WHERE up.verification_status = 'Pending'
-    AND up.item_id IN (11, 12, 13, 14, 15, 16)
-")->fetchColumn();
+")->fetch();
+
+// Backward-compatible alias (proposal-only) still referenced elsewhere in the dashboard.
+$pending_uploads_count = (int) ($pending_counts['proposal_pending'] ?? 0);
 
 // Fetch Calendar Events
 $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_date ASC")->fetchAll();
@@ -687,8 +694,20 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                         <i data-lucide="layout-dashboard"></i> Master Dashboard
                     </button></li>
                 <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
-                        <i data-lucide="file-check"></i> Evaluate Proposals
-                        <?= $pending_uploads_count > 0 ? '<span class="nav-badge">' . $pending_uploads_count . '</span>' : '' ?>
+                        <i data-lucide="file-check"></i> Proposal Defense
+                        <?= $pending_counts['proposal_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['proposal_pending'] . '</span>' : '' ?>
+                    </button></li>
+                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=final', this)">
+                        <i data-lucide="award"></i> Final Manuscript
+                        <?= $pending_counts['final_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['final_pending'] . '</span>' : '' ?>
+                    </button></li>
+                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
+                        <i data-lucide="calculator"></i> Statistics Clearance
+                        <?= $pending_counts['stats_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['stats_pending'] . '</span>' : '' ?>
+                    </button></li>
+                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
+                        <i data-lucide="file-warning"></i> Plagiarism Verify
+                        <?= $pending_counts['plag_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['plag_pending'] . '</span>' : '' ?>
                     </button></li>
                 <li><button class="nav-item-btn" onclick="openOverlay('message.php', this)">
                         <i data-lucide="message-square"></i> Messages
@@ -716,109 +735,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         </aside>
 
         <main class="main-workspace-content">
-            <div class="container" id="masterDashboard">
-                <div class="header">
-                    <div class="header-title">
-                        <h1>Research Coordinator Console</h1>
-                        <p>Process capsule proposals, stage reviews, and track student research tracks.</p>
-                    </div>
-                    <!-- Calendar Dynamic clock -->
-                    <div class="clock-widget">
-                        <i data-lucide="clock"></i>
-                        <span id="coordClock">loading...</span>
-                    </div>
-                </div>
-
-                <?php if ($message): ?>
-                    <div class="alert-success">
-                        <i data-lucide="check-circle" style="vertical-align: middle; margin-right: 6px;"></i>
-                        <?= htmlspecialchars($message) ?>
-                    </div>
-                <?php endif; ?>
-
-                <!-- Interactive Dropdown Group Selector -->
-                <div class="selector-section">
-                    <div class="selector-header">
-                        <h3>Research Group Quick Profile Finder</h3>
-                        <select class="select-group-dropdown" id="groupSelector" onchange="loadSelectedGroupProfile()">
-                            <option value="" disabled selected>-- Select Student Group --</option>
-                            <?php foreach ($workflow_tracks as $group): ?>
-                                <option value="<?= htmlspecialchars(json_encode($group)) ?>">
-                                    <?= htmlspecialchars($group['research_group_name']) ?>
-                                </option>
-                            <?php endforeach; ?>
-                        </select>
-                    </div>
-
-                    <div class="selected-group-profile-card" id="selectedGroupProfile">
-                        <div style="display:flex; justify-content:space-between; align-items:start;">
-                            <div style="display:flex; gap:16px;">
-                                <img id="groupPfp" src="" class="profile-pfp">
-                                <div>
-                                    <h4 id="groupName" style="color:var(--mcnp-teal); font-family:'Cinzel', serif; font-size:16px;">Group Name</h4>
-                                    <p id="groupLeader" style="font-weight:600; color:#4b5563; font-size:12.5px; margin-top:2px;">Leader: </p>
-                                    <p id="groupMail" style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#6b7280;"></p>
-                                    <p id="groupDetails" style="font-size:11px; color:#9ca3af; margin-top:2px;"></p>
-                                </div>
-                            </div>
-
-                            <div style="text-align:right;">
-                                <span style="font-size:10px; font-weight:800; color:#4a453e; text-transform:uppercase;">Administrative Milestones</span>
-                                <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px; align-items:flex-end;">
-                                    <div style="font-size:12px;"><span style="color:#6b7280;">Coordinator Flag:</span> <strong id="progCoord">Pending</strong></div>
-                                    <div style="font-size:12px;"><span style="color:#6b7280;">Statistician Status:</span> <strong id="progStats">Pending</strong></div>
-                                    <div style="font-size:12px;"><span style="color:#6b7280;">Payment Verified:</span> <strong id="progPay">Unpaid</strong></div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div class="section">
-                    <h3>Administrative Milestones Clearance Pipeline</h3>
-                    <div class="table-wrapper">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th>Research Group</th>
-                                    <th>Stage Form Type</th>
-                                    <th>Statistician Status</th>
-                                    <th>Your Evaluation Signoff</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($workflow_tracks as $wt): ?>
-                                    <tr>
-                                        <td>
-                                            <strong><?= htmlspecialchars($wt['research_group_name']) ?></strong><br>
-                                            <small style="color:var(--text-muted);"><?= htmlspecialchars($wt['program']) ?></small>
-                                        </td>
-                                        <td><?= htmlspecialchars($wt['form_name']) ?></td>
-                                        <td>
-                                            <span class="badge-status <?= $wt['statistician_status'] === 'Approved' ? 'badge-paid' : 'badge-pending' ?>">
-                                                <?= htmlspecialchars($wt['statistician_status']) ?>
-                                            </span>
-                                        </td>
-                                        <td>
-                                            <form method="POST">
-                                                <input type="hidden" name="action_type" value="coordinator_signoff">
-                                                <input type="hidden" name="approval_id" value="<?= $wt['approval_id'] ?>">
-                                                <select name="coordinator_status" required>
-                                                    <option value="Pending" <?= $wt['coordinator_status'] === 'Pending' ? 'selected' : '' ?>>Pending Review</option>
-                                                    <option value="Approved" <?= $wt['coordinator_status'] === 'Approved' ? 'selected' : '' ?>>Approve & Forward to Director</option>
-                                                    <option value="Rejected" <?= $wt['coordinator_status'] === 'Rejected' ? 'selected' : '' ?>>Reject / Hold Milestones</option>
-                                                </select>
-                                                <textarea name="remarks" placeholder="Enter remarks/instructions for notifications..." style="margin-top:8px; font-size:11px;" required></textarea>
-                                                <button type="submit" class="btn btn-primary" style="margin-top:8px; width:100%; font-size:11px; padding:8px;"><i data-lucide="check-square" style="width:12px; height:12px;"></i> Process Signoff</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            </div>
+            <?php include __DIR__ . "/_master_overview.php"; ?>
 
             <!-- PANEL SETTINGS DASHBOARD -->
             <div class="container" id="settingsDashboard" style="display: none;">

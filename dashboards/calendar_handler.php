@@ -12,6 +12,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $action = $_POST['action'] ?? '';
     $referer = $_SERVER['HTTP_REFERER'] ?? 'director.php';
 
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $_SESSION['message'] = "Invalid security token. Please refresh and try again.";
+        $_SESSION['message_type'] = "error";
+        header("Location: " . $referer);
+        exit();
+    }
+
     if ($action === 'add') {
         $title = trim($_POST['title']);
         $description = trim($_POST['description']);

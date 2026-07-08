@@ -89,7 +89,7 @@ $message_type = $_GET['type'] ?? '';
     <link rel="stylesheet" href="../assets/css/dashboard-cards.css">
     <script src="https://unpkg.com/lucide@latest"></script>
     <script src="../assets/js/global-scripts.js"></script>
-    
+
 </head>
 
 <body>
@@ -106,6 +106,67 @@ $message_type = $_GET['type'] ?? '';
     $stroke_color = '#3b82f6'; // Always blue like screenshot
     ?>
 
+    <?php
+    // "What's Next" — derive a single next action from existing statuses
+    $nsb_class = '';
+    $nsb_icon = 'upload';
+
+    // Base styles mimicking `.widget-card`
+    $nsb_bg = '#ffffff';
+    $nsb_border = '#f3f4f6';
+    $nsb_shadow = '0 8px 16px -4px rgba(0, 0, 0, 0.05)';
+    $nsb_icon_bg = '#f8fafc';
+    $nsb_icon_color = '#334155';
+    $nsb_text_color = '#475569';
+    $nsb_title_color = '#1e293b';
+
+    if ($overall_prop_status === 'Approved') {
+        $nsb_class = 'approved';
+        $nsb_icon = 'party-popper';
+        $nsb_action = 'All requirements cleared — download your clearance form!';
+    } else {
+        $rev_item = $noupload_item = $review_item = null;
+        foreach ($checklist_items as $ci) {
+            $st = $item_statuses[$ci['item_id']]['status'];
+            if ($st === 'Revision Requested' && !$rev_item) $rev_item = $ci['item_name'];
+            if ($st === 'No Upload' && !in_array($ci['item_id'], [13, 15, 16]) && !$noupload_item) $noupload_item = $ci['item_name'];
+            if (($st === 'Pending' || $st === 'Under Review') && !$review_item) $review_item = $ci['item_name'];
+        }
+        if ($rev_item) {
+            $nsb_class = 'revision';
+            $nsb_icon = 'alert-triangle';
+            $nsb_icon_bg = '#fef2f2';
+            $nsb_icon_color = '#dc2626';
+            $nsb_text_color = '#991b1b';
+            $nsb_title_color = '#dc2626';
+            $nsb_action = '<span style="font-size:11px; opacity:0.8; line-height:1; display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Revision needed on:</span><strong style="font-size:13px; line-height:1.3; display:block;">' . htmlspecialchars($rev_item) . '</strong>';
+        } elseif ($noupload_item) {
+            $nsb_class = '';
+            $nsb_icon = 'upload';
+            $nsb_icon_bg = '#f0fdf4';
+            $nsb_icon_color = '#10b981';
+            $nsb_title_color = '#1e293b';
+            $nsb_action = '<span style="font-size:11px; opacity:0.8; line-height:1; display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Upload your:</span><strong style="font-size:13px; line-height:1.3; display:block;">' . htmlspecialchars($noupload_item) . '</strong>';
+        } elseif ($review_item) {
+            $nsb_class = 'review';
+            $nsb_icon = 'clock';
+            $nsb_icon_bg = '#fffbeb';
+            $nsb_icon_color = '#d97706';
+            $nsb_title_color = '#d97706';
+            $nsb_text_color = '#92400e';
+            $nsb_action = '<span style="font-size:11px; opacity:0.8; line-height:1; display:block; margin-bottom:4px; text-transform:uppercase; letter-spacing:0.5px;">Under review:</span><strong style="font-size:13px; line-height:1.3; display:block;">' . htmlspecialchars($review_item) . '</strong>';
+        } else {
+            $nsb_class = 'review';
+            $nsb_icon = 'clock';
+            $nsb_icon_bg = '#fffbeb';
+            $nsb_icon_color = '#d97706';
+            $nsb_title_color = '#d97706';
+            $nsb_text_color = '#92400e';
+            $nsb_action = '<span style="font-size:13px; line-height:1.4; display:block;">Keep going — review each requirement below.</span>';
+        }
+    }
+    ?>
+
     <div class="hero-widgets">
         <!-- Progress Widget -->
         <div class="widget-card">
@@ -119,24 +180,33 @@ $message_type = $_GET['type'] ?? '';
             <p class="widget-subtext">Reqs Cleared</p>
         </div>
 
-        <!-- Next Milestone Widget Removed -->
-
         <?php if ($overall_prop_status === 'Approved'): ?>
-        <div style="flex: 1; height: 140px; margin-left: 12px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:20px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box; overflow: hidden;">
-            <div style="display:flex; align-items:center; gap:8px; width:100%;">
-                <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
-                <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">INSTITUTIONAL CLEARANCE OBTAINED!</strong>
+            <div class="clearance-widget" style="flex: 1; height: 140px; margin-left: 12px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:20px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box; overflow: hidden;">
+                <div style="display:flex; align-items:center; gap:8px; width:100%;">
+                    <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
+                    <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">INSTITUTIONAL CLEARANCE OBTAINED!</strong>
+                </div>
+                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Your Capsule Proposal Stage is fully evaluated and cleared. You may now download your form.</p>
+                <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 6px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; margin-top: auto; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Form</button>
             </div>
-            <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Your Capsule Proposal Stage is fully evaluated and cleared. You may now download your form.</p>
-            <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 6px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; margin-top: auto; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Form</button>
-        </div>
+        <?php else: ?>
+            <div class="clearance-widget next-step-widget <?= $nsb_class ?>" style="flex: 1; height: 140px; margin-left: 12px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:10px; background:<?= $nsb_bg ?>; border: 1px solid <?= $nsb_border ?>; border-radius:20px; padding:16px 20px; box-shadow: <?= $nsb_shadow ?>; box-sizing: border-box; overflow: hidden;">
+                <div style="display:flex; align-items:center; gap:8px; width:100%;">
+                    <div style="width:32px; height:32px; border-radius:10px; background:<?= $nsb_icon_bg ?>; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                        <i data-lucide="<?= $nsb_icon ?>" style="width:16px;height:16px;color:<?= $nsb_icon_color ?>;"></i>
+                    </div>
+                    <strong style="color:<?= $nsb_title_color ?>; font-size:12px; font-weight:700; letter-spacing:0.5px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">NEXT STEP</strong>
+                </div>
+                <p style="margin:0; font-size:13px; color:<?= $nsb_text_color ?>; font-family:'Inter', sans-serif; flex:1; display:flex; flex-direction:column; align-items:flex-start; justify-content:center;"><?= $nsb_action ?></p>
+                <div style="width: 100%; text-align: right; font-size: 11px; color: #94a3b8; font-weight: 500;"><b><?= $approved_items ?>/<?= $total_items ?></b> reqs cleared</div>
+            </div>
         <?php endif; ?>
     </div>
-
 
     <div class="mobile-stack-hint">
         <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap any card to manage
     </div>
+
     <div class="items-grid">
         <?php
         $card_index = 0;
@@ -188,47 +258,47 @@ $message_type = $_GET['type'] ?? '';
                         <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:16px;">
                             <div class="status-pill <?= $status_class ?>" style="margin-bottom:0;"><?= $pill_text ?></div>
                             <?php if (!empty($status_data['history'])): ?>
-                            <button onclick="openHistoryPanel(<?= $item['item_id'] ?>)" class="btn-history">
-                                <i data-lucide="clock" style="width:13px;height:13px;"></i> History
-                            </button>
+                                <button onclick="openHistoryPanel(<?= $item['item_id'] ?>)" class="btn-history">
+                                    <i data-lucide="clock" style="width:13px;height:13px;"></i> History
+                                </button>
                             <?php endif; ?>
                         </div>
 
                         <!-- Workflow steps -->
                         <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
-                        <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
-                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
-                                Download the blank form below
+                            <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
+                                    Download the blank form below
+                                </div>
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
+                                    Hand to adviser for signature
+                                </div>
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
+                                    Capture photo or scan
+                                </div>
+                                <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">4</div>
+                                    Upload using the button below
+                                </div>
                             </div>
-                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
-                                Hand to adviser for signature
-                            </div>
-                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
-                                Capture photo or scan
-                            </div>
-                            <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">4</div>
-                                Upload using the button below
-                            </div>
-                        </div>
                         <?php elseif ($item['item_id'] == 14): ?>
-                        <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
-                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
-                                Download template below
+                            <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
+                                    Download template below
+                                </div>
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
+                                    Complete your capsule proposal
+                                </div>
+                                <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
+                                    Upload completed file below
+                                </div>
                             </div>
-                            <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
-                                Complete your capsule proposal
-                            </div>
-                            <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
-                                <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
-                                Upload completed file below
-                            </div>
-                        </div>
                         <?php endif; ?>
 
                         <!-- Cascaded items notice -->
@@ -249,41 +319,41 @@ $message_type = $_GET['type'] ?? '';
 
                         <!-- Download button -->
                         <?php if (in_array($item['item_id'], [11, 12, 13, 14])): ?>
-                        <div style="margin-bottom:14px;">
-                            <?php if ($item['item_id'] === 11): ?>
-                                <button onclick="openDownloadModal('../assigned_adviser.pdf', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
-                            <?php elseif ($item['item_id'] === 12): ?>
-                                <button onclick="openDownloadModal('../endorsement.pdf', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
-                            <?php elseif ($item['item_id'] === 13): ?>
-                                <button onclick="openDownloadModal('../proposal_review.pdf', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
-                            <?php elseif ($item['item_id'] === 14): ?>
-                                <button onclick="openDownloadModal('../capsule_form.pdf', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
-                            <?php endif; ?>
-                        </div>
+                            <div style="margin-bottom:14px;">
+                                <?php if ($item['item_id'] === 11): ?>
+                                    <button onclick="openDownloadModal('../assigned_adviser.pdf', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                <?php elseif ($item['item_id'] === 12): ?>
+                                    <button onclick="openDownloadModal('../endorsement.pdf', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                <?php elseif ($item['item_id'] === 13): ?>
+                                    <button onclick="openDownloadModal('../proposal_review.pdf', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
+                                <?php elseif ($item['item_id'] === 14): ?>
+                                    <button onclick="openDownloadModal('../capsule_form.pdf', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
+                                <?php endif; ?>
+                            </div>
                         <?php endif; ?>
 
                         <!-- Upload actions -->
                         <?php if (!in_array($item['item_id'], [13, 15, 16]) && $current_status !== 'Approved'): ?>
-                        <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" onsubmit="handleUploadStart(this)" style="display:flex;flex-direction:column;gap:0;">
-                            <input type="hidden" name="module_context" value="proposal">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
-                            <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
-                            <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
-                            <?php if (in_array($item['item_id'], [11, 12])): ?>
-                            <div style="display:flex; gap:12px; margin-top:4px;">
-                                <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="flex:1;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
-                                    <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
-                                </button>
-                                <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-outline" style="width:60px; flex-shrink:0;" onclick="triggerCamera(<?= $item['item_id'] ?>)">
-                                    <i data-lucide="camera" style="width:18px;height:18px;"></i>
-                                </button>
-                            </div>
-                            <?php else: ?>
-                            <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="margin-top:4px;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
-                                <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
-                            </button>
-                            <?php endif; ?>
-                        </form>
+                            <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" onsubmit="handleUploadStart(this)" style="display:flex;flex-direction:column;gap:0;">
+                                <input type="hidden" name="module_context" value="proposal">
+                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
+                                <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
+                                <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
+                                <?php if (in_array($item['item_id'], [11, 12])): ?>
+                                    <div style="display:flex; gap:12px; margin-top:4px;">
+                                        <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="flex:1;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                            <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                                        </button>
+                                        <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-outline" style="width:60px; flex-shrink:0;" onclick="triggerCamera(<?= $item['item_id'] ?>)">
+                                            <i data-lucide="camera" style="width:18px;height:18px;"></i>
+                                        </button>
+                                    </div>
+                                <?php else: ?>
+                                    <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="margin-top:4px;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                        <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                                    </button>
+                                <?php endif; ?>
+                            </form>
                         <?php endif; ?>
 
                         <!-- Latest submission card -->
@@ -293,31 +363,32 @@ $message_type = $_GET['type'] ?? '';
                             $sub_fdate = $status_data['uploaded_at'] ? date('M j, Y', strtotime($status_data['uploaded_at'])) : '';
                             $sub_ftime = $status_data['uploaded_at'] ? date('g:i A', strtotime($status_data['uploaded_at'])) : '';
                             $sub_ext = strtolower(pathinfo($sub_fname, PATHINFO_EXTENSION));
-                            $sub_is_img = in_array($sub_ext, ['jpg','jpeg','png','gif','webp']);
+                            $sub_is_img = in_array($sub_ext, ['jpg', 'jpeg', 'png', 'gif', 'webp']);
                             // Optional: Truncate long filename
                             $display_fname = strlen($sub_fname) > 28 ? substr($sub_fname, 0, 25) . '...' : $sub_fname;
                         ?>
-                        <div class="apple-file-card">
-                            <div class="afc-thumb-wrap">
-                                <?php if ($sub_is_img): ?>
-                                    <img src="<?= htmlspecialchars($sub_fpath) ?>" alt="Preview" class="afc-thumb">
-                                <?php else: ?>
-                                    <i data-lucide="file-text" style="width:20px;height:20px;color:#64748b;"></i>
-                                <?php endif; ?>
+                            <div class="apple-file-card">
+                                <div class="afc-thumb-wrap">
+                                    <?php if ($sub_is_img): ?>
+                                        <img src="<?= htmlspecialchars($sub_fpath) ?>" alt="Preview" class="afc-thumb">
+                                    <?php else: ?>
+                                        <i data-lucide="file-text" style="width:20px;height:20px;color:#64748b;"></i>
+                                    <?php endif; ?>
+                                </div>
+                                <div class="afc-info">
+                                    <div class="afc-name" title="<?= htmlspecialchars($sub_fname) ?>"><?= htmlspecialchars($display_fname) ?></div>
+                                    <div class="afc-meta"><?= $sub_fdate ?> &middot; <?= $sub_ftime ?></div>
+                                </div>
+                                <div class="afc-actions">
+                                    <button type="button" class="afc-btn" onclick="openDownloadModal('<?= htmlspecialchars($sub_fpath) ?>', '<?= htmlspecialchars($sub_fname) ?>'); event.stopPropagation();">View</button>
+                                    <?php if ($current_status === 'Pending'): // Only an un-reviewed draft can be deleted; once reviewed it is locked into history 
+                                    ?>
+                                        <button type="button" class="afc-btn afc-delete" onclick="deleteUpload(<?= $status_data['upload_id'] ?? 0 ?>, 'proposal'); event.stopPropagation();">
+                                            <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+                                        </button>
+                                    <?php endif; ?>
+                                </div>
                             </div>
-                            <div class="afc-info">
-                                <div class="afc-name" title="<?= htmlspecialchars($sub_fname) ?>"><?= htmlspecialchars($display_fname) ?></div>
-                                <div class="afc-meta"><?= $sub_fdate ?> &middot; <?= $sub_ftime ?></div>
-                            </div>
-                            <div class="afc-actions">
-                                <button type="button" class="afc-btn" onclick="openDownloadModal('<?= htmlspecialchars($sub_fpath) ?>', '<?= htmlspecialchars($sub_fname) ?>'); event.stopPropagation();">View</button>
-                                <?php if ($current_status === 'Pending'): // Only an un-reviewed draft can be deleted; once reviewed it is locked into history ?>
-                                <button type="button" class="afc-btn afc-delete" onclick="deleteUpload(<?= $status_data['upload_id'] ?? 0 ?>, 'proposal'); event.stopPropagation();">
-                                    <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
-                                </button>
-                                <?php endif; ?>
-                            </div>
-                        </div>
                         <?php endif; ?>
 
                         <!-- Form 008 viewer -->
@@ -328,20 +399,32 @@ $message_type = $_GET['type'] ?? '';
                     </div>
                 </div>
             </div>
+            <?php if ($item['item_id'] == 16): // Literature Matrix 
+            ?>
+                <!-- Status Legend -->
+                <div class="status-legend" style="grid-column: 1 / -1; display:flex; flex-wrap:wrap; gap:14px; font-size:11px; font-family:'Inter', sans-serif; justify-content:center; margin: 8px 0 16px 0; color:#64748b;">
+                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#8b5cf6;"></span> No Upload</div>
+                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;"></span> Under Review</div>
+                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;"></span> Revision</div>
+                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;"></span> Accepted</div>
+                </div>
+            <?php endif; ?>
         <?php endforeach; ?>
     </div>
 
+
+
     <?php if ($message): ?>
-    <div id="upload-toast" class="toast toast-<?= htmlspecialchars($message_type) ?>">
-        <i data-lucide="<?= $message_type === 'success' ? 'check-circle' : 'alert-circle' ?>" style="width:16px;height:16px;"></i>
-        <?= htmlspecialchars($message) ?>
-    </div>
+        <div id="upload-toast" class="toast toast-<?= htmlspecialchars($message_type) ?>">
+            <i data-lucide="<?= $message_type === 'success' ? 'check-circle' : 'alert-circle' ?>" style="width:16px;height:16px;"></i>
+            <?= htmlspecialchars($message) ?>
+        </div>
     <?php endif; ?>
 
     <!-- Download Preview Modal -->
     <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal(false)">
         <div class="dl-modal-box">
-            
+
             <div class="dl-modal-header">
                 <i data-lucide="file" style="width:18px;height:18px;color:#64748b; flex-shrink: 0;"></i>
                 <span id="dm-name" style="word-break: break-word; overflow-wrap: anywhere;">Document</span>
@@ -360,49 +443,51 @@ $message_type = $_GET['type'] ?? '';
         $hist = $item_statuses[$hist_item['item_id']]['history'] ?? [];
         if (empty($hist)) continue;
     ?>
-    <div id="history-panel-<?= $hist_item['item_id'] ?>" class="history-panel">
-        <div class="history-panel-header">
-            <div>
-                <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#94a3b8;margin-bottom:2px;">Submission History</div>
-                <h3><?= htmlspecialchars($hist_item['item_name']) ?></h3>
-            </div>
-            <button onclick="closeHistoryPanel()" class="history-close-btn">
-                <i data-lucide="x" style="width:18px;height:18px;"></i>
-            </button>
-        </div>
-        <div class="history-panel-body">
-            <?php
-            $hist_total = count($hist);
-            foreach ($hist as $hi => $hu):
-                $hu_st = $hu['verification_status'];
-                if ($hu_st === 'Approved') $hu_sc = 'approved';
-                elseif ($hu_st === 'Revision Requested') $hu_sc = 'revision';
-                else $hu_sc = 'review';
-                // $hist is ordered newest-first; number versions chronologically (oldest = Version 1)
-                $hu_label = 'Version ' . ($hist_total - $hi) . ($hi === 0 ? ' (Latest Reviewed)' : '');
-                $hu_date = $hu['uploaded_at'] ? date('M j, Y \a\t g:i A', strtotime($hu['uploaded_at'])) : '';
-            ?>
-            <div class="history-item">
-                <!-- History is a read-only audit trail: processed versions cannot be deleted -->
+        <div id="history-panel-<?= $hist_item['item_id'] ?>" class="history-panel">
+            <div class="history-panel-header">
                 <div>
-                    <div class="history-item-label"><?= $hu_label ?></div>
-                    <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
+                    <div style="font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:0.07em;color:#94a3b8;margin-bottom:2px;">Submission History</div>
+                    <h3><?= htmlspecialchars($hist_item['item_name']) ?></h3>
                 </div>
-                <div class="history-filename"><?= htmlspecialchars($hu['original_filename'] ?? 'Unknown file') ?></div>
-                <?php if ($hu_date): ?><div class="history-date"><?= $hu_date ?></div><?php endif; ?>
-                <?php if (!empty($hu['remarks'])): ?>
-                <div class="history-remarks"><?= htmlspecialchars($hu['remarks']) ?></div>
-                <?php endif; ?>
+                <button onclick="closeHistoryPanel()" class="history-close-btn">
+                    <i data-lucide="x" style="width:18px;height:18px;"></i>
+                </button>
             </div>
-            <?php endforeach; ?>
+            <div class="history-panel-body">
+                <?php
+                $hist_total = count($hist);
+                foreach ($hist as $hi => $hu):
+                    $hu_st = $hu['verification_status'];
+                    if ($hu_st === 'Approved') $hu_sc = 'approved';
+                    elseif ($hu_st === 'Revision Requested') $hu_sc = 'revision';
+                    else $hu_sc = 'review';
+                    // $hist is ordered newest-first; number versions chronologically (oldest = Version 1)
+                    $hu_label = 'Version ' . ($hist_total - $hi) . ($hi === 0 ? ' (Latest Reviewed)' : '');
+                    $hu_date = $hu['uploaded_at'] ? date('M j, Y \a\t g:i A', strtotime($hu['uploaded_at'])) : '';
+                ?>
+                    <div class="history-item">
+                        <!-- History is a read-only audit trail: processed versions cannot be deleted -->
+                        <div>
+                            <div class="history-item-label"><?= $hu_label ?></div>
+                            <div class="history-status-pill <?= $hu_sc ?>"><?= htmlspecialchars($hu_st) ?></div>
+                        </div>
+                        <div class="history-filename"><?= htmlspecialchars($hu['original_filename'] ?? 'Unknown file') ?></div>
+                        <?php if ($hu_date): ?><div class="history-date"><?= $hu_date ?></div><?php endif; ?>
+                        <?php if (!empty($hu['remarks'])): ?>
+                            <div class="history-remarks"><?= htmlspecialchars($hu['remarks']) ?></div>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
-    </div>
     <?php endforeach; ?>
     <div id="history-backdrop" class="history-backdrop" onclick="closeHistoryPanel()"></div>
 
-    <script>window.CSRF_TOKEN = '<?= htmlspecialchars($_SESSION['csrf_token']) ?>';</script>
+    <script>
+        window.CSRF_TOKEN = '<?= htmlspecialchars($_SESSION['csrf_token']) ?>';
+    </script>
     <script src="../assets/js/dashboard-cards.js"></script>
-        <?php include 'components/form008_modal.php'; ?>
+    <?php include 'components/form008_modal.php'; ?>
 
 </body>
 

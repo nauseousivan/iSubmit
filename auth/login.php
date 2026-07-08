@@ -45,7 +45,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             $_SESSION['email'] = $user['email'];
             $_SESSION['department'] = $user['department'] ?? '';
             $_SESSION['program'] = $user['program'] ?? '';
-            $_SESSION['research_group_name'] = $user['research_group_name'] ?? 'Research Group';
+            
+            // Resolve effective group name from leader if applicable
+            $eff_group_name = $user['research_group_name'];
+            if (!empty($user['leader_id'])) {
+                $l_stmt = $pdo->prepare("SELECT research_group_name FROM users WHERE user_id = ?");
+                $l_stmt->execute([$user['leader_id']]);
+                if ($l_name = $l_stmt->fetchColumn()) {
+                    $eff_group_name = $l_name;
+                }
+            }
+            $_SESSION['research_group_name'] = $eff_group_name ?: 'Research Group';
 
             // Route dynamically depending on role permissions
             switch ($user['role']) {

@@ -11,50 +11,51 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Research Coordinator'
 }
 
 $uid = $_SESSION['user_id'];
+$message = "";
 
-// Settings update handler for administrative console
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'update_admin_settings') {
-    $new_username = trim($_POST['username'] ?? '');
-    $new_pfp = trim($_POST['profile_pic'] ?? '');
-    $current_pass = $_POST['current_password'] ?? '';
-    $new_pass = $_POST['new_password'] ?? '';
-    $confirm_pass = $_POST['confirm_password'] ?? '';
-
-    $settings_success = true;
-    $settings_err = "";
-
-    // 1. Update username & pfp
-    if (!empty($new_username)) {
-        $stmt_up = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ? WHERE user_id = ?");
-        $stmt_up->execute([$new_username, $new_pfp, $uid]);
-        $_SESSION['username'] = $new_username;
+// Profile Information save (username + avatar preset; theme is client-only via localStorage)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'update_profile') {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $message = "Invalid security token. Please refresh and try again.";
+    } else {
+        $new_username = trim($_POST['username'] ?? '');
+        $new_pfp = trim($_POST['profile_pic'] ?? '');
+        if (!empty($new_username)) {
+            $stmt_up = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ? WHERE user_id = ?");
+            $stmt_up->execute([$new_username, $new_pfp, $uid]);
+            $_SESSION['username'] = $new_username;
+        }
+        $message = "Profile information updated successfully.";
     }
+}
 
-    // 2. Optional Password Update
-    if (!empty($current_pass) && !empty($new_pass)) {
-        $stmt_pw = $pdo->prepare("SELECT password FROM users WHERE user_id = ?");
-        $stmt_pw->execute([$uid]);
-        $db_pass = $stmt_pw->fetchColumn();
+// Change Password save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'update_password') {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $message = "Invalid security token. Please refresh and try again.";
+    } else {
+        $current_pass = $_POST['current_password'] ?? '';
+        $new_pass = $_POST['new_password'] ?? '';
+        $confirm_pass = $_POST['confirm_password'] ?? '';
 
-        if (password_verify($current_pass, $db_pass)) {
-            if ($new_pass === $confirm_pass) {
+        if (empty($current_pass) || empty($new_pass)) {
+            $message = "Error: All password fields are required.";
+        } else {
+            $stmt_pw = $pdo->prepare("SELECT password FROM users WHERE user_id = ?");
+            $stmt_pw->execute([$uid]);
+            $db_pass = $stmt_pw->fetchColumn();
+
+            if (!password_verify($current_pass, $db_pass)) {
+                $message = "Error: Current password is incorrect.";
+            } elseif ($new_pass !== $confirm_pass) {
+                $message = "Error: New passwords do not match.";
+            } else {
                 $hashed = password_hash($new_pass, PASSWORD_BCRYPT);
                 $stmt_up_pw = $pdo->prepare("UPDATE users SET password = ? WHERE user_id = ?");
                 $stmt_up_pw->execute([$hashed, $uid]);
-            } else {
-                $settings_success = false;
-                $settings_err = "New passwords do not match.";
+                $message = "Password updated successfully.";
             }
-        } else {
-            $settings_success = false;
-            $settings_err = "Current password is incorrect.";
         }
-    }
-
-    if ($settings_success) {
-        $message = "Your settings and credentials have been updated successfully.";
-    } else {
-        $message = "Error: " . $settings_err;
     }
 }
 
@@ -63,8 +64,6 @@ $stmt_me = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt_me->execute([$uid]);
 $currentUser = $stmt_me->fetch();
 $current_pfp = (!empty($currentUser['profile_pic'])) ? $currentUser['profile_pic'] : "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($currentUser['username']);
-
-$message = "";
 
 // Process Stage-level Coordinator Signoff updates
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'coordinator_signoff') {
@@ -157,13 +156,14 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coordinator Dashboard</title>
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
             --card-radius: 20px;
             --control-radius: 12px;
+            --ui-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
         body.theme-default,
@@ -251,7 +251,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
 
         body {
-            font-family: 'Inter', sans-serif;
+            font-family: var(--ui-sans);
             background-color: var(--bg-canvas) !important;
             min-height: 100vh;
             color: var(--text-dark);
@@ -684,7 +684,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
     <div class="app-dashboard-frame">
         <aside class="app-sidebar">
             <div class="sidebar-header">
-                <img src="https://isap.edu.ph/wp-content/uploads/2022/07/ISAP-LOGO-2022.png" class="sidebar-logo">
+                <img src="../mcnp-isap.jpg" class="sidebar-logo">
                 <h2>Staff Portal</h2>
                 <p>Coordinator</p>
             </div>
@@ -750,65 +750,87 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     </div>
                 </div>
 
-                <div class="section" style="max-width: 650px; margin: 0 auto; background: var(--bg-white, #ffffff); padding: 30px; border-radius: var(--card-radius); border: 2px solid var(--border-line);">
-                    <h3 style="margin-bottom: 20px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px;">Update Authorized Profile</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
+                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
+                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Profile Information</h3>
 
-                    <form method="POST" id="adminSettingsForm">
-                        <input type="hidden" name="action_type" value="update_admin_settings">
+                        <form method="POST" id="profileSettingsForm">
+                            <input type="hidden" name="action_type" value="update_profile">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
 
-                        <div style="margin-bottom: 20px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:8px;">Username Signature</label>
-                            <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                        </div>
-
-                        <div style="margin-bottom: 20px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:8px;">Profile Avatar URL</label>
-                            <input type="text" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($currentUser['profile_pic'] ?? '') ?>" placeholder="Paste image link or leave empty for DiceBear dynamic avatar" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            <p style="font-size:11px; color:var(--text-muted); margin-top:5px;">Choose Avatar Quickpreset:</p>
-                            <div style="display:flex; gap:10px; margin-top:10px; overflow-x:auto;">
-                                <?php foreach (["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"] as $preset):
-                                    $purl = "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $preset; ?>
-                                    <img src="<?= $purl ?>" onclick="document.getElementById('pfp_selector').value='<?= $purl ?>';" style="width:36px; height:36px; border-radius:50%; border:1.5px solid var(--border-line); cursor:pointer; background:#f3f4f6; transition:scale 0.2s;" onmouseover="this.style.scale=1.13;" onmouseout="this.style.scale=1;">
-                                <?php endforeach; ?>
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Username Signature</label>
+                                <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
                             </div>
-                        </div>
 
-                        <div style="margin-bottom: 20px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:8px;">Administrative Visual Canvas Theme</label>
-                            <select id="user_theme_select" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                                <option value="theme-default">Institutional Ivory Beige (Default)</option>
-                                <option value="theme-dark">Cosmic Obsidian Slate (Dark Mode)</option>
-                                <option value="theme-green">Botanical Forest Emerald</option>
-                                <option value="theme-red">Academic Crimson Burgundy</option>
-                                <option value="theme-pink">Cherry Blossom Magenta</option>
-                                <option value="theme-purple">Monarch Royal Orchid</option>
-                                <option value="theme-orange">Autumn Sun Amber</option>
-                            </select>
-                        </div>
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Profile Avatar</label>
+                                <?php
+                                    $avatar_presets = ["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"];
+                                    $preset_urls = array_map(fn($p) => "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $p, $avatar_presets);
+                                    $current_pic = $currentUser['profile_pic'] ?? '';
+                                    $is_preset_pic = in_array($current_pic, $preset_urls, true);
+                                ?>
+                                <input type="hidden" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($current_pic ?: $preset_urls[0]) ?>">
+                                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                                    <?php if ($current_pic && !$is_preset_pic): ?>
+                                        <div style="text-align:center;">
+                                            <img src="<?= htmlspecialchars($current_pic) ?>" style="width:34px; height:34px; border-radius:50%; border:2px solid var(--eagle-gold); object-fit:cover;">
+                                            <div style="font-size:8px; color:var(--text-muted); margin-top:2px;">Current</div>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php foreach ($preset_urls as $purl): $active = ($purl === $current_pic) || (!$current_pic && $purl === $preset_urls[0]); ?>
+                                        <img src="<?= $purl ?>" onclick="selectAvatarPreset('<?= $purl ?>', this)" class="avatar-preset-option" style="width:34px; height:34px; border-radius:50%; cursor:pointer; background:#f3f4f6; border:2px solid <?= $active ? 'var(--mcnp-teal)' : 'var(--border-line)' ?>; transition:all 0.2s;">
+                                    <?php endforeach; ?>
+                                </div>
+                            </div>
 
-                        <div style="margin-top: 30px; margin-bottom: 10px; border-top: 1.5px dashed var(--border-line); padding-top: 20px;">
-                            <h4 style="font-size:14.5px; margin-bottom:15px; font-weight: 700; color:var(--text-dark);">Change Authentication Password Key</h4>
-                        </div>
+                            <div style="margin-bottom: 22px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Dashboard Theme</label>
+                                <select id="user_theme_select" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
+                                    <option value="theme-default">Institutional Ivory Beige (Default)</option>
+                                    <option value="theme-dark">Cosmic Obsidian Slate (Dark Mode)</option>
+                                    <option value="theme-green">Botanical Forest Emerald</option>
+                                    <option value="theme-red">Academic Crimson Burgundy</option>
+                                    <option value="theme-pink">Cherry Blossom Magenta</option>
+                                    <option value="theme-purple">Monarch Royal Orchid</option>
+                                    <option value="theme-orange">Autumn Sun Amber</option>
+                                </select>
+                            </div>
 
-                        <div style="margin-bottom: 15px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:6px;">Current Password Key</label>
-                            <input type="password" name="current_password" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                        </div>
+                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
+                                <i data-lucide="save"></i> Save
+                            </button>
+                        </form>
+                    </div>
 
-                        <div style="margin-bottom: 15px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:6px;">New Password Key</label>
-                            <input type="password" name="new_password" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                        </div>
+                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
+                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Change Password</h3>
 
-                        <div style="margin-bottom: 25px;">
-                            <label style="display:block; font-weight:600; font-size:12.5px; margin-bottom:6px;">Confirm New Password Key</label>
-                            <input type="password" name="confirm_password" style="width:100%; padding:11px 14px; border-radius:var(--control-radius); border:2px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                        </div>
+                        <form method="POST" id="passwordSettingsForm">
+                            <input type="hidden" name="action_type" value="update_password">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
 
-                        <button type="submit" class="btn btn-primary" style="width:100%; padding:12px 18px; border-radius:var(--control-radius); font-weight:700; font-size:13.5px;">
-                            <i data-lucide="save"></i> Save Settings & Visual Customization
-                        </button>
-                    </form>
+                            <div style="margin-bottom: 15px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Current Password</label>
+                                <input type="password" name="current_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
+                            </div>
+
+                            <div style="margin-bottom: 15px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">New Password</label>
+                                <input type="password" name="new_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
+                            </div>
+
+                            <div style="margin-bottom: 22px;">
+                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Confirm New Password</label>
+                                <input type="password" name="confirm_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
+                            </div>
+
+                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
+                                <i data-lucide="save"></i> Save
+                            </button>
+                        </form>
+                    </div>
                 </div>
             </div>
 
@@ -826,6 +848,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                         <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="calendar-plus"></i> Add Event</h3>
                         <form method="POST" action="calendar_handler.php" style="display:flex; flex-direction:column; gap:12px;">
                             <input type="hidden" name="action" value="add">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                             <div>
                                 <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Event Title</label>
                                 <input type="text" name="title" required placeholder="e.g. Foundation Day" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid var(--border-line); outline: none;">
@@ -844,37 +867,40 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 
                     <div class="section" style="margin-bottom:0;">
                         <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="list"></i> Upcoming Custom Events</h3>
-                        <div class="table-wrapper">
-                            <table style="width: 100%;">
-                                <thead>
-                                    <tr>
-                                        <th style="padding: 10px; text-align: left; background: #faf8f4; color: var(--text-dark); font-size: 11px; text-transform: uppercase;">Date</th>
-                                        <th style="padding: 10px; text-align: left; background: #faf8f4; color: var(--text-dark); font-size: 11px; text-transform: uppercase;">Event</th>
-                                        <th style="padding: 10px; text-align: left; background: #faf8f4; color: var(--text-dark); font-size: 11px; text-transform: uppercase;">Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if (empty($calendar_events)): ?>
-                                        <tr>
-                                            <td colspan="3" style="text-align:center; padding: 14px; color:var(--text-muted);">No custom events configured.</td>
-                                        </tr>
-                                    <?php endif; ?>
-                                    <?php foreach ($calendar_events as $ce): ?>
-                                        <tr>
-                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><strong><?= date('M d, Y', strtotime($ce['event_date'])) ?></strong></td>
-                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);"><?= htmlspecialchars($ce['title']) ?><br><small style="color:var(--text-muted);"><?= htmlspecialchars($ce['description']) ?></small></td>
-                                            <td style="padding: 10px; border-bottom: 1px solid var(--border-line);">
-                                                <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');">
-                                                    <input type="hidden" name="action" value="delete">
-                                                    <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
-                                                    <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;"><i data-lucide="trash" style="width:14px;height:14px;"></i> Delete</button>
-                                                </form>
-                                            </td>
-                                        </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                        <?php if (empty($calendar_events)): ?>
+                            <div style="text-align:center; color:var(--text-muted); padding: 30px;">
+                                <i data-lucide="calendar-x" style="width:26px; height:26px; display:block; margin: 0 auto 10px; opacity:0.5;"></i>
+                                No upcoming events scheduled.
+                            </div>
+                        <?php else: ?>
+                            <div>
+                                <?php foreach ($calendar_events as $ce):
+                                    $is_past = strtotime($ce['event_date']) < strtotime(date('Y-m-d'));
+                                ?>
+                                    <div class="activity-item" style="cursor:default; <?= $is_past ? 'opacity:0.55;' : '' ?>">
+                                        <div class="activity-icon info" style="flex-direction:column; line-height:1.2; gap:0;">
+                                            <span style="font-size:8px; font-weight:800; text-transform:uppercase;"><?= date('M', strtotime($ce['event_date'])) ?></span>
+                                            <span style="font-size:14px; font-weight:800;"><?= date('d', strtotime($ce['event_date'])) ?></span>
+                                        </div>
+                                        <div class="activity-content">
+                                            <div class="activity-title">
+                                                <?= htmlspecialchars($ce['title']) ?>
+                                                <?php if ($is_past): ?><span style="font-size:9px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-left:6px;">Past</span><?php endif; ?>
+                                            </div>
+                                            <?php if (!empty($ce['description'])): ?>
+                                                <div class="activity-desc"><?= htmlspecialchars($ce['description']) ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');" style="align-self:center;">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                            <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;" title="Delete event"><i data-lucide="trash" style="width:14px;height:14px;"></i></button>
+                                        </form>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -985,6 +1011,12 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             hideAllDashboards();
             document.getElementById('moduleFrame').src = url;
             document.getElementById('moduleOverlay').classList.add('active');
+        }
+
+        function selectAvatarPreset(url, el) {
+            document.getElementById('pfp_selector').value = url;
+            document.querySelectorAll('.avatar-preset-option').forEach(img => img.style.borderColor = 'var(--border-line)');
+            el.style.borderColor = 'var(--mcnp-teal)';
         }
 
         // Live persistence initialization for premium administrative customizable themes

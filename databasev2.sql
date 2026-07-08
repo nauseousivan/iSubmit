@@ -30,6 +30,7 @@ SET time_zone = "+00:00";
 CREATE TABLE `activity_logs` (
   `activity_id` int(11) NOT NULL,
   `user_id` int(11) NOT NULL,
+  `upload_id` int(11) DEFAULT NULL,
   `title` varchar(100) NOT NULL,
   `description` text NOT NULL,
   `status_type` varchar(30) DEFAULT 'info',
@@ -142,9 +143,24 @@ CREATE TABLE `form_stat_treatment` (
   `file_coded_data` varchar(255) DEFAULT NULL,
   `file_comm_letter` varchar(255) DEFAULT NULL,
   `file_mom` varchar(255) DEFAULT NULL,
-  `status` enum('Pending Initial Data','Initial Data Uploaded','Initial Data Rejected','Waiting for Payment','Payment Acknowledged','Requirements Uploaded','Under Review','Completed') DEFAULT 'Pending Initial Data',
+  `status` varchar(255) NOT NULL DEFAULT 'Phase 1: Pending Coded Data',
   `statistician_remarks` text DEFAULT NULL,
   `result_file` varchar(255) DEFAULT NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `group_invites`
+--
+
+CREATE TABLE `group_invites` (
+  `id` int(11) NOT NULL,
+  `leader_id` int(11) NOT NULL,
+  `invitee_email` varchar(100) NOT NULL,
+  `status` enum('pending','accepted','cancelled') NOT NULL DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
+  `accepted_at` timestamp NULL DEFAULT NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
@@ -254,7 +270,8 @@ CREATE TABLE `users` (
 -- Indexes for table `activity_logs`
 --
 ALTER TABLE `activity_logs`
-  ADD PRIMARY KEY (`activity_id`);
+  ADD PRIMARY KEY (`activity_id`),
+  ADD KEY `idx_activity_upload` (`upload_id`);
 
 --
 -- Indexes for table `approvals`
@@ -299,6 +316,14 @@ ALTER TABLE `form_008_reviews`
 --
 ALTER TABLE `form_stat_treatment`
   ADD PRIMARY KEY (`form_id`);
+
+--
+-- Indexes for table `group_invites`
+--
+ALTER TABLE `group_invites`
+  ADD PRIMARY KEY (`id`),
+  ADD UNIQUE KEY `uniq_leader_invitee` (`leader_id`,`invitee_email`),
+  ADD KEY `idx_invitee_status` (`invitee_email`,`status`);
 
 --
 -- Indexes for table `group_messages`
@@ -389,6 +414,12 @@ ALTER TABLE `form_stat_treatment`
   MODIFY `form_id` int(11) NOT NULL AUTO_INCREMENT;
 
 --
+-- AUTO_INCREMENT for table `group_invites`
+--
+ALTER TABLE `group_invites`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `group_messages`
 --
 ALTER TABLE `group_messages`
@@ -427,6 +458,12 @@ ALTER TABLE `users`
 --
 -- Constraints for dumped tables
 --
+
+--
+-- Constraints for table `activity_logs`
+--
+ALTER TABLE `activity_logs`
+  ADD CONSTRAINT `fk_activity_upload` FOREIGN KEY (`upload_id`) REFERENCES `uploads` (`upload_id`) ON DELETE SET NULL;
 
 --
 -- Constraints for table `approvals`

@@ -1805,17 +1805,32 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             box-shadow: var(--shadow-lg);
         }
 
+        /* In dark mode the framed pages (settings, profile, members, activities, message) use a
+           transparent <body>, so this container IS their background. Keep it dark so their light
+           text stays readable instead of white-on-white. */
+        body.theme-dark .overlay-iframe-container {
+            background-color: var(--bg-card);
+        }
+
+        /* Desktop-only floating back control: no header bar, no divider line.
+           Hidden entirely at ≤1024px (see mobile dock media query), so the
+           mobile/tablet experience is unchanged. */
         .nav-back-wrapper {
-            padding: 16px 20px 8px 20px;
-            background-color: var(--bg-canvas);
-            border-bottom: 1px solid var(--border-subtle);
+            position: absolute;
+            top: 38px;
+            left: 38px;
+            z-index: 60;
+            padding: 0;
+            background-color: transparent;
+            border-bottom: none;
             display: flex;
             align-items: center;
         }
 
         .btn-vector-left-back {
-            background-color: transparent;
-            border: none;
+            background-color: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            box-shadow: var(--shadow-md);
             width: 40px;
             height: 40px;
             border-radius: 50%;
@@ -1839,6 +1854,29 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             width: 18px;
             height: 18px;
             stroke-width: 2.5px;
+        }
+
+        /* ── Desktop full-view framing (≥1025px, where the floating back button lives) ──
+           Turns the "floating modal card" into an edge-to-edge full-view page: no frame
+           padding, no card border/radius/shadow. A 60px transparent top strip (shows the
+           canvas, no divider line) hosts the floating back button so it never overlaps the
+           page's own title. Tablet (769–1024) and mobile (≤768) are untouched. */
+        @media (min-width: 1025px) {
+            .fullscreen-zoom-overlay {
+                padding: 0;
+            }
+
+            .overlay-iframe-container {
+                border: none;
+                border-radius: 0;
+                box-shadow: none;
+                margin-top: 60px;
+            }
+
+            .nav-back-wrapper {
+                top: 14px;
+                left: 22px;
+            }
         }
 
         /* NOTIFICATIONS DRAWER */
@@ -2613,11 +2651,14 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             z-index: 9999;
         }
 
-        .theme-dark::view-transition-old(root) {
+        /* Light-ward toggle: reveal by SHRINKING the old (dark) snapshot, so it must sit on top.
+           The theme class lives on <body>, but view-transition pseudos live on the root (<html>),
+           so we flip z-index via a temporary class on <html> set by the toggle handler. */
+        html.vt-reverse::view-transition-old(root) {
             z-index: 9999;
         }
 
-        .theme-dark::view-transition-new(root) {
+        html.vt-reverse::view-transition-new(root) {
             z-index: 1;
         }
 
@@ -2635,7 +2676,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal {
+            #zoom-proposal, #zoom-stats {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -2647,7 +2688,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active {
+            #zoom-proposal.active, #zoom-stats.active {
                 transform: translateY(0) !important;
             }
         }
@@ -3386,7 +3427,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal {
+            #zoom-proposal, #zoom-stats {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -3398,7 +3439,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active {
+            #zoom-proposal.active, #zoom-stats.active {
                 transform: translateY(0) !important;
             }
         }
@@ -3486,6 +3527,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 Math.max(y, window.innerHeight - y)
             );
 
+            // Going light (isDark === true) reverses the ripple: the old dark snapshot shrinks away.
+            // Put it on top via a temporary root class so the shrink is actually visible.
+            if (isDark) document.documentElement.classList.add('vt-reverse');
+
             const transition = document.startViewTransition(applyTheme);
 
             transition.ready.then(() => {
@@ -3501,6 +3546,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     pseudoElement: isDark ?
                         '::view-transition-old(root)' : '::view-transition-new(root)'
                 });
+            });
+
+            transition.finished.finally(() => {
+                document.documentElement.classList.remove('vt-reverse');
             });
         }
 
@@ -4602,7 +4651,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal {
+            #zoom-proposal, #zoom-stats {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -4614,7 +4663,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active {
+            #zoom-proposal.active, #zoom-stats.active {
                 transform: translateY(0) !important;
             }
         }
@@ -4665,9 +4714,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
     </script>
 
     <script>
-        // Bottom Sheet Drag Logic for Proposal Defense
+        // Bottom Sheet Drag Logic for Proposal Defense + Statistical Treatment
         document.addEventListener('DOMContentLoaded', () => {
-            const proposalSheet = document.getElementById('zoom-proposal');
+          ['zoom-proposal', 'zoom-stats'].forEach((sheetId) => {
+            const proposalSheet = document.getElementById(sheetId);
             if (!proposalSheet) return;
 
             let startY = 0;
@@ -4724,6 +4774,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     proposalSheet.style.transform = 'translateY(0)';
                 }
             });
+          });
         });
     </script>
 </body>

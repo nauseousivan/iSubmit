@@ -352,7 +352,7 @@ $total = count($all_activities);
         /* THEME CLASSES */
         body.theme-default, body.theme-blue { --bg-canvas: #f0f4f9; --bg-white: #ffffff; --text-dark: #0f172a; --text-muted: #64748b; --border-line: #e2e8f0; --accent: #1e40af; }
         body.theme-red { --bg-canvas: #fef2f2; --bg-white: #ffffff; --text-dark: #7f1d1d; --text-muted: #991b1b; --border-line: #fecaca; --accent: #dc2626; }
-        body.theme-dark { --bg-canvas: #090d12; --bg-white: #151c24; --text-dark: #f8fafc; --text-muted: #94a3b8; --border-line: #334155; --accent: #38bdf8; }
+        body.theme-dark { --bg-canvas: #090d12; --bg-white: #151c24; --text-dark: #f8fafc; --text-muted: #94a3b8; --text-lighter: #64748b; --border-line: #334155; --border-light: #202b36; --accent: #38bdf8; }
         body.theme-pink, body.theme-rose { --bg-canvas: #fde8f5; --bg-white: #ffffff; --text-dark: #831843; --text-muted: #9d174d; --border-line: #fbcfe8; --accent: #db2777; }
         body.theme-green { --bg-canvas: #e8f6ea; --bg-white: #ffffff; --text-dark: #14532d; --text-muted: #166534; --border-line: #bbf7d0; --accent: #16a34a; }
         body.theme-purple, body.theme-lavender { --bg-canvas: #f5f3ff; --bg-white: #ffffff; --text-dark: #4c1d95; --text-muted: #6d28d9; --border-line: #ddd6fe; --accent: #7c3aed; }

@@ -19,6 +19,7 @@ date_default_timezone_set('Asia/Manila');
 // Require institutional configuration hooks
 require_once '../config/db.php';
 require_once '../config/mail.php';
+require_once '../config/group_helpers.php';
 
 $message = "";
 $message_type = "error"; // "error" or "success"
@@ -31,7 +32,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
     $department = $_POST['department'] ?? null;
     $program = $_POST['program'] ?? null;
     $group_name = ($role === 'Student') ? trim($_POST['group_name'] ?? '') : null;
-    $group_members_list = ($role === 'Student') ? trim($_POST['group_members_list'] ?? '') : null;
+    $group_member_emails = ($role === 'Student') ? trim($_POST['group_member_emails'] ?? '') : null;
     $is_group_leader = isset($_POST['is_group_leader']) && $_POST['is_group_leader'] === 'yes';
     $leader_email = trim($_POST['leader_email'] ?? '');
     $leader_id = null;
@@ -74,17 +75,36 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         if ($stmt->execute([$username, $password, $email, $role, $department, $program, $group_name, $leader_id])) {
             $new_user_id = $pdo->lastInsertId();
 
-            // Insert temporary member names if leader
-            if ($role === 'Student' && $is_group_leader && !empty($group_members_list)) {
-                $members_array = explode(',', $group_members_list);
-                $member_stmt = $pdo->prepare("INSERT INTO research_group_members (owner_user_id, member_name) VALUES (?, ?)");
-                foreach ($members_array as $m_name) {
-                    $m_trimmed = trim($m_name);
-                    if (!empty($m_trimmed)) {
-                        $member_stmt->execute([$new_user_id, $m_trimmed]);
+            // Leader invited teammates by email in Step 4: link immediately if they
+            // already have an unlinked account, otherwise leave a pending invite that
+            // auto-links (and emails them) once they register.
+            if ($role === 'Student' && $is_group_leader && !empty($group_member_emails)) {
+                $emails_array = explode(',', $group_member_emails);
+                foreach ($emails_array as $m_email) {
+                    $m_email = trim($m_email);
+                    if (empty($m_email) || !filter_var($m_email, FILTER_VALIDATE_EMAIL) || strcasecmp($m_email, $email) === 0) {
+                        continue;
+                    }
+                    $stmt_existing = $pdo->prepare("SELECT user_id, leader_id, department FROM users WHERE email = ? AND role = 'Student'");
+                    $stmt_existing->execute([$m_email]);
+                    $existing_member = $stmt_existing->fetch();
+
+                    if ($existing_member && $existing_member['leader_id'] === null && get_dept_code($existing_member['department'] ?? '') === get_dept_code($department)) {
+                        $stmt_new_leader = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
+                        $stmt_new_leader->execute([$new_user_id]);
+                        $new_leader_row = $stmt_new_leader->fetch();
+                        link_student_to_leader($pdo, $new_user_id, $new_leader_row, $existing_member['user_id']);
+                    } else {
+                        create_or_reactivate_invite($pdo, $new_user_id, $m_email);
+                        send_invite_email($m_email, $username, $group_name ?? '');
                     }
                 }
             }
+
+            // Resolve any pending invite addressed to this new account's own email
+            // (covers teammates who were invited but self-registered normally,
+            // including the common case of leaving Step 1 on its default "Leader" choice).
+            consume_pending_invites_for_new_account($pdo, $new_user_id, $email, $leader_id);
 
             // Set up secure verification OTP
             $otp_code = strval(rand(100000, 999999));
@@ -389,19 +409,19 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                                 <label>Research Group Mates</label>
                                 <div class="member-list-wrapper">
                                     <div style="display: flex; justify-content: space-between; align-items: center;">
-                                        <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Members (Excluding Self)</span>
+                                        <span style="font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.5px;">Invite by Email (Excluding Self)</span>
                                         <button type="button" class="btn-add-member" onclick="toggleAddMemberInput(event)">
                                             <i data-lucide="plus" style="width: 13px; height: 13px;"></i> Add Member
                                         </button>
                                     </div>
 
                                     <div class="add-member-input-group" id="memberInputGroup">
-                                        <input type="text" class="mat-input" id="newMemberName" placeholder="Full Name of Group Member" style="font-size:13px; flex: 1;">
+                                        <input type="email" class="mat-input" id="newMemberEmail" placeholder="teammate@mcnp.edu.ph" style="font-size:13px; flex: 1;">
                                         <button type="button" class="mat-btn mat-btn-primary" style="padding: 0 16px; height: 46px;" onclick="saveMemberToArray()">Insert</button>
                                     </div>
 
                                     <div class="member-pills-container" id="memberPills"></div>
-                                    <input type="hidden" name="group_members_list" id="groupMembersHidden">
+                                    <input type="hidden" name="group_member_emails" id="groupMembersHidden">
                                 </div>
                             </div>
                         </div>
@@ -554,18 +574,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                 const grp = document.getElementById('memberInputGroup');
                 grp.style.display = (grp.style.display === 'flex') ? 'none' : 'flex';
                 if (grp.style.display === 'flex') {
-                    document.getElementById('newMemberName').focus();
+                    document.getElementById('newMemberEmail').focus();
                 }
             }
 
             function saveMemberToArray() {
-                const input = document.getElementById('newMemberName');
-                const name = input.value.trim();
-                if (name) {
-                    members.push(name);
+                const input = document.getElementById('newMemberEmail');
+                const email = input.value.trim();
+                const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                if (email && emailPattern.test(email) && !members.includes(email)) {
+                    members.push(email);
                     input.value = "";
                     document.getElementById('memberInputGroup').style.display = 'none';
                     renderMemberPills();
+                } else if (email) {
+                    input.reportValidity ? (input.setCustomValidity('Enter a valid email address'), input.reportValidity(), input.setCustomValidity('')) : null;
                 }
             }
 
@@ -588,7 +611,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                 hiddenInput.value = members.join(', ');
             }
 
-            document.getElementById('newMemberName')?.addEventListener('keypress', function(e) {
+            document.getElementById('newMemberEmail')?.addEventListener('keypress', function(e) {
                 if (e.key === 'Enter') {
                     e.preventDefault();
                     saveMemberToArray();

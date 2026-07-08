@@ -45,6 +45,26 @@ submission; reviewed rows form a read-only history. A student may delete only a 
 upload automatically supersedes (removes) any previous un-reviewed `Pending` draft for that item, so ghost
 drafts do not accumulate.
 
+### `form_stat_treatment`
+One row per research group's Statistical Treatment request (keyed to the group leader's `user_id`).
+- **`form_id`** (INT, PK)
+- **`user_id`** (INT) - The group leader (effective user id).
+- **`status`** (VARCHAR 255) - The 7-phase workflow state. Valid values:
+  `Phase 1: Pending Coded Data` → `Phase 1: Coded Data Review` → (`Phase 1: Coded Data Rejected`) →
+  `Phase 2: Form Download` → `Phase 4: Payment Verification` → `Phase 5: Registered` →
+  `Phase 6: Under Review` / `Phase 6: Revision Requested` → `Phase 7: Statistical Treatment` →
+  `Phase 7: Completed`. (Was an ENUM of the old 4-step flow; migrated 2026-07-07.)
+- **`formatted_control_no`** (VARCHAR) - Official control number `STAT-{YEAR}-{SCHOOL}-{DEPT}-{SEQ}`;
+  the Statistician enters only the sequence at registration, the system builds and stores the full string.
+- **`file_coded_data`** / **`result_file`** (VARCHAR 255) - Latest coded-data upload path and the final
+  results file released by the Statistician (written by the `upload_stat_result` action).
+- **`statistician_remarks`** (TEXT), **`date_submitted`** / **`date_released`** (TIMESTAMP).
+
+Statistics checklist items (form_id 3): `30` Initial Coded Data, `31–35` deliverables (SOP, Questionnaire,
+Final Coded Data, Communication Letter, MOM), `36` Validated RDC Form No. 011, `37` Official Receipt
+(items 36/37 accept image scans). Their uploads follow the same version-row lifecycle as proposals, and
+deleting a pending draft rewinds `form_stat_treatment.status` to the matching earlier phase.
+
 ### `approvals`
 Tracks the status of a specific document or stage in the research lifecycle.
 - **`approval_id`** (INT, PK)

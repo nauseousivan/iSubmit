@@ -22,11 +22,11 @@ $effective_user_id = $leader_id_for_current_user ?? $user_id;
 $safe_username = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["username"] ?? "Student")));
 $safe_program = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["program"] ?? "")));
 
-// CSRF validation (proposal flow only). Other module contexts are unaffected for now.
+// CSRF validation (proposal + stats flows). Other module contexts are unaffected for now.
 function csrf_ok_for_proposal($context)
 {
-    if ($context !== 'proposal') {
-        return true; // scope: proposal flow only
+    if (!in_array($context, ['proposal', 'stats'], true)) {
+        return true; // scope: proposal and stats flows only
     }
     return isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']);
 }
@@ -148,7 +148,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
     }
 
     // Verify ownership and capture details BEFORE deletion (item_name lookup must happen while the row still exists)
-    $stmt_find = $pdo->prepare("SELECT u.file_path, u.original_filename, u.verification_status, ci.item_name
+    $stmt_find = $pdo->prepare("SELECT u.item_id, u.file_path, u.original_filename, u.verification_status, ci.item_name
                                 FROM uploads u
                                 LEFT JOIN checklist_items ci ON u.item_id = ci.item_id
                                 WHERE u.upload_id = ? AND u.user_id = ?");
@@ -177,6 +177,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         // Delete file physically if it exists
         if (file_exists($upload_data['file_path'])) {
             unlink($upload_data['file_path']);
+        }
+
+        // Stats module: removing a pending draft must also rewind the group's phase so the
+        // statistician queue does not keep a phantom "waiting for review" state.
+        $deleted_item_id = (int)$upload_data['item_id'];
+        if (in_array($deleted_item_id, [30, 31, 32, 33, 34, 35, 36, 37], true)) {
+            if ($deleted_item_id === 30) {
+                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 1: Pending Coded Data', file_coded_data = NULL
+                               WHERE user_id = ? AND status = 'Phase 1: Coded Data Review'")
+                    ->execute([$effective_user_id]);
+            } elseif (in_array($deleted_item_id, [36, 37], true)) {
+                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 2: Form Download'
+                               WHERE user_id = ? AND status = 'Phase 4: Payment Verification'")
+                    ->execute([$effective_user_id]);
+            } else { // deliverables 31-35
+                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 5: Registered'
+                               WHERE user_id = ? AND status = 'Phase 6: Under Review'")
+                    ->execute([$effective_user_id]);
+            }
         }
 
         // Insert log action to group activities feed (using activity_logs)

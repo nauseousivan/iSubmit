@@ -50,19 +50,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 
-    // Update query
+    // Personal fields (identity/media) always update the caller's own row.
     if ($pfp_dest && $banner_dest) {
-        $stmt = $pdo->prepare("UPDATE users SET username = ?, research_group_name = ?, profile_pic = ?, banner_pic = ? WHERE user_id = ?");
-        $success = $stmt->execute([$name, $group, $pfp_dest, $banner_dest, $user_id]);
+        $stmt = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ?, banner_pic = ? WHERE user_id = ?");
+        $success = $stmt->execute([$name, $pfp_dest, $banner_dest, $user_id]);
     } elseif ($pfp_dest) {
-        $stmt = $pdo->prepare("UPDATE users SET username = ?, research_group_name = ?, profile_pic = ? WHERE user_id = ?");
-        $success = $stmt->execute([$name, $group, $pfp_dest, $user_id]);
+        $stmt = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ? WHERE user_id = ?");
+        $success = $stmt->execute([$name, $pfp_dest, $user_id]);
     } elseif ($banner_dest) {
-        $stmt = $pdo->prepare("UPDATE users SET username = ?, research_group_name = ?, banner_pic = ? WHERE user_id = ?");
-        $success = $stmt->execute([$name, $group, $banner_dest, $user_id]);
+        $stmt = $pdo->prepare("UPDATE users SET username = ?, banner_pic = ? WHERE user_id = ?");
+        $success = $stmt->execute([$name, $banner_dest, $user_id]);
     } else {
-        $stmt = $pdo->prepare("UPDATE users SET username = ?, research_group_name = ? WHERE user_id = ?");
-        $success = $stmt->execute([$name, $group, $user_id]);
+        $stmt = $pdo->prepare("UPDATE users SET username = ? WHERE user_id = ?");
+        $success = $stmt->execute([$name, $user_id]);
+    }
+
+    // research_group_name is a shared group attribute: always write it to the
+    // leader's row so it can't drift between a leader and its members.
+    if ($success) {
+        $pdo->prepare("UPDATE users SET research_group_name = ? WHERE user_id = ?")->execute([$group, $effective_user_id]);
     }
 
     if ($success) {
@@ -141,13 +147,6 @@ else { $rank_title = "Warrior"; $rank_dot = "#94a3b8"; }
             --border-subtle: #e2e8f0;
             --mcnp-teal: #0f172a; 
             --banner-fallback: linear-gradient(135deg, #f1f5f9, #e2e8f0);
-        }
-
-        body.theme-default, body.theme-blue { --bg-canvas: #f0f4f9; --bg-white: #ffffff; --text-dark: #0f172a; --mcnp-teal: #1e40af; --banner-fallback: linear-gradient(135deg, #dbeafe, #bfdbfe); }
-        body.theme-red { --bg-canvas: #fef2f2; --bg-white: #ffffff; --text-dark: #b91c1c; --mcnp-teal: #b91c1c; --banner-fallback: linear-gradient(135deg, #fee2e2, #fecaca); }
-        body.theme-green { --bg-canvas: #f0fdf4; --bg-white: #ffffff; --text-dark: #15803d; --mcnp-teal: #15803d; --banner-fallback: linear-gradient(135deg, #dcfce7, #bbf7d0); }
-        body.theme-pink, body.theme-rose { --bg-canvas: #fdf2f8; --bg-white: #ffffff; --text-dark: #be185d; --mcnp-teal: #be185d; --banner-fallback: linear-gradient(135deg, #fce7f3, #fbcfe8); }
-            --banner-fallback: #e2e8f0;
         }
 
         body.theme-default, body.theme-blue { --bg-canvas: #f0f4f9; --bg-white: #ffffff; --text-dark: #0f172a; --mcnp-teal: #1e40af; --banner-fallback: #bfdbfe; }

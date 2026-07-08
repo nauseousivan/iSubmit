@@ -1111,4 +1111,195 @@
         body.theme-lavender {
             background: #ffffff !important;
         }
-    
+
+        /* "What's Next" banner: hidden by default (mobile/tablet markup flow unchanged),
+           revealed only on web ≥1024px below. */
+        .next-step-banner {
+            display: none;
+        }
+
+        /* ========================================================
+           WEB COMPACTING (≥1025px only) — mobile ≤768 wallet and
+           tablet 769–1024 (incl. iPad landscape) are untouched.
+           ======================================================== */
+        @media (min-width: 1025px) {
+
+            /* ── Slimmer hero widgets so "0 / 6" no longer looks oversized ── */
+            .hero-widgets {
+                gap: 16px;
+                margin-bottom: 16px;
+                align-items: stretch;
+            }
+
+            .hero-widgets .widget-card {
+                flex: 0 0 168px;
+                width: 168px;
+                height: 116px;
+                padding: 12px;
+                border-radius: 16px;
+            }
+
+            .circular-chart {
+                max-width: 46px;
+                max-height: 46px;
+            }
+
+            .widget-label {
+                margin-top: 6px;
+                font-size: 10px;
+            }
+
+            .widget-value {
+                font-size: 16px;
+                margin: 3px 0 1px 0;
+            }
+
+            .widget-subtext {
+                font-size: 10px;
+            }
+
+            /* Clearance card equalised to the (now shorter) progress card */
+            .hero-widgets .clearance-widget {
+                height: 116px !important;
+                margin-left: 0 !important;
+            }
+
+            /* ── Compact requirement cards so all 6 fit without scrolling ── */
+            .items-grid {
+                grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+                gap: 16px;
+                margin-top: 16px;
+            }
+
+            .card-header {
+                padding: 16px 18px 10px 18px;
+                gap: 12px;
+            }
+
+            .status-icon-box {
+                width: 38px;
+                height: 38px;
+                border-radius: 10px;
+            }
+
+            .num-indicator {
+                font-size: 17px;
+            }
+
+            .card-title {
+                font-size: 14.5px;
+            }
+
+            .card-meta {
+                font-size: 12px;
+            }
+
+            .card-body {
+                padding: 0 18px 16px 18px;
+            }
+
+            .status-pill {
+                margin-bottom: 12px;
+                padding: 5px 12px;
+                font-size: 10px;
+            }
+
+            .instruction-box {
+                padding: 12px 14px;
+                font-size: 12px;
+                margin-bottom: 12px;
+            }
+
+            .btn {
+                padding: 11px 14px;
+                font-size: 13px;
+                border-radius: 12px;
+            }
+
+            .apple-file-card {
+                padding: 10px;
+                margin-top: 10px;
+            }
+
+            /* ── "What's Next" smart banner (web-only) ── */
+            .next-step-banner {
+                display: flex;
+                align-items: center;
+                gap: 16px;
+                margin-bottom: 16px;
+                padding: 16px 20px;
+                border-radius: 18px;
+                border: 1px solid #e5e7eb;
+                background: linear-gradient(135deg, #ffffff 0%, #f8fafc 100%);
+                box-shadow: 0 8px 20px -12px rgba(15, 23, 42, 0.18);
+            }
+
+            .nsb-icon {
+                flex-shrink: 0;
+                width: 46px;
+                height: 46px;
+                border-radius: 14px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background: #eff6ff;
+                color: #2563eb;
+            }
+
+            .next-step-banner.revision .nsb-icon { background: #fef2f2; color: #dc2626; }
+            .next-step-banner.review .nsb-icon { background: #fffbeb; color: #b45309; }
+            .next-step-banner.approved .nsb-icon { background: #ecfdf5; color: #059669; }
+
+            .nsb-body {
+                flex: 1;
+                min-width: 0;
+            }
+
+            .nsb-label {
+                font-size: 10px;
+                font-weight: 800;
+                text-transform: uppercase;
+                letter-spacing: 0.09em;
+                color: #94a3b8;
+                margin-bottom: 3px;
+            }
+
+            .nsb-action {
+                font-size: 15px;
+                font-weight: 800;
+                color: #0f172a;
+                line-height: 1.3;
+            }
+
+            .nsb-action strong {
+                color: #2563eb;
+            }
+
+            .next-step-banner.revision .nsb-action strong { color: #dc2626; }
+            .next-step-banner.approved .nsb-action strong { color: #059669; }
+
+            .nsb-count {
+                flex-shrink: 0;
+                text-align: right;
+                font-size: 12px;
+                font-weight: 700;
+                color: #64748b;
+                white-space: nowrap;
+            }
+
+            .nsb-count b {
+                display: block;
+                font-size: 20px;
+                font-weight: 800;
+                color: #0f172a;
+                line-height: 1.1;
+            }
+
+            /* Dark theme */
+            body.theme-dark .next-step-banner {
+                background: linear-gradient(135deg, #1e293b 0%, #182236 100%);
+                border-color: rgba(255, 255, 255, 0.08);
+            }
+            body.theme-dark .nsb-action { color: #f8fafc; }
+            body.theme-dark .nsb-count b { color: #f8fafc; }
+        }

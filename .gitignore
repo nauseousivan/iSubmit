@@ -18,6 +18,9 @@ scratch/
 scratch.php
 scratch_uploads.php
 
+# Claude Code local settings
+.claude/
+
 # Dependencies
 vendor/
 node_modules/

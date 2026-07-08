@@ -18,12 +18,24 @@ if ($_SESSION['role'] === 'Statistician' && $phase !== 'stats') {
 $phase_map = [
     'proposal' => ['title' => 'Proposal Defense Validations', 'items' => [11, 12, 13, 14, 15, 16]],
     'final' => ['title' => 'Final Defense Validations', 'items' => [21, 22, 23, 24, 25, 26, 27]],
-    'stats' => ['title' => 'Statistics Clearances', 'items' => [30, 31, 32, 33, 34, 35]],
+    'stats' => ['title' => 'Statistics Clearances', 'items' => [30, 31, 32, 33, 34, 35, 36, 37]],
     'plag' => ['title' => 'Plagiarism Scan Clearances', 'items' => [4]],
 ];
 
 $current_phase = $phase_map[$phase] ?? $phase_map['proposal'];
 $item_list = implode(',', $current_phase['items']);
+
+// Statistician nav split: statistician.php now links here with a `view` param so its
+// Statistics Clearance / Payment Verification / Release Results tabs each show only their
+// own section. Coordinator/Director keep linking with no `view` param (defaults to 'all'),
+// which preserves today's combined single-page behavior for them.
+$stats_view = 'all';
+if ($phase === 'stats') {
+    $stats_view = $_GET['view'] ?? 'all';
+    if (!in_array($stats_view, ['all', 'checklist', 'payments', 'release'], true)) {
+        $stats_view = 'all';
+    }
+}
 
 // Define Form No. 008 Assessment Rubric Structure Natively
 $rubric_sections = [
@@ -88,8 +100,8 @@ $rubric_stats_sections = [
 
 // Process Document Verifications
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'verify_upload') {
-    // CSRF protection (proposal flow only): reject forged proposal reviews.
-    if ($phase === 'proposal' && (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']))) {
+    // CSRF protection (proposal + stats flows): reject forged reviews.
+    if (in_array($phase, ['proposal', 'stats'], true) && (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']))) {
         exit('Invalid security token. Please refresh and try again.');
     }
     $upload_id = $_POST['upload_id'];
@@ -147,7 +159,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
 
     $message = "Student compliance verification metrics logged successfully against Form No. 008.";
 
-    if (in_array($target_item_id, [30, 31, 32, 33, 34, 35])) {
+    if (in_array($target_item_id, [30, 31, 32, 33, 34, 35, 36, 37])) {
         $f_stmt = $pdo->prepare("SELECT * FROM form_stat_treatment WHERE user_id = ? ORDER BY date_submitted DESC LIMIT 1");
         $f_stmt->execute([$student_user_id]);
         $f_data = $f_stmt->fetch();
@@ -156,27 +168,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
             $form_id = $f_data['form_id'];
 
             if ($target_item_id === 30) {
-                // Initial Data Approval -> Move to Payment
-                $new_state = ($upload_status === 'Approved') ? 'Waiting for Payment' : (($upload_status === 'Revision Requested' || $upload_status === 'revision') ? 'Initial Data Rejected' : 'Initial Data Uploaded');
+                // Initial Data Approval -> Move to Phase 2 Form Download
+                $new_state = ($upload_status === 'Approved') ? 'Phase 2: Form Download' : (($upload_status === 'Revision Requested' || $upload_status === 'revision') ? 'Phase 1: Coded Data Rejected' : 'Phase 1: Pending Coded Data');
                 $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = ?, statistician_remarks = ? WHERE form_id = ?");
                 $upd_stmt->execute([$new_state, $remarks, $form_id]);
-            } else {
-                // If any requirement 31-35 is approved, check if all 5 are approved
-                $stmt_count = $pdo->prepare("SELECT COUNT(*) FROM uploads WHERE user_id = ? AND item_id IN (31,32,33,34,35) AND verification_status = 'Approved'");
-                $stmt_count->execute([$student_user_id]);
-                if ($stmt_count->fetchColumn() == 5) {
-                    $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Completed', statistician_remarks = ? WHERE form_id = ?");
+            } elseif (in_array($target_item_id, [31, 32, 33, 34, 35])) {
+                if ($upload_status === 'Revision Requested') {
+                    // Flag the whole request so the student sees the revision alert
+                    $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 6: Revision Requested', statistician_remarks = ? WHERE form_id = ?");
                     $upd_stmt->execute([$remarks, $form_id]);
                 } else {
-                    $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?");
-                    $upd_stmt->execute([$remarks, $form_id]);
+                    // All 5 approved (checking the LATEST version of each item, since older
+                    // reviewed versions remain as history) -> move into processing, not Completed;
+                    // the request completes when the statistician releases the result file.
+                    $stmt_latest = $pdo->prepare("SELECT COUNT(*) FROM uploads u
+                        INNER JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (31,32,33,34,35) GROUP BY item_id) latest
+                        ON latest.max_id = u.upload_id
+                        WHERE u.verification_status = 'Approved'");
+                    $stmt_latest->execute([$student_user_id]);
+                    if ($stmt_latest->fetchColumn() == 5) {
+                        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 7: Statistical Treatment', statistician_remarks = ? WHERE form_id = ?");
+                        $upd_stmt->execute([$remarks, $form_id]);
+                    } else {
+                        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?");
+                        $upd_stmt->execute([$remarks, $form_id]);
+                    }
+                }
+            } elseif (in_array($target_item_id, [36, 37])) {
+                $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?")->execute([$remarks, $form_id]);
+                if ($upload_status === 'Revision Requested') {
+                    // Rejected payment document: send the group back to Phase 2 so the
+                    // upload cards unlock and they can submit a corrected file.
+                    $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 2: Form Download' WHERE form_id = ? AND status = 'Phase 4: Payment Verification'")->execute([$form_id]);
                 }
             }
 
             // Email student
             if (!empty($f_data['contact_email'])) {
-                $subject = "Statistical Treatment Update: " . $f_data['formatted_control_no'];
-                $msg_body = "Your Statistical Treatment form (Control No: " . $f_data['formatted_control_no'] . ") has a new status update.\n\nStatus: " . $upload_status . "\nRemarks: " . $remarks . "\n\nPlease check your dashboard for more details.";
+                $subject = "Statistical Treatment Update: " . ($f_data['formatted_control_no'] ?: 'Pending Registration');
+                $msg_body = "Your Statistical Treatment request has a new status update.\n\nStatus: " . $upload_status . "\nRemarks: " . $remarks . "\n\nPlease check your dashboard for more details.";
                 $headers = "From: no-reply@mcnp-isap-research.edu\r\n";
                 @mail($f_data['contact_email'], $subject, $msg_body, $headers);
             }
@@ -213,21 +243,146 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
     $log_stmt->execute([$student_user_id, $upload_id, $log_title, $log_desc, $log_status]);
 }
 
-// Handle Statistician Acknowledging Payment
+// Handle Statistician Acknowledging Payment (Phase 5 Transition)
+// Hybrid flow: works from Phase 4 (payment documents uploaded in-system) AND from
+// Phase 2 (receipt presented physically at the Research Office, nothing uploaded).
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'acknowledge_payment') {
     if ($role === 'Statistician') {
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+            exit('Invalid security token. Please refresh and try again.');
+        }
         $form_id = $_POST['form_id'];
-        $control_no = trim($_POST['control_no']);
+        $sequence_no = trim($_POST['control_no']);
         $student_id = $_POST['student_id'];
 
-        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Payment Acknowledged', formatted_control_no = ? WHERE form_id = ?");
-        $upd_stmt->execute([$control_no, $form_id]);
+        // Get student department and program to auto-generate prefix
+        $stmt_s = $pdo->prepare("SELECT department, program FROM users WHERE user_id = ?");
+        $stmt_s->execute([$student_id]);
+        $s_info = $stmt_s->fetch();
 
-        // Notify student
-        $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Payment Acknowledged', 'Your statistical treatment payment has been acknowledged. Your Control Number is: $control_no. You may now upload the remaining deliverables.', 'success', CURRENT_TIMESTAMP)");
-        $log_stmt->execute([$student_id]);
+        $prog = strtoupper($s_info['program'] ?? 'GEN');
+        $school = 'ISAP';
+        if (strpos($prog, 'NURSING') !== false || strpos($prog, 'MEDICAL') !== false || strpos($prog, 'RADIOLOGIC') !== false || strpos($prog, 'PHARMACY') !== false || strpos($prog, 'MIDWIFERY') !== false || strpos($prog, 'DENTAL') !== false || strpos($prog, 'CAREGIVING') !== false) {
+            $school = 'MCNP';
+        }
+        
+        // Course code comes from the student's actual course/program (e.g. "BS Nursing"),
+        // never from the institution-level `department` field — that produced gibberish
+        // initials like "ISOAATP" from "International School of Asia and the Pacific".
+        $course_stopwords = ['BS', 'BA', 'AB', 'BSED', 'OF', 'IN', 'AND', 'THE'];
+        $course_words = preg_split('/\s+/', trim($s_info['program'] ?? ''));
+        $course_significant = [];
+        foreach ($course_words as $w) {
+            if ($w !== '' && !in_array(strtoupper($w), $course_stopwords, true)) {
+                $course_significant[] = strtoupper($w);
+            }
+        }
+        if (count($course_significant) === 1) {
+            $course_code = $course_significant[0];
+        } elseif (count($course_significant) > 1) {
+            $course_code = '';
+            foreach ($course_significant as $w) { $course_code .= $w[0]; }
+        } else {
+            $course_code = 'GEN';
+        }
 
-        $message = "Payment acknowledged successfully for Control No: $control_no";
+        $full_control_no = "STAT-" . date('Y') . "-" . $school . "-" . $course_code . "-" . str_pad($sequence_no, 3, "0", STR_PAD_LEFT);
+
+        // Only registrable while awaiting/verifying payment (guards double registration)
+        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 5: Registered', formatted_control_no = ?
+                                   WHERE form_id = ? AND status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')");
+        $upd_stmt->execute([$full_control_no, $form_id]);
+
+        if ($upd_stmt->rowCount() > 0) {
+            // Payment documents uploaded in-system are implicitly verified by registering
+            $pdo->prepare("UPDATE uploads SET verification_status = 'Approved', remarks = 'Verified during official registration.'
+                           WHERE user_id = ? AND item_id IN (36, 37) AND verification_status = 'Pending'")
+                ->execute([$student_id]);
+
+            // Auto-rename the LATEST upload of each processed document to the official
+            // control-number format. Older reviewed versions stay untouched as history
+            // (renaming them too would collide on identical target filenames).
+            $rename_labels = [30 => 'InitialData', 36 => 'ValidatedForm', 37 => 'Receipt'];
+            $stmt_up = $pdo->prepare("SELECT u.upload_id, u.item_id, u.file_path FROM uploads u
+                INNER JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (30, 36, 37) GROUP BY item_id) latest
+                ON latest.max_id = u.upload_id");
+            $stmt_up->execute([$student_id]);
+
+            foreach ($stmt_up->fetchAll() as $up) {
+                $old_path = $up['file_path'];
+                if (!file_exists($old_path)) continue;
+                $ext = pathinfo($old_path, PATHINFO_EXTENSION);
+                $new_filename = $full_control_no . "_" . $rename_labels[$up['item_id']] . "." . $ext;
+                $new_path = dirname($old_path) . '/' . $new_filename;
+
+                if ($old_path !== $new_path && rename($old_path, $new_path)) {
+                    $pdo->prepare("UPDATE uploads SET file_path = ?, original_filename = ? WHERE upload_id = ?")
+                        ->execute([$new_path, $new_filename, $up['upload_id']]);
+                    if ((int)$up['item_id'] === 30) {
+                        $pdo->prepare("UPDATE form_stat_treatment SET file_coded_data = ? WHERE form_id = ?")
+                            ->execute([$new_path, $form_id]);
+                    }
+                }
+            }
+
+            // Notify student
+            $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Payment Acknowledged (Registered)', ?, 'success', CURRENT_TIMESTAMP)");
+            $log_stmt->execute([$student_id, "Your statistical treatment payment has been acknowledged. Your Control Number is: $full_control_no. You may now upload the remaining deliverables in Phase 6."]);
+
+            $message = "Payment acknowledged and Registered successfully! Generated Control No: $full_control_no";
+        } else {
+            $message = "This request is not awaiting registration (it may already be registered).";
+        }
+    }
+}
+
+// Handle Statistician Releasing Final Results (Phase 7 Completion)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'upload_stat_result') {
+    if ($role === 'Statistician') {
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+            exit('Invalid security token. Please refresh and try again.');
+        }
+        $form_id = $_POST['form_id'];
+        $student_id = $_POST['student_id'];
+
+        if (isset($_FILES['result_file']) && $_FILES['result_file']['error'] === UPLOAD_ERR_OK) {
+            $ext = strtolower(pathinfo($_FILES['result_file']['name'], PATHINFO_EXTENSION));
+            if (in_array($ext, ['pdf', 'doc', 'docx', 'xls', 'xlsx', 'zip'])) {
+                $f_stmt = $pdo->prepare("SELECT formatted_control_no, contact_email FROM form_stat_treatment WHERE form_id = ? AND status = 'Phase 7: Statistical Treatment'");
+                $f_stmt->execute([$form_id]);
+                $f_row = $f_stmt->fetch();
+
+                if ($f_row) {
+                    $result_dir = '../uploads/stats/results/';
+                    if (!is_dir($result_dir)) mkdir($result_dir, 0777, true);
+                    $prefix = $f_row['formatted_control_no'] ?: ('RESULT_' . $student_id);
+                    $result_path = $result_dir . $prefix . '_FinalResults_' . time() . '.' . $ext;
+
+                    if (move_uploaded_file($_FILES['result_file']['tmp_name'], $result_path)) {
+                        $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 7: Completed', result_file = ?, date_released = CURRENT_TIMESTAMP WHERE form_id = ?")
+                            ->execute([$result_path, $form_id]);
+
+                        $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Statistical Treatment Completed', ?, 'success', CURRENT_TIMESTAMP)");
+                        $log_stmt->execute([$student_id, "Your statistical treatment results are ready. Download them from the Statistics module, then proceed to the Research Office to claim your physical copies."]);
+
+                        if (!empty($f_row['contact_email'])) {
+                            $headers = "From: no-reply@mcnp-isap-research.edu\r\n";
+                            @mail($f_row['contact_email'], "Statistical Treatment Completed: " . ($f_row['formatted_control_no'] ?: ''), "Your statistical treatment results have been released. Log in to download them, then claim your physical copies at the Research Office.", $headers);
+                        }
+
+                        $message = "Final results released. The request is now marked Completed.";
+                    } else {
+                        $message = "Failed to save the results file.";
+                    }
+                } else {
+                    $message = "This request is not in the processing stage.";
+                }
+            } else {
+                $message = "Invalid results file format.";
+            }
+        } else {
+            $message = "No results file was selected.";
+        }
     }
 }
 
@@ -347,11 +502,18 @@ $group_selector_clauses[] = "u.leader_id IS NULL";
 
 $group_selector_where_sql = "WHERE " . implode(' AND ', $group_selector_clauses);
 
+// Sort by most recently active group first (activity_logs covers both student uploads and
+// staff signoffs, so it's a more complete "last touched" signal than uploads alone). This list
+// is system-wide, not phase-scoped, so the recency source is too.
 $group_selector_query = "
-    SELECT DISTINCT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic, u.email
+    SELECT DISTINCT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
+           la.last_activity
     FROM users u
+    LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS last_activity FROM activity_logs GROUP BY user_id
+    ) la ON la.user_id = u.user_id
     $group_selector_where_sql
-    ORDER BY u.research_group_name ASC
+    ORDER BY (la.last_activity IS NULL) ASC, la.last_activity DESC, u.research_group_name ASC
 ";
 $group_selector_stmt = $pdo->prepare($group_selector_query);
 $group_selector_stmt->execute($params);
@@ -394,12 +556,37 @@ function highlightSearchTerm($text, $term)
 }
 
 $pending_payments = [];
+$release_queue = [];
 if ($phase === 'stats') {
-    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program 
-                             FROM form_stat_treatment f 
-                             JOIN users u ON f.user_id = u.user_id 
-                             WHERE f.status = 'Waiting for Payment' ORDER BY f.date_submitted DESC");
+    // Registration queue: groups with payment docs uploaded (Phase 4) plus groups still in
+    // Phase 2 — the latter covers receipts presented physically at the Research Office.
+    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program
+                             FROM form_stat_treatment f
+                             JOIN users u ON f.user_id = u.user_id
+                             WHERE f.status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')
+                             ORDER BY FIELD(f.status, 'Phase 4: Payment Verification', 'Phase 2: Form Download'), f.date_submitted DESC");
     $pending_payments = $stmt_pay->fetchAll(PDO::FETCH_ASSOC);
+
+    // Attach the latest payment-document uploads (36 = validated form, 37 = receipt) per group.
+    // Pull the full row the evaluation modal needs so payment docs can be viewed and
+    // approved/rejected in-place without leaving the Pending Payments section.
+    $stmt_paydocs = $pdo->prepare("SELECT u.upload_id, u.item_id, u.file_path, u.original_filename, u.verification_status, u.remarks FROM uploads u
+        INNER JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (36, 37) GROUP BY item_id) latest
+        ON latest.max_id = u.upload_id");
+    foreach ($pending_payments as &$pp) {
+        $stmt_paydocs->execute([$pp['user_id']]);
+        $pp['payment_docs'] = [];
+        foreach ($stmt_paydocs->fetchAll(PDO::FETCH_ASSOC) as $doc_row) {
+            $pp['payment_docs'][$doc_row['item_id']] = $doc_row;
+        }
+    }
+    unset($pp);
+
+    // Release queue: all deliverables approved, awaiting the final results upload
+    $release_queue = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program
+                                  FROM form_stat_treatment f
+                                  JOIN users u ON f.user_id = u.user_id
+                                  WHERE f.status = 'Phase 7: Statistical Treatment' ORDER BY f.date_submitted DESC")->fetchAll(PDO::FETCH_ASSOC);
 }
 ?>
 <!DOCTYPE html>
@@ -409,14 +596,14 @@ if ($phase === 'stats') {
     <meta charset="UTF-8">
     <title>Admin - <?= htmlspecialchars($current_phase['title']) ?></title>
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Inline Styling representing High-End Glassmorphism and Elegant Accent Colors -->
     <style>
         :root {
             --mcnp-teal: #0c343d;
             --bg-beige: #f9f7f2;
             --border-line: #e3dec9;
-            --ui-sans: 'Inter', system-ui, sans-serif;
+            --ui-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
             --success: #059669;
             --warning: #d97706;
             --danger: #dc2626;
@@ -1278,10 +1465,12 @@ if ($phase === 'stats') {
                 <?php if (empty($all_student_groups)): ?>
                     <div style="font-size: 11px; color:#9ca3af; text-align:center; padding: 10px 0;">No students mapped.</div>
                 <?php else: ?>
-                    <?php foreach ($all_student_groups as $g):
+                    <?php $sidebar_gi = 0; foreach ($all_student_groups as $g):
                         $pfp = $g['profile_pic'] ?: 'https://api.dicebear.com/9.x/bottts/svg?seed=' . urlencode($g['username']);
+                        $sidebar_gi++;
+                        $sidebar_extra = $sidebar_gi > 7;
                     ?>
-                        <div class="group-select-item" onclick="selectStudentGroup(<?= htmlspecialchars(json_encode($g)) ?>)" id="sidebar-g-<?= $g['user_id'] ?>" data-group-name="<?= htmlspecialchars(strtolower($g['research_group_name'])) ?>" data-student-name="<?= htmlspecialchars(strtolower($g['username'])) ?>" data-program-name="<?= htmlspecialchars(strtolower($g['program'])) ?>">
+                        <div class="group-select-item" <?= $sidebar_extra ? 'data-extra="1" style="display:none;"' : '' ?> onclick="selectStudentGroup(<?= htmlspecialchars(json_encode($g)) ?>)" id="sidebar-g-<?= $g['user_id'] ?>" data-group-name="<?= htmlspecialchars(strtolower($g['research_group_name'])) ?>" data-student-name="<?= htmlspecialchars(strtolower($g['username'])) ?>" data-program-name="<?= htmlspecialchars(strtolower($g['program'])) ?>">
                             <img src="<?= htmlspecialchars($pfp) ?>" class="mini-avatar">
                             <div style="overflow:hidden;">
                                 <h4 class="mini-group-name"><?= htmlspecialchars($g['research_group_name']) ?></h4>
@@ -1289,6 +1478,11 @@ if ($phase === 'stats') {
                             </div>
                         </div>
                     <?php endforeach; ?>
+                    <?php if (count($all_student_groups) > 7): ?>
+                        <button type="button" id="sidebarShowMoreGroups" onclick="toggleSidebarShowMore()" style="width:100%; padding:8px; font-size:11px; font-weight:700; color:var(--mcnp-teal); background:#faf8f4; border:1.5px dashed var(--border-line); border-radius:8px; cursor:pointer;">
+                            Show all <?= count($all_student_groups) ?> groups
+                        </button>
+                    <?php endif; ?>
                 <?php endif; ?>
             </div>
         </aside>
@@ -1317,7 +1511,9 @@ if ($phase === 'stats') {
                 </div>
             </div>
 
-            <!-- Status Filter Tabs -->
+            <!-- Status Filter Tabs (meaningless on the isolated Payment/Release tabs, which are
+                 self-contained workflows the tabs don't filter) -->
+            <?php if (!in_array($stats_view, ['payments', 'release'], true)): ?>
             <div class="status-tabs-container" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-line); padding-bottom: 14px; flex-wrap: wrap;">
                 <button type="button" class="status-filter-tab active" data-filter="action" onclick="filterByStatus('action')">
                     <i data-lucide="inbox" style="width: 14px; height: 14px;"></i> Action Needed
@@ -1332,8 +1528,9 @@ if ($phase === 'stats') {
                     <i data-lucide="layers" style="width: 14px; height: 14px;"></i> All Submissions
                 </button>
             </div>
+            <?php endif; ?>
 
-            <?php if ($phase === 'stats' && count($pending_payments) > 0): ?>
+            <?php if ($phase === 'stats' && in_array($stats_view, ['all', 'payments'], true) && count($pending_payments) > 0): ?>
                 <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid var(--warning);">
                     <div class="req-header" onclick="toggleReq('payment', this)">
                         <div class="req-title" style="color: var(--warning);">
@@ -1349,30 +1546,119 @@ if ($phase === 'stats') {
                         <table>
                             <thead>
                                 <tr>
-                                    <th style="width: 25%;">Research Group</th>
-                                    <th style="width: 20%;">Student OR Number</th>
-                                    <th style="width: 15%;">Status</th>
-                                    <th style="width: 40%;">Review Action</th>
+                                    <th style="width: 22%;">Research Group</th>
+                                    <th style="width: 22%;">Payment Documents</th>
+                                    <th style="width: 18%;">Status</th>
+                                    <th style="width: 38%;">Register (Official Control No.)</th>
                                 </tr>
                             </thead>
                             <tbody>
-                                <?php foreach ($pending_payments as $pay): ?>
+                                <?php foreach ($pending_payments as $pay):
+                                    $has_docs = ($pay['status'] === 'Phase 4: Payment Verification');
+                                    $doc_labels = [36 => 'Validated Form', 37 => 'Official Receipt'];
+                                ?>
                                     <tr>
                                         <td>
                                             <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= htmlspecialchars($pay['research_group_name']) ?></strong><br>
                                             <span style="color: #6b7280; font-size: 11px;"><?= htmlspecialchars($pay['department']) ?></span>
                                         </td>
                                         <td>
-                                            <strong style="font-size: 13px;"><?= htmlspecialchars($pay['main_or_number'] ?: 'N/A') ?></strong>
+                                            <?php if (!empty($pay['payment_docs'])): ?>
+                                                <?php foreach ($doc_labels as $doc_id => $doc_label): ?>
+                                                    <?php if (isset($pay['payment_docs'][$doc_id])):
+                                                        // Build the object the evaluation modal expects so the
+                                                        // statistician can view the scan and Approve/Reject-with-remarks
+                                                        // right here (rejecting sends the group back to Phase 2).
+                                                        $pdoc = $pay['payment_docs'][$doc_id];
+                                                        $modal_obj = [
+                                                            'upload_id' => $pdoc['upload_id'],
+                                                            'student_user_id' => $pay['user_id'],
+                                                            'research_group_name' => $pay['research_group_name'],
+                                                            'file_path' => $pdoc['file_path'],
+                                                            'original_filename' => $pdoc['original_filename'],
+                                                            'verification_status' => $pdoc['verification_status'],
+                                                            'remarks' => $pdoc['remarks'],
+                                                            'form_008_data' => null,
+                                                        ];
+                                                        $dpill = strtolower($pdoc['verification_status']) === 'revision requested' ? 'revision'
+                                                               : (strtolower($pdoc['verification_status']) === 'approved' ? 'approved' : 'review');
+                                                    ?>
+                                                        <button type="button" onclick='openDocumentModal(<?= htmlspecialchars(json_encode($modal_obj), ENT_QUOTES) ?>, "<?= htmlspecialchars($doc_label, ENT_QUOTES) ?>", <?= $doc_id ?>)' class="file-link" style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                                            <i data-lucide="eye" style="width:13px; height:13px;"></i> <?= $doc_label ?>
+                                                            <span class="status-pill <?= $dpill ?>" style="font-size:8px; padding:1px 6px;"><?= htmlspecialchars($pdoc['verification_status']) ?></span>
+                                                        </button>
+                                                    <?php else: ?>
+                                                        <span style="display:block; font-size:11.5px; color:#9ca3af; margin-bottom:4px;"><?= $doc_label ?>: not uploaded</span>
+                                                    <?php endif; ?>
+                                                <?php endforeach; ?>
+                                            <?php else: ?>
+                                                <span style="font-size:11.5px; color:#9ca3af;">None uploaded (physical receipt)</span>
+                                            <?php endif; ?>
                                         </td>
-                                        <td><span class="status-pill review">Awaiting Acknowledgment</span></td>
+                                        <td>
+                                            <?php if ($has_docs): ?>
+                                                <span class="status-pill review">Receipt Uploaded — Verify</span>
+                                            <?php else: ?>
+                                                <span class="status-pill pending">Awaiting Docs / Physical Receipt</span>
+                                            <?php endif; ?>
+                                        </td>
                                         <td>
                                             <form method="POST" class="action-form">
                                                 <input type="hidden" name="action_type" value="acknowledge_payment">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                                 <input type="hidden" name="form_id" value="<?= $pay['form_id'] ?>">
                                                 <input type="hidden" name="student_id" value="<?= $pay['user_id'] ?>">
-                                                <input type="text" name="control_no" placeholder="Assign Control No (e.g. STAT-2026-MCNP-001)" required style="flex:1;">
-                                                <button type="submit" class="btn-update" style="background: var(--warning);">Acknowledge & Unlock</button>
+                                                <input type="text" name="control_no" placeholder="Sequence Number (e.g. 015)" required style="flex:1;">
+                                                <button type="submit" class="btn-update" style="background: var(--warning);">Register & Unlock</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($phase === 'stats' && in_array($stats_view, ['all', 'release'], true) && count($release_queue) > 0): ?>
+                <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid var(--success);">
+                    <div class="req-header" onclick="toggleReq('release', this)">
+                        <div class="req-title" style="color: var(--success);">
+                            <i data-lucide="package-check" style="width: 20px; height: 20px; color: var(--success);"></i>
+                            Ready for Release — Upload Final Results
+                        </div>
+                        <div class="req-meta">
+                            <span class="badge animate-pulse" style="background: var(--success);"><?= count($release_queue) ?> Processing</span>
+                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px; color: var(--success);"></i>
+                        </div>
+                    </div>
+                    <div class="req-body" id="body-release">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 28%;">Research Group</th>
+                                    <th style="width: 22%;">Control Number</th>
+                                    <th style="width: 50%;">Release Final Results</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($release_queue as $rel): ?>
+                                    <tr>
+                                        <td>
+                                            <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= htmlspecialchars($rel['research_group_name']) ?></strong><br>
+                                            <span style="color: #6b7280; font-size: 11px;"><?= htmlspecialchars($rel['department']) ?></span>
+                                        </td>
+                                        <td>
+                                            <strong style="font-size: 13px; font-family: 'JetBrains Mono', monospace;"><?= htmlspecialchars($rel['formatted_control_no'] ?: 'N/A') ?></strong>
+                                        </td>
+                                        <td>
+                                            <form method="POST" enctype="multipart/form-data" class="action-form">
+                                                <input type="hidden" name="action_type" value="upload_stat_result">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                                <input type="hidden" name="form_id" value="<?= $rel['form_id'] ?>">
+                                                <input type="hidden" name="student_id" value="<?= $rel['user_id'] ?>">
+                                                <input type="file" name="result_file" accept=".pdf,.doc,.docx,.xls,.xlsx,.zip" required style="flex:1; font-size: 12px;">
+                                                <button type="submit" class="btn-update" style="background: var(--success);">Release Results</button>
                                             </form>
                                         </td>
                                     </tr>
@@ -1385,12 +1671,20 @@ if ($phase === 'stats') {
 
             <?php foreach ($checklist_items as $item):
                 $item_id = $item['item_id'];
+                // Payment documents (36 Validated Form / 37 Official Receipt) are reviewed entirely
+                // inside the Pending Payments Acknowledgment section above — skip the generic card so
+                // the payment workflow lives in exactly one place.
+                if ($phase === 'stats' && in_array($item_id, [36, 37])) continue;
+                // Statistician's isolated Payment Verification / Release Results tabs show only
+                // their own section; skip the generic checklist cards there.
+                if ($phase === 'stats' && in_array($stats_view, ['payments', 'release'], true)) continue;
                 $submissions = $uploads_by_item[$item_id] ?? [];
 
                 $pending_count = 0;
                 foreach ($submissions as $sub) {
                     if ($role === 'Research Coordinator' && $sub['verification_status'] === 'Pending') $pending_count++;
                     if ($role === 'Research Director' && $sub['verification_status'] === 'Under Review') $pending_count++;
+                    if ($role === 'Statistician' && $sub['verification_status'] === 'Pending') $pending_count++;
                 }
 
                 $is_cascaded = in_array($item_id, [13, 15, 16]);
@@ -1403,10 +1697,8 @@ if ($phase === 'stats') {
                             <?= htmlspecialchars($item['item_name']) ?>
                         </div>
                         <div class="req-meta">
-                            <?php if ($pending_count > 0): ?>
-                                <span class="badge animate-pulse" style="background: var(--danger);"><?= $pending_count ?> Action Needed</span>
-                            <?php endif; ?>
-                            <?php if (!$is_cascaded): ?><span class="badge"><?= count($submissions) ?> Uploads</span><?php endif; ?>
+                            <span class="badge animate-pulse" id="action-badge-<?= $item_id ?>" style="background: var(--danger); <?= $pending_count > 0 ? '' : 'display:none;' ?>"><?= $pending_count ?> Action Needed</span>
+                            <?php if (!$is_cascaded): ?><span class="badge" id="total-badge-<?= $item_id ?>" title="Count of submissions in the currently selected tab"><?= count($submissions) ?> Total Submitted</span><?php endif; ?>
                             <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px; color: var(--mcnp-teal);"></i>
                         </div>
                     </div>
@@ -1423,7 +1715,7 @@ if ($phase === 'stats') {
                                 No student groups have uploaded this requirement yet.
                             </div>
                         <?php else: ?>
-                            <table>
+                            <table class="submissions-table">
                                 <thead>
                                     <tr>
                                         <th style="width: 25%;">Research Group</th>
@@ -1439,7 +1731,7 @@ if ($phase === 'stats') {
                                         if ($sub['verification_status'] === 'Under Review') $pill_class = 'review';
                                         if ($sub['verification_status'] === 'Revision Requested') $pill_class = 'revision';
                                     ?>
-                                        <tr class="sub-row-g-<?= $sub['student_user_id'] ?>">
+                                        <tr class="sub-row-g-<?= $sub['student_user_id'] ?>" data-status="<?= htmlspecialchars(strtolower($sub['verification_status'])) ?>">
                                             <td>
                                                 <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= highlightSearchTerm($sub['research_group_name'], $search_query) ?></strong><br>
                                                 <span style="color: #6b7280; font-size: 11px;"><?= highlightSearchTerm($sub['department'], $search_query) ?></span><br>
@@ -1676,22 +1968,37 @@ if ($phase === 'stats') {
         let activeGroupId = null; // null means "all"
         let activeStatusFilter = 'action'; // 'action' (Pending+Under Review), 'revision', 'approved', 'all'
 
-        // Sidebar search filtering function
+        // Sidebar search filtering function. The 7 most-recent groups show by default (server
+        // sorts by recency); typing a query reveals matches from the full list regardless of that cutoff.
+        let sidebarGroupsExpanded = false;
+        const sidebarTotalGroups = <?= (int) count($all_student_groups) ?>;
+
+        function toggleSidebarShowMore() {
+            sidebarGroupsExpanded = !sidebarGroupsExpanded;
+            document.querySelectorAll('#sidebarGroupsList [data-extra="1"]').forEach(el => {
+                el.style.display = sidebarGroupsExpanded ? 'flex' : 'none';
+            });
+            const btn = document.getElementById('sidebarShowMoreGroups');
+            if (btn) btn.textContent = sidebarGroupsExpanded ? 'Show fewer groups' : ('Show all ' + sidebarTotalGroups + ' groups');
+        }
+
         function filterSidebarGroups() {
             const query = document.getElementById('sidebarGroupSearch').value.toLowerCase().trim();
+            const searching = query.length > 0;
             const items = document.querySelectorAll('#sidebarGroupsList .group-select-item');
 
             items.forEach(item => {
                 const groupName = item.getAttribute('data-group-name') || '';
                 const studentName = item.getAttribute('data-student-name') || '';
                 const programName = item.getAttribute('data-program-name') || '';
+                const matches = groupName.includes(query) || studentName.includes(query) || programName.includes(query);
+                const isExtra = item.getAttribute('data-extra') === '1';
 
-                if (groupName.includes(query) || studentName.includes(query) || programName.includes(query)) {
-                    item.style.display = 'flex';
-                } else {
-                    item.style.display = 'none';
-                }
+                item.style.display = (matches && (searching || sidebarGroupsExpanded || !isExtra)) ? 'flex' : 'none';
             });
+
+            const btn = document.getElementById('sidebarShowMoreGroups');
+            if (btn) btn.style.display = searching ? 'none' : 'block';
         }
 
         // 2. Select Student Group Profile function
@@ -1747,27 +2054,39 @@ if ($phase === 'stats') {
         }
 
         function filterTableRows() {
-            // Loop through all tables and apply activeGroupId and activeStatusFilter
-            document.querySelectorAll('table').forEach(table => {
+            // Only the requirement submission tables are filtered. The Pending Payments and
+            // Ready-for-Release tables are their own self-contained workflows and must never be
+            // hidden by the status tabs (their pills don't map to Pending/Under Review/etc.).
+            document.querySelectorAll('table.submissions-table').forEach(table => {
                 const tbody = table.querySelector('tbody');
                 if (!tbody) return;
 
                 let visibleRowsCount = 0;
                 const rows = tbody.querySelectorAll('tr:not(.no-records-row)');
+                // Tallied regardless of the group filter — badges summarize the whole
+                // requirement item, not just the currently-selected student group.
+                const statusCounts = { pending: 0, revision: 0, approved: 0, total: 0 };
 
                 rows.forEach(row => {
+                    const statusText = (row.dataset.status || '').trim().toLowerCase();
+                    statusCounts.total++;
+                    if (statusText === 'pending' || statusText === 'under review') statusCounts.pending++;
+                    else if (statusText === 'revision requested' || statusText === 'revision needed') statusCounts.revision++;
+                    else if (statusText === 'approved') statusCounts.approved++;
+
                     // Check Group Filter
                     let groupMatches = true;
                     if (activeGroupId !== null) {
                         groupMatches = row.classList.contains('sub-row-g-' + activeGroupId);
                     }
 
-                    // Check Status Filter
+                    // Check Status Filter — read the row's OWN current status from data-status.
+                    // (Reading .status-pill was buggy: the "Show History" box in the first cell
+                    // renders older versions' pills first, so a resubmitted-Pending row was being
+                    // misfiled under Revision History based on its previous rejected version.)
                     let statusMatches = true;
                     if (activeStatusFilter !== 'all') {
-                        const statusPill = row.querySelector('.status-pill');
-                        if (statusPill) {
-                            const statusText = statusPill.textContent.trim().toLowerCase();
+                        if (statusText) {
                             if (activeStatusFilter === 'action' || activeStatusFilter === 'pending') {
                                 // Active queue: only submissions that still need an admin decision
                                 statusMatches = statusText === 'pending' || statusText === 'under review';
@@ -1794,6 +2113,35 @@ if ($phase === 'stats') {
                         noRecordsRow.style.display = '';
                     } else {
                         noRecordsRow.style.display = 'none';
+                    }
+                }
+
+                // Sync this item's badges so they always reflect what's actually in the
+                // currently active tab, instead of a stale lifetime total.
+                const reqBody = table.closest('.req-body');
+                const itemId = reqBody ? reqBody.id.replace('body-', '') : null;
+                if (itemId) {
+                    const actionBadge = document.getElementById('action-badge-' + itemId);
+                    if (actionBadge) {
+                        if (statusCounts.pending > 0) {
+                            actionBadge.textContent = statusCounts.pending + ' Action Needed';
+                            actionBadge.style.display = '';
+                        } else {
+                            actionBadge.style.display = 'none';
+                        }
+                    }
+                    const totalBadge = document.getElementById('total-badge-' + itemId);
+                    if (totalBadge) {
+                        let label = 'Total Submitted';
+                        let count = statusCounts.total;
+                        if (activeStatusFilter === 'action') {
+                            label = 'Action Needed'; count = statusCounts.pending;
+                        } else if (activeStatusFilter === 'revision') {
+                            label = 'In Revision History'; count = statusCounts.revision;
+                        } else if (activeStatusFilter === 'approved') {
+                            label = 'In Approved Archive'; count = statusCounts.approved;
+                        }
+                        totalBadge.textContent = count + ' ' + label;
                     }
                 }
             });

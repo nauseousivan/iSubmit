@@ -8,35 +8,72 @@
  */
 
 // --- Data (namespaced with mo_ so it never collides with the host page's variables) ---
+$mo_role = $_SESSION['role'] ?? '';
+$mo_is_statistician = ($mo_role === 'Statistician');
+
+$mo_role_titles = [
+    'Research Coordinator' => 'Research Coordinator Terminal',
+    'Research Director'    => 'Research Director Terminal',
+    'Statistician'         => 'Research Statistician Terminal',
+];
+$mo_terminal_title = $mo_role_titles[$mo_role] ?? 'Staff Terminal';
+
+// Recency signal for the group explorer: last touched via activity_logs (populated by both
+// student-side actions and staff signoffs), so it's a more complete "last active" measure
+// than uploads alone. Groups with no activity yet sort to the bottom, alphabetically.
 $mo_workflow_tracks = $pdo->query("
     SELECT ap.approval_id, ap.coordinator_status, ap.statistician_status, ap.director_status, ap.payment_status, ap.printing_enabled,
            u.research_group_name, f.form_name, u.user_id, u.username, u.email, u.program, u.department, u.profile_pic
     FROM approvals ap
     JOIN users u ON ap.user_id = u.user_id
     JOIN forms f ON ap.form_id = f.form_id
+    LEFT JOIN (
+        SELECT user_id, MAX(created_at) AS last_activity FROM activity_logs GROUP BY user_id
+    ) la ON la.user_id = u.user_id
+    ORDER BY (la.last_activity IS NULL) ASC, la.last_activity DESC, u.research_group_name ASC
 ")->fetchAll();
 
-$mo_college_counts = $pdo->query("
-    SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-                WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
-           'Proposal' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
-    FROM uploads up JOIN users u ON up.user_id = u.user_id
-    WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id = 14
-    GROUP BY college
-    UNION ALL
-    SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-                WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
-           'Data/Literature' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
-    FROM uploads up JOIN users u ON up.user_id = u.user_id
-    WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id IN (3,4)
-    GROUP BY college
-")->fetchAll();
+$mo_research_groups_count = $pdo->query("SELECT COUNT(DISTINCT ap.user_id) FROM approvals ap")->fetchColumn();
 
-$mo_counts_by_college = ['ISAP' => ['Proposal' => 0, 'Data/Literature' => 0], 'MCNP' => ['Proposal' => 0, 'Data/Literature' => 0]];
-foreach ($mo_college_counts as $cc) {
-    $col = $cc['college'] ?? 'ISAP';
-    if (!isset($mo_counts_by_college[$col])) $mo_counts_by_college[$col] = ['Proposal' => 0, 'Data/Literature' => 0];
-    $mo_counts_by_college[$col][$cc['item_type']] = $cc['pending_count'];
+if (!$mo_is_statistician) {
+    // Dedup to the latest upload per user/item (mirrors coordinator.php's $pending_counts pattern)
+    // so a student's superseded re-uploads don't inflate the ISAP/MCNP pending-task counts.
+    // Note: any u.department that matches neither substring below falls into an 'Other' bucket
+    // that isn't surfaced on the dashboard today — known limitation, not fixed here.
+    $mo_college_counts = $pdo->query("
+        SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
+                    WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
+               'Proposal' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
+        FROM uploads up
+        JOIN users u ON up.user_id = u.user_id
+        INNER JOIN (
+            SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
+        ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
+        WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id = 14
+        GROUP BY college
+        UNION ALL
+        SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
+                    WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
+               'Data/Literature' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
+        FROM uploads up
+        JOIN users u ON up.user_id = u.user_id
+        INNER JOIN (
+            SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
+        ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
+        WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id IN (3,4)
+        GROUP BY college
+    ")->fetchAll();
+
+    $mo_counts_by_college = ['ISAP' => ['Proposal' => 0, 'Data/Literature' => 0], 'MCNP' => ['Proposal' => 0, 'Data/Literature' => 0]];
+    foreach ($mo_college_counts as $cc) {
+        $col = $cc['college'] ?? 'ISAP';
+        if (!isset($mo_counts_by_college[$col])) $mo_counts_by_college[$col] = ['Proposal' => 0, 'Data/Literature' => 0];
+        $mo_counts_by_college[$col][$cc['item_type']] = $cc['pending_count'];
+    }
+} else {
+    // Statistician's own stat cards reuse statistician.php's already-deduped checklist count
+    // ($stats_checklist_pending, defined before this partial is included) plus an approved-clearance count.
+    $mo_approved_clearances = $pdo->query("SELECT COUNT(*) FROM approvals WHERE statistician_status = 'Approved'")->fetchColumn();
 }
 
 $mo_recent_activities = $pdo->query("
@@ -50,8 +87,8 @@ $mo_message = $message ?? '';
 <div class="container" id="masterDashboard">
     <div class="header">
         <div class="header-title">
-            <h1>Research Coordinator Terminal</h1>
-            <p>Overview of all research stages, payment validations, and recent achievements.</p>
+            <h1><?= htmlspecialchars($mo_terminal_title) ?></h1>
+            <p>Overview of research stages, workflow status, and recent activity.</p>
         </div>
         <div class="clock-widget">
             <i data-lucide="clock"></i>
@@ -69,17 +106,28 @@ $mo_message = $message ?? '';
     <!-- Stats Grid -->
     <div class="dashboard-grid">
         <div class="stat-card">
-            <div class="stat-value"><?= count($mo_workflow_tracks) ?></div>
+            <div class="stat-value"><?= (int) $mo_research_groups_count ?></div>
             <div class="stat-label">Research Groups</div>
         </div>
-        <div class="stat-card">
-            <div class="stat-value"><?= array_sum($mo_counts_by_college['ISAP']) ?></div>
-            <div class="stat-label">ISAP Pending Tasks</div>
-        </div>
-        <div class="stat-card">
-            <div class="stat-value"><?= array_sum($mo_counts_by_college['MCNP']) ?></div>
-            <div class="stat-label">MCNP Pending Tasks</div>
-        </div>
+        <?php if ($mo_is_statistician): ?>
+            <div class="stat-card">
+                <div class="stat-value"><?= (int) ($stats_checklist_pending ?? 0) ?></div>
+                <div class="stat-label">Pending Data Validations</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value"><?= (int) $mo_approved_clearances ?></div>
+                <div class="stat-label">Approved Clearances</div>
+            </div>
+        <?php else: ?>
+            <div class="stat-card">
+                <div class="stat-value"><?= array_sum($mo_counts_by_college['ISAP']) ?></div>
+                <div class="stat-label">ISAP Pending Tasks</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value"><?= array_sum($mo_counts_by_college['MCNP']) ?></div>
+                <div class="stat-label">MCNP Pending Tasks</div>
+            </div>
+        <?php endif; ?>
     </div>
 
     <!-- Interactive Student/Group Selector -->
@@ -97,16 +145,21 @@ $mo_message = $message ?? '';
                         <input type="text" id="customDropdownSearch" placeholder="Type to filter..." style="border: none; background: transparent; outline: none; font-size: 11.5px; font-family: inherit; font-weight: 600; width: 100%; padding: 0; color: var(--text-dark);" oninput="filterCustomDropdownOptions()">
                     </div>
                     <div id="customDropdownOptionsList" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column;">
-                        <?php foreach ($mo_workflow_tracks as $group): ?>
-                            <div class="custom-dropdown-item"
+                        <?php $mo_gi = 0; foreach ($mo_workflow_tracks as $group): $mo_gi++; $mo_extra = $mo_gi > 4; ?>
+                            <div class="custom-dropdown-item" <?= $mo_extra ? 'data-extra="1"' : '' ?>
                                  onclick='selectCustomDropdownOption(<?= htmlspecialchars(json_encode($group), ENT_QUOTES, "UTF-8") ?>)'
                                  data-search-term="<?= htmlspecialchars(strtolower($group['research_group_name'] . ' ' . $group['username'] . ' ' . $group['program'] . ' ' . $group['department'])) ?>"
-                                 style="padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-dark); cursor: pointer; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.03);"
+                                 style="padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-dark); cursor: pointer; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.03);<?= $mo_extra ? ' display:none;' : '' ?>"
                                  onmouseover="this.style.backgroundColor='#faf8f4'" onmouseout="this.style.backgroundColor='transparent'">
                                 <?= htmlspecialchars($group['research_group_name']) ?> <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(<?= htmlspecialchars($group['username']) ?>)</span>
                             </div>
                         <?php endforeach; ?>
                         <div id="customDropdownNoResults" style="display: none; padding: 12px; font-size: 11.5px; color: var(--text-muted); text-align: center;">No groups found</div>
+                        <?php if (count($mo_workflow_tracks) > 4): ?>
+                            <button type="button" id="moShowMoreGroups" onclick="window.toggleMoShowMore()" style="width:100%; padding:8px; font-size:11px; font-weight:700; color:var(--mcnp-teal); background:#faf8f4; border:none; border-top:1px solid var(--border-line); cursor:pointer;">
+                                Show all <?= count($mo_workflow_tracks) ?> groups
+                            </button>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -137,6 +190,12 @@ $mo_message = $message ?? '';
     </div>
 
     <!-- Recent Activities -->
+    <?php
+    // Statistician has no "phase=proposal" nav button (locked to phase=stats), so the click-through
+    // target must be role-aware or querySelector returns null and openOverlay() throws on click.
+    $mo_activity_click_url = $mo_is_statistician ? 'admin_module_dynamic.php?phase=stats&view=checklist' : 'admin_module_dynamic.php?phase=proposal';
+    $mo_activity_click_selector = $mo_is_statistician ? 'phase=stats' : 'phase=proposal';
+    ?>
     <div class="activity-feed">
         <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:12px;"><i data-lucide="activity"></i> Recent Activity Logs</h3>
         <?php if (count($mo_recent_activities) === 0): ?>
@@ -148,7 +207,7 @@ $mo_message = $message ?? '';
                     $icon_class = $activity['status_type'] === 'Approved' ? 'success' : ($activity['status_type'] === 'Revision Requested' ? 'warning' : 'info');
                     $mo_i++;
                 ?>
-                <div class="activity-item" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', document.querySelector('.nav-item-btn[onclick*=\'phase=proposal\']'))">
+                <div class="activity-item" onclick="openOverlay('<?= $mo_activity_click_url ?>', document.querySelector('.nav-item-btn[onclick*=\'<?= $mo_activity_click_selector ?>\']'))">
                     <div class="activity-icon <?= $icon_class ?>"><?= $icon_class === 'success' ? '✓' : ($icon_class === 'warning' ? '!' : '📄') ?></div>
                     <div class="activity-content">
                         <div class="activity-title">New Submission: <?= htmlspecialchars($activity['title']) ?></div>
@@ -259,12 +318,30 @@ $mo_message = $message ?? '';
         var trigger = document.getElementById('customDropdownTrigger');
         var menu = document.getElementById('customDropdownMenu');
         var search = document.getElementById('customDropdownSearch');
+        var moGroupsExpanded = false;
+        var moTotalGroups = <?= (int) count($mo_workflow_tracks) ?>;
+
+        window.toggleMoShowMore = function () {
+            moGroupsExpanded = !moGroupsExpanded;
+            document.querySelectorAll('#customDropdownOptionsList [data-extra="1"]').forEach(function (el) {
+                el.style.display = moGroupsExpanded ? 'block' : 'none';
+            });
+            var btn = document.getElementById('moShowMoreGroups');
+            if (btn) btn.textContent = moGroupsExpanded ? 'Show fewer groups' : ('Show all ' + moTotalGroups + ' groups');
+        };
+
         if (trigger && menu) {
             trigger.addEventListener('click', function (e) {
                 e.stopPropagation();
                 var isOpen = menu.style.display === 'block';
                 menu.style.display = isOpen ? 'none' : 'block';
-                if (!isOpen && search) { search.value = ''; window.filterCustomDropdownOptions(); setTimeout(function () { search.focus(); }, 50); }
+                if (!isOpen) {
+                    moGroupsExpanded = false;
+                    document.querySelectorAll('#customDropdownOptionsList [data-extra="1"]').forEach(function (el) { el.style.display = 'none'; });
+                    var btn = document.getElementById('moShowMoreGroups');
+                    if (btn) { btn.textContent = 'Show all ' + moTotalGroups + ' groups'; btn.style.display = 'block'; }
+                    if (search) { search.value = ''; window.filterCustomDropdownOptions(); setTimeout(function () { search.focus(); }, 50); }
+                }
             });
             document.addEventListener('click', function (e) {
                 if (!menu.contains(e.target) && !trigger.contains(e.target)) menu.style.display = 'none';
@@ -273,14 +350,21 @@ $mo_message = $message ?? '';
 
         window.filterCustomDropdownOptions = function () {
             var q = (document.getElementById('customDropdownSearch').value || '').toLowerCase().trim();
+            var searching = q.length > 0;
             var items = document.querySelectorAll('#customDropdownOptionsList .custom-dropdown-item');
             var has = false;
             items.forEach(function (item) {
                 var t = item.getAttribute('data-search-term') || '';
-                if (t.includes(q)) { item.style.display = 'block'; has = true; } else { item.style.display = 'none'; }
+                var matches = t.includes(q);
+                var isExtra = item.getAttribute('data-extra') === '1';
+                var visible = matches && (searching || moGroupsExpanded || !isExtra);
+                item.style.display = visible ? 'block' : 'none';
+                if (visible) has = true;
             });
             var nr = document.getElementById('customDropdownNoResults');
             if (nr) nr.style.display = has ? 'none' : 'block';
+            var btn = document.getElementById('moShowMoreGroups');
+            if (btn) btn.style.display = searching ? 'none' : 'block';
         };
 
         window.selectCustomDropdownOption = function (data) {

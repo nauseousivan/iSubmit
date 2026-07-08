@@ -1,5 +1,7 @@
 <?php
 require_once '../config/db.php';
+require_once '../config/group_helpers.php';
+require_once '../config/mail.php';
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 
 if (!isset($_SESSION['user_id'])) { header("Location: ../auth/login.php"); exit(); }
@@ -7,13 +9,6 @@ if (!isset($_SESSION['user_id'])) { header("Location: ../auth/login.php"); exit(
 $user_id = $_SESSION['user_id'];
 $message = "";
 $message_type = "";
-
-function get_dept_code($department_raw) {
-    if (!$department_raw) return '';
-    if (strpos($department_raw, 'Medical Colleges') !== false) { return 'MCNP'; }
-    if (strpos($department_raw, 'International School') !== false) { return 'ISAP'; }
-    return $department_raw;
-}
 
 // Checks of role
 $stmt_me = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
@@ -30,7 +25,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $stmt_find->execute([$search_email]);
         $found_user = $stmt_find->fetch();
 
-        if ($found_user) {
+        if ($me['leader_id'] !== null) {
+            $message = "Only the assigned research group leader is authorized to invite new members.";
+            $message_type = "error";
+        } elseif (strcasecmp($search_email, $me['email']) === 0) {
+            $message = "You cannot add yourself as a member.";
+            $message_type = "error";
+        } elseif ($found_user) {
             // Check if they are already in a group or have members
             $stmt_has_members = $pdo->prepare("SELECT COUNT(*) FROM users WHERE leader_id = ?");
             $stmt_has_members->execute([$found_user['user_id']]);
@@ -38,9 +39,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 
             if ($found_user['leader_id'] !== null || $has_members) {
                 $message = "Student is already associated with another research group.";
-                $message_type = "error";
-            } elseif ($found_user['user_id'] == $user_id) {
-                $message = "You cannot add yourself as a member.";
                 $message_type = "error";
             } else {
                 // Ensure departments match
@@ -50,29 +48,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     $message = "You can only invite students from your same department code (" . htmlspecialchars($me_dept_code) . ").";
                     $message_type = "error";
                 } else {
-                    if ($me['leader_id'] !== null) {
-                        $message = "Only the assigned research group leader is authorized to invite new members.";
-                        $message_type = "error";
-                    } else {
-                        // Logic fix: Ensure leader has a group name, if not, create one.
-                        $grp = trim($me['research_group_name'] ?? '');
-                        if (empty($grp)) {
-                            $grp = "My Group";
-                            $pdo->prepare("UPDATE users SET research_group_name = ? WHERE user_id = ?")->execute([$grp, $user_id]);
-                            $me['research_group_name'] = $grp; // Update local session state simulation
-                        }
-                        
-                        $stmt_add = $pdo->prepare("UPDATE users SET leader_id = ?, research_group_name = ? WHERE user_id = ?");
-                        if ($stmt_add->execute([$user_id, $grp, $found_user['user_id']])) {
-                            $message = htmlspecialchars($found_user['username']) . " added to research group!";
-                            $message_type = "success";
-                        }
-                    }
+                    link_student_to_leader($pdo, $user_id, $me, $found_user['user_id']);
+                    $message = htmlspecialchars($found_user['username']) . " added to research group!";
+                    $message_type = "success";
                 }
             }
         } else {
-            $message = "A Student account with that institutional email address was not found.";
-            $message_type = "error";
+            // No account yet: leave a pending invite that auto-links when they register.
+            create_or_reactivate_invite($pdo, $user_id, $search_email);
+            send_invite_email($search_email, $me['username'], $me['research_group_name'] ?? '');
+            $message = "No account found yet for " . htmlspecialchars($search_email) . " \xE2\x80\x94 an invite has been sent and they'll be added automatically once they register.";
+            $message_type = "success";
         }
     }
 
@@ -89,6 +75,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             }
         }
     }
+
+    if (isset($_POST['action']) && $_POST['action'] === 'cancel_invite') {
+        $invite_id = $_POST['invite_id'];
+        $stmt_cancel = $pdo->prepare("UPDATE group_invites SET status = 'cancelled' WHERE id = ? AND leader_id = ?");
+        if ($stmt_cancel->execute([$invite_id, $user_id])) {
+            $message = "Invite cancelled.";
+            $message_type = "success";
+        }
+    }
 }
 
 // Fetch members of my group
@@ -101,6 +96,13 @@ $leader_user = $stmt_leader->fetch();
 $stmt_members = $pdo->prepare("SELECT * FROM users WHERE leader_id = ?");
 $stmt_members->execute([$effective_leader_id]);
 $members = $stmt_members->fetchAll();
+
+$pending_invites = [];
+if ($me['leader_id'] === null) {
+    $stmt_invites = $pdo->prepare("SELECT * FROM group_invites WHERE leader_id = ? AND status = 'pending' ORDER BY created_at DESC");
+    $stmt_invites->execute([$user_id]);
+    $pending_invites = $stmt_invites->fetchAll();
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -410,6 +412,34 @@ $members = $stmt_members->fetchAll();
                     </button>
                 </div>
             </form>
+        </div>
+        <?php endif; ?>
+
+        <?php if (!empty($pending_invites)): ?>
+        <div class="section-block" style="animation-delay: 0.15s;">
+            <div class="section-header">
+                <i data-lucide="mail-question" style="width: 16px; height: 16px;"></i> Pending Invites
+            </div>
+            <div class="member-list">
+                <?php foreach ($pending_invites as $invite): ?>
+                    <div class="member-row">
+                        <div class="member-info">
+                            <img src="https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($invite['invitee_email']) ?>" class="member-pfp" style="opacity: 0.5;">
+                            <div class="member-details">
+                                <h4><?= htmlspecialchars($invite['invitee_email']) ?><span class="role-badge">Pending</span></h4>
+                                <p>Invited <?= htmlspecialchars(date('M j, Y', strtotime($invite['created_at']))) ?> &mdash; will join automatically once they register.</p>
+                            </div>
+                        </div>
+                        <form method="POST" style="margin: 0;">
+                            <input type="hidden" name="action" value="cancel_invite">
+                            <input type="hidden" name="invite_id" value="<?= $invite['id'] ?>">
+                            <button type="submit" class="btn-remove" title="Cancel Invite" onclick="return confirm('Cancel the invite to <?= htmlspecialchars($invite['invitee_email']) ?>?');">
+                                <i data-lucide="x" style="width: 18px; height: 18px;"></i>
+                            </button>
+                        </form>
+                    </div>
+                <?php endforeach; ?>
+            </div>
         </div>
         <?php endif; ?>
 

@@ -10,50 +10,51 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Research Director') {
 }
 
 $uid = $_SESSION['user_id'];
+$message = "";
 
-// Settings update handler for administrative console
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'update_admin_settings') {
-    $new_username = trim($_POST['username'] ?? '');
-    $new_pfp = trim($_POST['profile_pic'] ?? '');
-    $current_pass = $_POST['current_password'] ?? '';
-    $new_pass = $_POST['new_password'] ?? '';
-    $confirm_pass = $_POST['confirm_password'] ?? '';
-
-    $settings_success = true;
-    $settings_err = "";
-
-    // 1. Update username & pfp
-    if (!empty($new_username)) {
-        $stmt_up = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ? WHERE user_id = ?");
-        $stmt_up->execute([$new_username, $new_pfp, $uid]);
-        $_SESSION['username'] = $new_username;
+// Profile Information save (username + avatar preset; theme is client-only via localStorage)
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'update_profile') {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $message = "Invalid security token. Please refresh and try again.";
+    } else {
+        $new_username = trim($_POST['username'] ?? '');
+        $new_pfp = trim($_POST['profile_pic'] ?? '');
+        if (!empty($new_username)) {
+            $stmt_up = $pdo->prepare("UPDATE users SET username = ?, profile_pic = ? WHERE user_id = ?");
+            $stmt_up->execute([$new_username, $new_pfp, $uid]);
+            $_SESSION['username'] = $new_username;
+        }
+        $message = "Profile information updated successfully.";
     }
+}
 
-    // 2. Optional Password Update
-    if (!empty($current_pass) && !empty($new_pass)) {
-        $stmt_pw = $pdo->prepare("SELECT password FROM users WHERE user_id = ?");
-        $stmt_pw->execute([$uid]);
-        $db_pass = $stmt_pw->fetchColumn();
+// Change Password save
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'update_password') {
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $message = "Invalid security token. Please refresh and try again.";
+    } else {
+        $current_pass = $_POST['current_password'] ?? '';
+        $new_pass = $_POST['new_password'] ?? '';
+        $confirm_pass = $_POST['confirm_password'] ?? '';
 
-        if (password_verify($current_pass, $db_pass)) {
-            if ($new_pass === $confirm_pass) {
+        if (empty($current_pass) || empty($new_pass)) {
+            $message = "Error: All password fields are required.";
+        } else {
+            $stmt_pw = $pdo->prepare("SELECT password FROM users WHERE user_id = ?");
+            $stmt_pw->execute([$uid]);
+            $db_pass = $stmt_pw->fetchColumn();
+
+            if (!password_verify($current_pass, $db_pass)) {
+                $message = "Error: Current password is incorrect.";
+            } elseif ($new_pass !== $confirm_pass) {
+                $message = "Error: New passwords do not match.";
+            } else {
                 $hashed = password_hash($new_pass, PASSWORD_BCRYPT);
                 $stmt_up_pw = $pdo->prepare("UPDATE users SET password = ? WHERE user_id = ?");
                 $stmt_up_pw->execute([$hashed, $uid]);
-            } else {
-                $settings_success = false;
-                $settings_err = "New passwords do not match.";
+                $message = "Password updated successfully.";
             }
-        } else {
-            $settings_success = false;
-            $settings_err = "Current password is incorrect.";
         }
-    }
-
-    if ($settings_success) {
-        $message = "Your settings and credentials have been updated successfully.";
-    } else {
-        $message = "Error: " . $settings_err;
     }
 }
 
@@ -62,8 +63,6 @@ $stmt_me = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
 $stmt_me->execute([$uid]);
 $currentUser = $stmt_me->fetch();
 $current_pfp = (!empty($currentUser['profile_pic'])) ? $currentUser['profile_pic'] : "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($currentUser['username']);
-
-$message = "";
 
 // 0. Process Payment Verification
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'verify_payment') {
@@ -192,50 +191,6 @@ $director_uploads_stmt = $pdo->query("
 ");
 $director_uploads = $director_uploads_stmt->fetchAll();
 
-// Fetch submission counts per college (for Master Dashboard)
-$college_counts_query = "
-    SELECT
-        CASE
-            WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-            WHEN u.department LIKE '%International School%' THEN 'ISAP'
-            ELSE 'Other'
-        END as college,
-        'Proposal' as item_type,
-        COUNT(DISTINCT up.upload_id) as pending_count
-    FROM uploads up
-    JOIN users u ON up.user_id = u.user_id
-    WHERE up.verification_status IN ('Pending', 'Under Review')
-    AND up.item_id = 14
-    GROUP BY college
-    
-    UNION ALL
-    
-    SELECT
-        CASE
-            WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-            WHEN u.department LIKE '%International School%' THEN 'ISAP'
-            ELSE 'Other'
-        END as college,
-        'Data/Literature' as item_type,
-        COUNT(DISTINCT up.upload_id) as pending_count
-    FROM uploads up
-    JOIN users u ON up.user_id = u.user_id
-    WHERE up.verification_status IN ('Pending', 'Under Review')
-    AND up.item_id IN (3, 4)
-    GROUP BY college
-";
-
-$college_counts = $pdo->query($college_counts_query)->fetchAll();
-
-$counts_by_college = ['ISAP' => ['Proposal' => 0, 'Data/Literature' => 0], 'MCNP' => ['Proposal' => 0, 'Data/Literature' => 0]];
-foreach ($college_counts as $cc) {
-    $college = $cc['college'] ?? 'ISAP';
-    if (!isset($counts_by_college[$college])) {
-        $counts_by_college[$college] = ['Proposal' => 0, 'Data/Literature' => 0];
-    }
-    $counts_by_college[$college][$cc['item_type']] = $cc['pending_count'];
-}
-
 // Fetch recent activities (for Master Dashboard)
 $recent_activities = $pdo->query("
     SELECT al.title, al.description, al.status_type, al.created_at,
@@ -275,13 +230,14 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Director Dashboard | MCNP-ISAP</title>
     <!-- Fonts -->
-    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
     <style>
         :root {
             --card-radius: 20px;
             --control-radius: 12px;
+            --ui-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
         }
 
         body.theme-default, body {
@@ -357,9 +313,9 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 
         * { box-sizing: border-box; margin: 0; padding: 0; }
         
-        body { 
-            font-family: 'Inter', sans-serif; 
-            background-color: var(--bg-canvas) !important; 
+        body {
+            font-family: var(--ui-sans);
+            background-color: var(--bg-canvas) !important;
             min-height: 100vh; 
             color: var(--text-dark); 
             display: flex; 
@@ -878,7 +834,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
     <div class="app-dashboard-frame">
         <aside class="app-sidebar">
             <div class="sidebar-header">
-                <img src="https://isap.edu.ph/wp-content/uploads/2022/07/ISAP-LOGO-2022.png" class="sidebar-logo">
+                <img src="../mcnp-isap.jpg" class="sidebar-logo">
                 <h2>Staff Portal</h2>
                 <p>Research Director</p>
             </div>
@@ -929,219 +885,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         </aside>
 
         <main class="main-workspace-content">
-            <!-- MASTER DASHBOARD -->
-            <div class="container" id="masterDashboard">
-                <div class="header">
-                    <div class="header-title">
-                        <h1>Research Director Terminal</h1>
-                        <p>Overview of all research stages, payment validations, and recent achievements.</p>
-                    </div>
-                    
-                    <!-- Calendar Realtime Clock countdown widget -->
-                    <div class="clock-widget">
-                        <i data-lucide="clock"></i>
-                        <span id="directorTimeClock">loading...</span>
-                    </div>
-                </div>
-
-                <?php if($message): ?>
-                    <div class="alert-success">
-                        <i data-lucide="check-circle" style="vertical-align: middle; margin-right: 6px;"></i>
-                        <?= htmlspecialchars($message) ?>
-                    </div>
-                <?php endif; ?>
-
-                <!-- Stats Grid with cohesive look -->
-                <div class="dashboard-grid">
-                    <div class="stat-card">
-                        <div class="stat-value"><?= count($workflow_tracks) ?></div>
-                        <div class="stat-label">Research Groups</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value"><?= array_sum($counts_by_college['ISAP']) ?></div>
-                        <div class="stat-label">ISAP Pending Tasks</div>
-                    </div>
-                    <div class="stat-card">
-                        <div class="stat-value"><?= array_sum($counts_by_college['MCNP']) ?></div>
-                        <div class="stat-label">MCNP Pending Tasks</div>
-                    </div>
-                </div>
-
-                <!-- NEW: Interactive Student/Group Selector & Quick Profile View -->
-                <div class="selector-section">
-                    <div class="selector-header" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1.5px solid var(--border-line); padding-bottom: 12px; margin-bottom: 18px; flex-wrap: wrap;">
-                        <h3 style="margin-bottom: 0;">Interactive Student/Group Explorer</h3>
-                        
-                        <!-- Beautiful Custom Dropdown Container -->
-                        <div class="custom-dropdown-container" style="position: relative; width: 100%; max-width: 320px; z-index: 120;">
-                            <button type="button" id="customDropdownTrigger" class="custom-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--border-line); font-size: 13px; font-family: inherit; background: #faf9f6; color: var(--text-dark); cursor: pointer; text-align: left; transition: all 0.2s; outline: none; font-weight: 600; box-sizing: border-box;">
-                                <span id="customDropdownSelectedText">-- Select Student Group --</span>
-                                <i data-lucide="chevron-down" style="width: 15px; height: 15px; color: var(--text-muted); margin-left: 8px;"></i>
-                            </button>
-                            
-                            <!-- Dropdown Menu List (hidden by default) -->
-                            <div id="customDropdownMenu" class="custom-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--bg-white, #ffffff); border: 1.5px solid var(--border-line); border-radius: var(--control-radius); box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden; animation: slideIn 0.2s ease;">
-                                <!-- Mini Compact Search bar inside -->
-                                <div style="padding: 8px; border-bottom: 1px solid var(--border-line); background: #faf8f4; display: flex; align-items: center; gap: 8px;">
-                                    <i data-lucide="search" style="color: #9ca3af; width: 13px; height: 13px; flex-shrink: 0;"></i>
-                                    <input type="text" id="customDropdownSearch" placeholder="Type to filter..." style="border: none; background: transparent; outline: none; font-size: 11.5px; font-family: inherit; font-weight: 600; width: 100%; padding: 0; color: var(--text-dark);" oninput="filterCustomDropdownOptions()">
-                                </div>
-                                
-                                <!-- Options wrapper -->
-                                <div id="customDropdownOptionsList" style="max-height: 200px; overflow-y: auto; display: flex; flex-direction: column;">
-                                    <?php foreach ($workflow_tracks as $group): ?>
-                                        <div class="custom-dropdown-item" 
-                                             onclick='selectCustomDropdownOption(<?= htmlspecialchars(json_encode($group), ENT_QUOTES, "UTF-8") ?>)' 
-                                             data-search-term="<?= htmlspecialchars(strtolower($group['research_group_name'] . ' ' . $group['username'] . ' ' . $group['program'] . ' ' . $group['department'])) ?>"
-                                             style="padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-dark); cursor: pointer; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.03);"
-                                             onmouseover="this.style.backgroundColor='#faf8f4'"
-                                             onmouseout="this.style.backgroundColor='transparent'">
-                                            <?= htmlspecialchars($group['research_group_name']) ?> <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(<?= htmlspecialchars($group['username']) ?>)</span>
-                                        </div>
-                                    <?php endforeach; ?>
-                                    <div id="customDropdownNoResults" style="display: none; padding: 12px; font-size: 11.5px; color: var(--text-muted); text-align: center;">No groups found</div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
- 
-                     <!-- Selected Group Profile Display -->
-                     <div class="selected-group-profile-card" id="selectedGroupProfile">
-                         <div style="display:flex; justify-content:space-between; align-items:start;">
-                             <div style="display:flex; gap:16px;">
-                                 <img id="groupPfp" src="" class="profile-pfp">
-                                 <div>
-                                     <h4 id="groupName" style="color:var(--mcnp-teal); font-family:'Cinzel', serif; font-size:16px;">Group Name</h4>
-                                     <p id="groupLeader" style="font-weight:600; color:#4b5563; font-size:12.5px; margin-top:2px;">Leader: </p>
-                                     <p id="groupMail" style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#6b7280;"></p>
-                                     <p id="groupDetails" style="font-size:11px; color:#9ca3af; margin-top:2px;"></p>
-                                 </div>
-                             </div>
-                             
-                             <div style="text-align:right;">
-                                 <span style="font-size:10px; font-weight:800; color:#4a453e; text-transform:uppercase;">Administrative Milestones</span>
-                                 <div style="display:flex; flex-direction:column; gap:6px; margin-top:6px; align-items:flex-end;">
-                                     <div style="font-size:12px;"><span style="color:#6b7280;">Coordinator:</span> <strong id="progCoord">Pending</strong></div>
-                                     <div style="font-size:12px;"><span style="color:#6b7280;">Statistician:</span> <strong id="progStats">Pending</strong></div>
-                                     <div style="font-size:12px;"><span style="color:#6b7280;">Payment Status:</span> <strong id="progPay">Unpaid</strong></div>
-                                 </div>
-                             </div>
-                         </div>
-                     </div>
-                 </div>
- 
-                 <!-- Recent Activities with custom link to proposal -->
-                 <div class="activity-feed">
-                     <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:12px;"><i data-lucide="activity"></i> Recent Activity Logs</h3>
-                     <?php if (count($recent_activities) === 0): ?>
-                         <p style="text-align: center; color: var(--text-muted); padding: 30px;">No recent submissions yet.</p>
-                     <?php else: ?>
-                         <div id="activityLogsList">
-                             <?php 
-                             $index = 0;
-                             foreach ($recent_activities as $activity): 
-                                 if ($index >= 5) break;
-                                 $icon_class = $activity['status_type'] === 'Approved' ? 'success' : ($activity['status_type'] === 'Revision Requested' ? 'warning' : 'info');
-                                 $index++;
-                             ?>
-                             <div class="activity-item" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', document.querySelectorAll('.nav-item-btn')[2])">
-                                 <div class="activity-icon <?= $icon_class ?>">
-                                     <?= $icon_class === 'success' ? '✓' : ($icon_class === 'warning' ? '!' : '📄') ?>
-                                 </div>
-                                 <div class="activity-content">
-                                     <div class="activity-title">New Submission: <?= htmlspecialchars($activity['title']) ?></div>
-                                     <div class="activity-desc">Status: <?= htmlspecialchars($activity['status_type']) ?></div>
-                                     <div class="activity-time">📦 <?= htmlspecialchars($activity['research_group_name']) ?> • <?= date('M d, Y @ h:i A', strtotime($activity['created_at'])) ?></div>
-                                 </div>
-                             </div>
-                             <?php endforeach; ?>
-                         </div>
-                         <?php if (count($recent_activities) > 5): ?>
-                             <div style="text-align: center; margin-top: 16px;">
-                                 <button type="button" onclick="openActivityLogsModal()" style="background: #faf8f4; border: 1.5px solid var(--border-line); padding: 8px 18px; border-radius: 8px; font-family: var(--ui-sans); font-size: 12.5px; font-weight: 700; color: var(--mcnp-teal); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; transition: all 0.2s;">
-                                     <i data-lucide="history" style="width: 15px; height: 15px;"></i> See All Activity Logs (<?= count($recent_activities) ?>)
-                                 </button>
-                             </div>
-                         <?php endif; ?>
-                     <?php endif; ?>
-                 </div>
-             </div>
- 
-             <!-- ACTIVITY LOGS MODAL -->
-             <div id="activityLogsModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(12, 52, 61, 0.45); backdrop-filter: blur(8px); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
-                 <div style="background: var(--bg-white, #ffffff); width: 100%; max-width: 750px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden; animation: slideIn 0.3s ease;">
-                     
-                     <!-- Modal Header -->
-                     <div style="padding: 20px 24px; border-bottom: 2.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: #faf8f4; flex-shrink: 0;">
-                         <div style="display: flex; align-items: center; gap: 10px;">
-                             <div style="background: var(--mcnp-teal); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
-                                 <i data-lucide="history" style="width: 18px; height: 18px;"></i>
-                             </div>
-                             <div>
-                                 <h3 style="font-family: 'Cinzel', serif; color: var(--mcnp-teal); font-size: 18px; margin: 0; font-weight: 800;">Comprehensive Activity Logs</h3>
-                                 <p style="color: var(--text-muted); font-size: 11.5px; margin: 0;">Institutional Submission & Review Logs Pipeline</p>
-                             </div>
-                         </div>
-                         <button type="button" onclick="closeActivityLogsModal()" style="background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 6px; transition: scale 0.2s;" onmouseover="this.style.scale=1.1" onmouseout="this.style.scale=1">
-                             <i data-lucide="x" style="width: 22px; height: 22px;"></i>
-                         </button>
-                     </div>
- 
-                     <!-- Filter Controls Area inside Modal -->
-                     <div style="padding: 16px 24px; background: #fdfdfd; border-bottom: 1.5px solid var(--border-line); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; box-sizing: border-box; flex-shrink: 0;">
-                         <!-- Text Search Filter -->
-                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                             <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Search Logs</label>
-                             <div style="position: relative; display: flex; align-items: center; background: #faf8f4; border: 1.5px solid var(--border-line); border-radius: 8px; padding: 6px 10px;">
-                                 <i data-lucide="search" style="color: #9ca3af; width: 12px; height: 12px; margin-right: 6px;"></i>
-                                 <input type="text" id="modalLogSearch" placeholder="Filter groups / titles..." onkeyup="filterModalLogs()" style="background: transparent; border: none; outline: none; font-size: 11.5px; font-weight: 600; width: 100%; padding: 0; color: var(--text-dark); font-family: var(--ui-sans);">
-                             </div>
-                         </div>
- 
-                         <!-- Status Filter -->
-                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                             <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Filter Status</label>
-                             <select id="modalLogStatusFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 8px; border: 1.5px solid var(--border-line); font-size: 11.5px; font-weight: 600; outline: none; margin-top: 0; background: #faf9f6;">
-                                 <option value="all">All Statuses</option>
-                                 <option value="Approved">Approved / Success</option>
-                                 <option value="Revision Requested">Revision Requested / Warnings</option>
-                                 <option value="other">Pending / Info / Reviews</option>
-                             </select>
-                         </div>
- 
-                         <!-- Form/Document Filter -->
-                         <div style="display: flex; flex-direction: column; gap: 4px;">
-                             <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Filter File / Form Stage</label>
-                             <select id="modalLogFormFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 8px; border: 1.5px solid var(--border-line); font-size: 11.5px; font-weight: 600; outline: none; margin-top: 0; background: #faf9f6;">
-                                 <option value="all">All Stages</option>
-                                 <option value="capsule">Capsule Proposal (Form No. 008)</option>
-                                 <option value="final">Final Defense / Form 5</option>
-                                 <option value="plagiarism">Plagiarism Verification</option>
-                                 <option value="endorsement">Institutional Endorsement</option>
-                                 <option value="general">Other General Milestones</option>
-                             </select>
-                         </div>
-                     </div>
- 
-                     <!-- Scrollable Logs Content inside Modal -->
-                     <div id="modalLogsContainer" style="padding: 16px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; background: #faf9f6;">
-                         <!-- Dynamic elements will be injected here via JavaScript -->
-                     </div>
- 
-                     <!-- Modal Footer -->
-                     <div style="padding: 14px 24px; border-top: 1.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: #faf8f4; flex-shrink: 0;">
-                         <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;" id="modalLogCount">Showing 0 of 0 logs</span>
-                         <button type="button" class="btn btn-secondary" onclick="closeActivityLogsModal()" style="padding: 8px 16px; font-size: 11.5px;">Close Portal</button>
-                     </div>
-                 </div>
-             </div>
-             </div>
- 
-             <script>
-                 function toggleActivityLogs() {
-                     // deprecated inline toggle, handled by modal logs now
-                 }
-             </script>
+            <?php include __DIR__ . "/_master_overview.php"; ?>
 
             <!-- STATISTICS & APPROVALS DASHBOARD -->
             <div class="container" id="statisticsDashboard" style="display: none;">
@@ -1311,76 +1055,82 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     </div>
                 </div>
 
-                <div class="section" style="max-width: 680px; margin-bottom: 30px;">
-                    <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:16px; margin-bottom:20px; border-bottom:1.5px solid var(--border-line); padding-bottom:10px;"><i data-lucide="user-cog" style="vertical-align: middle; margin-right: 6px;"></i> Update Identity & Custom Settings</h3>
-                    <form method="POST" enctype="multipart/form-data">
-                        <input type="hidden" name="action_type" value="update_admin_settings">
-                        
-                        <div style="margin-bottom: 20px;">
-                            <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">Username</label>
-                            <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); font-family: inherit; font-size: 13.5px; outline: none;">
-                        </div>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
+                    <div class="section" style="margin-bottom: 0;">
+                        <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:18px; border-bottom:1.5px solid var(--border-line); padding-bottom:10px;"><i data-lucide="user-cog" style="vertical-align: middle; margin-right: 6px;"></i> Profile Information</h3>
+                        <form method="POST">
+                            <input type="hidden" name="action_type" value="update_profile">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
 
-                        <div style="margin-bottom: 20px;">
-                            <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">Avatar Picker</label>
-                            
-                            <!-- Custom Link/Avatar select -->
-                            <div style="display: flex; gap: 15px; align-items: center; margin-bottom: 12px;">
-                                <img id="settingsAvatarPreview" src="<?= htmlspecialchars($current_pfp) ?>" style="width: 60px; height: 60px; border-radius: 50%; object-fit: cover; border: 2px solid var(--mcnp-teal); background: white;">
-                                <input type="text" id="pfpUrlInput" name="profile_pic" value="<?= htmlspecialchars($currentUser['profile_pic'] ?? '') ?>" placeholder="Paste image URL or pick avatar below..." style="flex:1; padding: 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); font-family: inherit; font-size: 13.5px; outline: none;" oninput="document.getElementById('settingsAvatarPreview').src = this.value || 'https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';">
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Username</label>
+                                <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width: 100%; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); font-family: inherit; font-size: 13px; outline: none;">
                             </div>
 
-                            <!-- Beautiful Avatar Grid selectors -->
-                            <div style="display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 5px;">
-                                <?php 
-                                $temp_seeds = ['Director', 'Coordinator', 'Stats', 'Research', 'Tech', 'Grace'];
-                                foreach ($temp_seeds as $s): 
-                                    $av_url = "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $s;
+                            <div style="margin-bottom: 18px;">
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Avatar</label>
+                                <?php
+                                    $avatar_presets = ['Director', 'Coordinator', 'Stats', 'Research', 'Tech', 'Grace'];
+                                    $preset_urls = array_map(fn($p) => "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $p, $avatar_presets);
+                                    $current_pic = $currentUser['profile_pic'] ?? '';
+                                    $is_preset_pic = in_array($current_pic, $preset_urls, true);
                                 ?>
-                                <button type="button" onclick="setSettingAvatar('<?= $av_url ?>')" style="padding:4px; border-radius: 8px; border: 1.5px solid var(--border-line); background: white; cursor: pointer; transition: 0.2s;"><img src="<?= $av_url ?>" style="width:32px; height:32px; border-radius:50%; pointer-events: none;"></button>
-                                <?php endforeach; ?>
+                                <input type="hidden" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($current_pic ?: $preset_urls[0]) ?>">
+                                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
+                                    <?php if ($current_pic && !$is_preset_pic): ?>
+                                        <div style="text-align:center;">
+                                            <img src="<?= htmlspecialchars($current_pic) ?>" style="width:34px; height:34px; border-radius:50%; border:2px solid var(--eagle-gold); object-fit:cover;">
+                                            <div style="font-size:8px; color:var(--text-muted); margin-top:2px;">Current</div>
+                                        </div>
+                                    <?php endif; ?>
+                                    <?php foreach ($preset_urls as $purl): $active = ($purl === $current_pic) || (!$current_pic && $purl === $preset_urls[0]); ?>
+                                        <img src="<?= $purl ?>" onclick="selectAvatarPreset('<?= $purl ?>', this)" class="avatar-preset-option" style="width:34px; height:34px; border-radius:50%; cursor:pointer; background:white; border:2px solid <?= $active ? 'var(--mcnp-teal)' : 'var(--border-line)' ?>; transition:all 0.2s;">
+                                    <?php endforeach; ?>
+                                </div>
                             </div>
-                        </div>
 
-                        <!-- Theme Selection Palette grid -->
-                        <div style="margin-bottom: 25px;">
-                            <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:10px;">Select Dashboard Theme Color</label>
-                            <div style="display: flex; gap: 12px; flex-wrap: wrap;">
-                                <button type="button" class="theme-select-btn default" onclick="setSettingTheme('theme-default')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #f7f5ef 50%, #0c343d 50%); cursor:pointer;" title="MCNP Blue-Teal Default"></button>
-                                <button type="button" class="theme-select-btn dark" onclick="setSettingTheme('theme-dark')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #171c1f 50%, #22d3ee 50%); cursor:pointer;" title="Midnight Dark"></button>
-                                <button type="button" class="theme-select-btn green" onclick="setSettingTheme('theme-green')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #1e3f20 50%); cursor:pointer;" title="Science Green"></button>
-                                <button type="button" class="theme-select-btn red" onclick="setSettingTheme('theme-red')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #571616 50%); cursor:pointer;" title="ISAP Red Maroon"></button>
-                                <button type="button" class="theme-select-btn pink" onclick="setSettingTheme('theme-pink')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5e1c3e 50%); cursor:pointer;" title="Rose Pastel"></button>
-                                <button type="button" class="theme-select-btn purple" onclick="setSettingTheme('theme-purple')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #3b1e5a 50%); cursor:pointer;" title="Lavender Pastel"></button>
-                                <button type="button" class="theme-select-btn orange" onclick="setSettingTheme('theme-orange')" style="width: 36px; height: 36px; border-radius: 10px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5d2b0e 50%); cursor:pointer;" title="Amber Sand"></button>
+                            <!-- Theme Selection Palette grid -->
+                            <div style="margin-bottom: 22px;">
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">Dashboard Theme</label>
+                                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                                    <button type="button" class="theme-select-btn default" onclick="setSettingTheme('theme-default')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #f7f5ef 50%, #0c343d 50%); cursor:pointer;" title="MCNP Blue-Teal Default"></button>
+                                    <button type="button" class="theme-select-btn dark" onclick="setSettingTheme('theme-dark')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #171c1f 50%, #22d3ee 50%); cursor:pointer;" title="Midnight Dark"></button>
+                                    <button type="button" class="theme-select-btn green" onclick="setSettingTheme('theme-green')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #1e3f20 50%); cursor:pointer;" title="Science Green"></button>
+                                    <button type="button" class="theme-select-btn red" onclick="setSettingTheme('theme-red')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #571616 50%); cursor:pointer;" title="ISAP Red Maroon"></button>
+                                    <button type="button" class="theme-select-btn pink" onclick="setSettingTheme('theme-pink')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5e1c3e 50%); cursor:pointer;" title="Rose Pastel"></button>
+                                    <button type="button" class="theme-select-btn purple" onclick="setSettingTheme('theme-purple')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #3b1e5a 50%); cursor:pointer;" title="Lavender Pastel"></button>
+                                    <button type="button" class="theme-select-btn orange" onclick="setSettingTheme('theme-orange')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5d2b0e 50%); cursor:pointer;" title="Amber Sand"></button>
+                                </div>
                             </div>
-                        </div>
 
-                        <div style="border-top:1.5px solid var(--border-line); padding-top:15px; margin-bottom:20px;">
-                            <h4 style="font-family:'Cinzel', serif; font-size:13px; color:var(--mcnp-teal); margin-bottom:12px;"><i data-lucide="shield-check" style="vertical-align: middle; margin-right: 4px;"></i> Change Password (Optional)</h4>
-                            
-                            <div style="margin-bottom: 12px;">
+                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; font-weight:bold; font-size:13px;"><i data-lucide="save"></i> Save</button>
+                        </form>
+                    </div>
+
+                    <div class="section" style="margin-bottom: 0;">
+                        <h3 style="font-family:'Cinzel', serif; font-size:15px; color:var(--mcnp-teal); margin-bottom:18px; border-bottom:1.5px solid var(--border-line); padding-bottom:10px;"><i data-lucide="shield-check" style="vertical-align: middle; margin-right: 6px;"></i> Change Password</h3>
+                        <form method="POST">
+                            <input type="hidden" name="action_type" value="update_password">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+
+                            <div style="margin-bottom: 15px;">
                                 <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Current Password</label>
-                                <input type="password" name="current_password" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none;">
+                                <input type="password" name="current_password" style="width: 100%; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none;">
                             </div>
 
-                            <div style="display: grid; grid-template-columns: 1fr 1fr; gap:12px;">
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">New Password</label>
-                                    <input type="password" name="new_password" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none;">
-                                </div>
-                                <div>
-                                    <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Confirm Password</label>
-                                    <input type="password" name="confirm_password" style="width: 100%; padding: 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none;">
-                                </div>
+                            <div style="margin-bottom: 22px;">
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">New Password</label>
+                                <input type="password" name="new_password" style="width: 100%; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none; margin-bottom: 10px;">
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:6px;">Confirm New Password</label>
+                                <input type="password" name="confirm_password" style="width: 100%; padding: 9px 12px; border-radius: 10px; border: 1.5px solid var(--border-line); background: #faf9f6; color: var(--text-dark); outline: none;">
                             </div>
-                        </div>
 
-                        <button type="submit" class="btn btn-primary" style="width: 100%; padding:14px; font-weight:bold; font-size:13px; margin-top:10px;"><i data-lucide="save"></i> Save Configuration Updates</button>
-                    </form>
+                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; font-weight:bold; font-size:13px;"><i data-lucide="save"></i> Save</button>
+                        </form>
+                    </div>
                 </div>
             </div>
-            
+
             <!-- CALENDAR DASHBOARD -->
             <div class="container" id="calendarDashboard" style="display: none;">
                 <div class="header">
@@ -1395,6 +1145,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                         <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="calendar-plus"></i> Add Event</h3>
                         <form method="POST" action="calendar_handler.php" style="display:flex; flex-direction:column; gap:12px;">
                             <input type="hidden" name="action" value="add">
+                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                             <div>
                                 <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Event Title</label>
                                 <input type="text" name="title" required placeholder="e.g. Foundation Day" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid var(--border-line); outline: none;">
@@ -1413,35 +1164,40 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 
                     <div class="section" style="margin-bottom:0;">
                         <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="list"></i> Upcoming Custom Events</h3>
-                        <div class="table-wrapper">
-                            <table>
-                                <thead>
-                                    <tr>
-                                        <th>Date</th>
-                                        <th>Event</th>
-                                        <th>Action</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    <?php if(empty($calendar_events)): ?>
-                                        <tr><td colspan="3" style="text-align:center; color:var(--text-muted);">No custom events configured.</td></tr>
-                                    <?php endif; ?>
-                                    <?php foreach($calendar_events as $ce): ?>
-                                    <tr>
-                                        <td><strong><?= date('M d, Y', strtotime($ce['event_date'])) ?></strong></td>
-                                        <td><?= htmlspecialchars($ce['title']) ?><br><small style="color:var(--text-muted);"><?= htmlspecialchars($ce['description']) ?></small></td>
-                                        <td>
-                                            <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');">
-                                                <input type="hidden" name="action" value="delete">
-                                                <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
-                                                <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;"><i data-lucide="trash" style="width:14px;height:14px;"></i> Delete</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                    <?php endforeach; ?>
-                                </tbody>
-                            </table>
-                        </div>
+                        <?php if (empty($calendar_events)): ?>
+                            <div style="text-align:center; color:var(--text-muted); padding: 30px;">
+                                <i data-lucide="calendar-x" style="width:26px; height:26px; display:block; margin: 0 auto 10px; opacity:0.5;"></i>
+                                No upcoming events scheduled.
+                            </div>
+                        <?php else: ?>
+                            <div>
+                                <?php foreach ($calendar_events as $ce):
+                                    $is_past = strtotime($ce['event_date']) < strtotime(date('Y-m-d'));
+                                ?>
+                                    <div class="activity-item" style="cursor:default; <?= $is_past ? 'opacity:0.55;' : '' ?>">
+                                        <div class="activity-icon info" style="flex-direction:column; line-height:1.2; gap:0;">
+                                            <span style="font-size:8px; font-weight:800; text-transform:uppercase;"><?= date('M', strtotime($ce['event_date'])) ?></span>
+                                            <span style="font-size:14px; font-weight:800;"><?= date('d', strtotime($ce['event_date'])) ?></span>
+                                        </div>
+                                        <div class="activity-content">
+                                            <div class="activity-title">
+                                                <?= htmlspecialchars($ce['title']) ?>
+                                                <?php if ($is_past): ?><span style="font-size:9px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-left:6px;">Past</span><?php endif; ?>
+                                            </div>
+                                            <?php if (!empty($ce['description'])): ?>
+                                                <div class="activity-desc"><?= htmlspecialchars($ce['description']) ?></div>
+                                            <?php endif; ?>
+                                        </div>
+                                        <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');" style="align-self:center;">
+                                            <input type="hidden" name="action" value="delete">
+                                            <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                            <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;" title="Delete event"><i data-lucide="trash" style="width:14px;height:14px;"></i></button>
+                                        </form>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </div>
@@ -1473,211 +1229,6 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         setInterval(updateDirectorClock, 1000);
         updateDirectorClock();
 
-        // 2. Select Student Group Profile Display & Custom Dropdown Setup
-        const dropdownTrigger = document.getElementById('customDropdownTrigger');
-        const dropdownMenu = document.getElementById('customDropdownMenu');
-        const dropdownSearch = document.getElementById('customDropdownSearch');
-
-        if (dropdownTrigger && dropdownMenu) {
-            dropdownTrigger.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const isOpen = dropdownMenu.style.display === 'block';
-                dropdownMenu.style.display = isOpen ? 'none' : 'block';
-                if (!isOpen && dropdownSearch) {
-                    dropdownSearch.value = '';
-                    filterCustomDropdownOptions();
-                    setTimeout(() => dropdownSearch.focus(), 50);
-                }
-            });
-
-            document.addEventListener('click', (e) => {
-                if (!dropdownMenu.contains(e.target) && !dropdownTrigger.contains(e.target)) {
-                    dropdownMenu.style.display = 'none';
-                }
-            });
-        }
-
-        function filterCustomDropdownOptions() {
-            const q = document.getElementById('customDropdownSearch').value.toLowerCase().trim();
-            const items = document.querySelectorAll('#customDropdownOptionsList .custom-dropdown-item');
-            let hasResults = false;
-            items.forEach(item => {
-                const text = item.getAttribute('data-search-term') || '';
-                if (text.includes(q)) {
-                    item.style.display = 'block';
-                    hasResults = true;
-                } else {
-                    item.style.display = 'none';
-                }
-            });
-            const noResults = document.getElementById('customDropdownNoResults');
-            if (noResults) {
-                noResults.style.display = hasResults ? 'none' : 'block';
-            }
-        }
-
-        function selectCustomDropdownOption(data) {
-            const textEl = document.getElementById('customDropdownSelectedText');
-            if (textEl) {
-                textEl.textContent = data.research_group_name;
-            }
-            if (dropdownMenu) {
-                dropdownMenu.style.display = 'none';
-            }
-            
-            const card = document.getElementById('selectedGroupProfile');
-            if (card) {
-                card.style.display = 'block';
-
-                const pfpUrl = data.profile_pic || 'https://api.dicebear.com/9.x/bottts/svg?seed=' + encodeURIComponent(data.username);
-                document.getElementById('groupPfp').src = pfpUrl;
-                document.getElementById('groupName').textContent = data.research_group_name;
-                document.getElementById('groupLeader').innerHTML = `Leader: <strong style="color:var(--mcnp-teal);">${data.username}</strong>`;
-                document.getElementById('groupMail').innerHTML = `<i data-lucide="mail" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> ${data.email}`;
-                document.getElementById('groupDetails').textContent = `${data.program} • ${data.department}`;
-
-                // Populate workflow tracking metrics indicators in profile text
-                document.getElementById('progCoord').textContent = data.coordinator_status;
-                document.getElementById('progCoord').className = 'badge-status ' + (data.coordinator_status === 'Approved' ? 'badge-paid' : 'badge-pending');
-                
-                document.getElementById('progStats').textContent = data.statistician_status;
-                document.getElementById('progStats').className = 'badge-status ' + (data.statistician_status === 'Approved' ? 'badge-paid' : 'badge-pending');
-
-                document.getElementById('progPay').textContent = data.payment_status;
-                document.getElementById('progPay').className = 'badge-status ' + (data.payment_status === 'Paid' ? 'badge-paid' : 'badge-unpaid');
-
-                lucide.createIcons();
-            }
-        }
-
-        // 3. Comprehensive Activity Logs Modal Logic
-        const allRecentActivities = <?= json_encode($recent_activities) ?>;
-
-        function getFormCategory(title, description) {
-            const text = (title + ' ' + description).toLowerCase();
-            if (text.includes('capsule') || text.includes('proposal') || text.includes('008')) {
-                return 'capsule';
-            } else if (text.includes('final') || text.includes('defense') || text.includes('award') || text.includes('milestone')) {
-                return 'final';
-            } else if (text.includes('plagiarism') || text.includes('plag')) {
-                return 'plagiarism';
-            } else if (text.includes('endorse') || text.includes('endorsement')) {
-                return 'endorsement';
-            }
-            return 'general';
-        }
-
-        function openActivityLogsModal() {
-            const modal = document.getElementById('activityLogsModal');
-            if (modal) {
-                modal.style.display = 'flex';
-                // Reset inputs
-                document.getElementById('modalLogSearch').value = '';
-                document.getElementById('modalLogStatusFilter').value = 'all';
-                document.getElementById('modalLogFormFilter').value = 'all';
-                filterModalLogs();
-            }
-        }
-
-        function closeActivityLogsModal() {
-            const modal = document.getElementById('activityLogsModal');
-            if (modal) {
-                modal.style.display = 'none';
-            }
-        }
-
-        function filterModalLogs() {
-            const searchVal = document.getElementById('modalLogSearch').value.toLowerCase().trim();
-            const statusVal = document.getElementById('modalLogStatusFilter').value;
-            const formVal = document.getElementById('modalLogFormFilter').value;
-            const container = document.getElementById('modalLogsContainer');
-
-            if (!container) return;
-            container.innerHTML = '';
-
-            let matchedCount = 0;
-
-            allRecentActivities.forEach(activity => {
-                const title = activity.title || '';
-                const desc = activity.description || '';
-                const statusType = activity.status_type || '';
-                const groupName = activity.research_group_name || '';
-                const username = activity.username || '';
-                
-                // Form type classification
-                const category = getFormCategory(title, desc);
-
-                // Check Text Search
-                const matchesSearch = title.toLowerCase().includes(searchVal) || 
-                                      desc.toLowerCase().includes(searchVal) || 
-                                      groupName.toLowerCase().includes(searchVal) ||
-                                      username.toLowerCase().includes(searchVal);
-
-                // Check Status Filter
-                let matchesStatus = true;
-                if (statusVal === 'Approved') {
-                    matchesStatus = (statusType === 'Approved');
-                } else if (statusVal === 'Revision Requested') {
-                    matchesStatus = (statusType === 'Revision Requested');
-                } else if (statusVal === 'other') {
-                    matchesStatus = (statusType !== 'Approved' && statusType !== 'Revision Requested');
-                }
-
-                // Check Form Filter
-                const matchesForm = (formVal === 'all' || category === formVal);
-
-                if (matchesSearch && matchesStatus && matchesForm) {
-                    matchedCount++;
-                    const iconClass = statusType === 'Approved' ? 'success' : (statusType === 'Revision Requested' ? 'warning' : 'info');
-                    
-                    const itemHtml = `
-                        <div class="activity-item" style="cursor: default; margin-bottom: 0;">
-                            <div class="activity-icon ${iconClass}">
-                                ${iconClass === 'success' ? '✓' : (iconClass === 'warning' ? '!' : '📄')}
-                            </div>
-                            <div class="activity-content" style="flex: 1;">
-                                <div style="display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px;">
-                                    <div class="activity-title" style="font-weight: 700; color: var(--text-dark);">New Submission: ${escapeHtml(title)}</div>
-                                    <span style="font-size: 10px; font-weight: 800; padding: 2px 8px; border-radius: 6px; background: ${iconClass==='success' ? '#e6f4ea; color:#137333;' : (iconClass==='warning' ? '#fef7e0; color:#b06000;' : '#e8f0fe; color:#1a73e8;')}; text-transform: uppercase;">
-                                        ${escapeHtml(statusType)}
-                                    </span>
-                                </div>
-                                <div class="activity-desc" style="font-size: 11.5px; color: var(--text-muted); margin-top: 4px;">${escapeHtml(desc)}</div>
-                                <div class="activity-time" style="margin-top: 6px; font-size: 10.5px; font-weight: 600; color: var(--mcnp-teal);">
-                                    📦 ${escapeHtml(groupName)} (${escapeHtml(username)}) • ${formatLogDate(activity.created_at)}
-                                </div>
-                            </div>
-                        </div>
-                    `;
-                    container.insertAdjacentHTML('beforeend', itemHtml);
-                }
-            });
-
-            document.getElementById('modalLogCount').textContent = `Showing ${matchedCount} of ${allRecentActivities.length} logs`;
-            lucide.createIcons();
-            
-            if (matchedCount === 0) {
-                container.innerHTML = `<div style="text-align: center; color: var(--text-muted); padding: 40px; font-weight: 600;">No matching activity logs found.</div>`;
-            }
-        }
-
-        function escapeHtml(text) {
-            if (!text) return '';
-            return text
-                .replace(/&/g, "&amp;")
-                .replace(/</g, "&lt;")
-                .replace(/>/g, "&gt;")
-                .replace(/"/g, "&quot;")
-                .replace(/'/g, "&#039;");
-        }
-
-        function formatLogDate(dateStr) {
-            if (!dateStr) return '';
-            const d = new Date(dateStr);
-            return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' @ ' + 
-                   d.toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' });
-        }
-        
         function hideAllDashboards() {
             document.getElementById('masterDashboard').style.display = 'none';
             document.getElementById('statisticsDashboard').style.display = 'none';
@@ -1724,9 +1275,10 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
 
         // Settings Avatar and Theme update helpers
-        function setSettingAvatar(url) {
-            document.getElementById('pfpUrlInput').value = url;
-            document.getElementById('settingsAvatarPreview').src = url;
+        function selectAvatarPreset(url, el) {
+            document.getElementById('pfp_selector').value = url;
+            document.querySelectorAll('.avatar-preset-option').forEach(img => img.style.borderColor = 'var(--border-line)');
+            el.style.borderColor = 'var(--mcnp-teal)';
         }
 
         function setSettingTheme(t) {

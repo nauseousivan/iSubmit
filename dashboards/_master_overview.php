@@ -18,63 +18,54 @@ $mo_role_titles = [
 ];
 $mo_terminal_title = $mo_role_titles[$mo_role] ?? 'Staff Terminal';
 
-// Recency signal for the group explorer: last touched via activity_logs (populated by both
-// student-side actions and staff signoffs), so it's a more complete "last active" measure
-// than uploads alone. Groups with no activity yet sort to the bottom, alphabetically.
+// Group explorer + Research Groups count now source from the FULL student-leader group
+// population (the same set the approval module's sidebar lists), LEFT JOINed to each group's
+// latest approval row so groups that have uploaded but have no approvals record STILL appear.
+// (Previously this read only from `approvals`, so 48 of 52 groups — incl. 12 with real
+// uploads — were invisible in the explorer and undercounted the stat card.)
 $mo_workflow_tracks = $pdo->query("
-    SELECT ap.approval_id, ap.coordinator_status, ap.statistician_status, ap.director_status, ap.payment_status, ap.printing_enabled,
-           u.research_group_name, f.form_name, u.user_id, u.username, u.email, u.program, u.department, u.profile_pic
-    FROM approvals ap
-    JOIN users u ON ap.user_id = u.user_id
-    JOIN forms f ON ap.form_id = f.form_id
+    SELECT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
+           COALESCE(ap.coordinator_status, 'Pending')  AS coordinator_status,
+           COALESCE(ap.statistician_status, 'Pending') AS statistician_status,
+           COALESCE(ap.director_status, 'Pending')     AS director_status,
+           COALESCE(ap.payment_status, 'Unpaid')       AS payment_status,
+           la.last_activity
+    FROM users u
+    LEFT JOIN approvals ap ON ap.approval_id = (SELECT MAX(a2.approval_id) FROM approvals a2 WHERE a2.user_id = u.user_id)
     LEFT JOIN (
         SELECT user_id, MAX(created_at) AS last_activity FROM activity_logs GROUP BY user_id
     ) la ON la.user_id = u.user_id
+    WHERE u.role = 'Student' AND u.research_group_name IS NOT NULL AND u.research_group_name <> '' AND u.leader_id IS NULL
     ORDER BY (la.last_activity IS NULL) ASC, la.last_activity DESC, u.research_group_name ASC
 ")->fetchAll();
 
-$mo_research_groups_count = $pdo->query("SELECT COUNT(DISTINCT ap.user_id) FROM approvals ap")->fetchColumn();
+$mo_research_groups_count = count($mo_workflow_tracks);
 
-if (!$mo_is_statistician) {
-    // Dedup to the latest upload per user/item (mirrors coordinator.php's $pending_counts pattern)
-    // so a student's superseded re-uploads don't inflate the ISAP/MCNP pending-task counts.
-    // Note: any u.department that matches neither substring below falls into an 'Other' bucket
-    // that isn't surfaced on the dashboard today — known limitation, not fixed here.
-    $mo_college_counts = $pdo->query("
-        SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-                    WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
-               'Proposal' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
-        FROM uploads up
-        JOIN users u ON up.user_id = u.user_id
-        INNER JOIN (
-            SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
-        ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-        WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id = 14
-        GROUP BY college
-        UNION ALL
-        SELECT CASE WHEN u.department LIKE '%Medical Colleges%' THEN 'MCNP'
-                    WHEN u.department LIKE '%International School%' THEN 'ISAP' ELSE 'Other' END as college,
-               'Data/Literature' as item_type, COUNT(DISTINCT up.upload_id) as pending_count
-        FROM uploads up
-        JOIN users u ON up.user_id = u.user_id
-        INNER JOIN (
-            SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
-        ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-        WHERE up.verification_status IN ('Pending','Under Review') AND up.item_id IN (3,4)
-        GROUP BY college
-    ")->fetchAll();
-
-    $mo_counts_by_college = ['ISAP' => ['Proposal' => 0, 'Data/Literature' => 0], 'MCNP' => ['Proposal' => 0, 'Data/Literature' => 0]];
-    foreach ($mo_college_counts as $cc) {
-        $col = $cc['college'] ?? 'ISAP';
-        if (!isset($mo_counts_by_college[$col])) $mo_counts_by_college[$col] = ['Proposal' => 0, 'Data/Literature' => 0];
-        $mo_counts_by_college[$col][$cc['item_type']] = $cc['pending_count'];
-    }
+// Role-aware "needs your action" count: latest upload per group/item, in the verification
+// status THIS role acts on (Director acts on 'Under Review'; Coordinator/Statistician on 'Pending').
+$mo_action_status = ($mo_role === 'Research Director') ? 'Under Review' : 'Pending';
+if ($mo_is_statistician) {
+    // Reuse statistician.php's already-deduped queue counts (defined before this include).
+    $mo_action_needed = (int) ($stats_checklist_pending ?? 0) + (int) ($stats_payment_pending ?? 0) + (int) ($stats_release_pending ?? 0);
+    $mo_approved_clearances = (int) $pdo->query("SELECT COUNT(*) FROM approvals WHERE statistician_status = 'Approved'")->fetchColumn();
 } else {
-    // Statistician's own stat cards reuse statistician.php's already-deduped checklist count
-    // ($stats_checklist_pending, defined before this partial is included) plus an approved-clearance count.
-    $mo_approved_clearances = $pdo->query("SELECT COUNT(*) FROM approvals WHERE statistician_status = 'Approved'")->fetchColumn();
+    $mo_act = $pdo->prepare("
+        SELECT COUNT(*) FROM uploads up
+        INNER JOIN (SELECT user_id, item_id, MAX(uploaded_at) AS md FROM uploads GROUP BY user_id, item_id) l
+          ON up.user_id = l.user_id AND up.item_id = l.item_id AND up.uploaded_at = l.md
+        WHERE up.verification_status = ?");
+    $mo_act->execute([$mo_action_status]);
+    $mo_action_needed = (int) $mo_act->fetchColumn();
+    $mo_approved_docs = (int) $pdo->query("
+        SELECT COUNT(*) FROM uploads up
+        INNER JOIN (SELECT user_id, item_id, MAX(uploaded_at) AS md FROM uploads GROUP BY user_id, item_id) l
+          ON up.user_id = l.user_id AND up.item_id = l.item_id AND up.uploaded_at = l.md
+        WHERE up.verification_status = 'Approved'")->fetchColumn();
 }
+
+// Primary review target for the action banner / activity click-through (role-aware).
+$mo_primary_url = $mo_is_statistician ? 'admin_module_dynamic.php?phase=stats&view=checklist' : 'admin_module_dynamic.php?phase=proposal';
+$mo_primary_selector = $mo_is_statistician ? 'phase=stats' : 'phase=proposal';
 
 $mo_recent_activities = $pdo->query("
     SELECT al.title, al.description, al.status_type, al.created_at, u.username, u.research_group_name
@@ -90,9 +81,12 @@ $mo_message = $message ?? '';
             <h1><?= htmlspecialchars($mo_terminal_title) ?></h1>
             <p>Overview of research stages, workflow status, and recent activity.</p>
         </div>
-        <div class="clock-widget">
-            <i data-lucide="clock"></i>
-            <span id="directorTimeClock">loading...</span>
+        <div class="clock-card">
+            <span class="clock-live-dot"></span>
+            <div>
+                <div class="clock-time" id="directorTimeClock">--:--:--</div>
+                <div class="clock-date" id="directorClockDate">&nbsp;</div>
+            </div>
         </div>
     </div>
 
@@ -103,31 +97,40 @@ $mo_message = $message ?? '';
         </div>
     <?php endif; ?>
 
-    <!-- Stats Grid -->
+    <!-- Action-first summary -->
+    <div class="action-banner">
+        <div class="action-banner-icon"><i data-lucide="inbox"></i></div>
+        <div>
+            <div class="action-banner-count"><?= (int) $mo_action_needed ?></div>
+            <div class="action-banner-text">
+                <?php if ((int) $mo_action_needed > 0): ?>
+                    submission<?= $mo_action_needed == 1 ? '' : 's' ?> waiting for your review
+                <?php else: ?>
+                    You're all caught up — nothing needs your review right now.
+                <?php endif; ?>
+            </div>
+        </div>
+        <?php if ((int) $mo_action_needed > 0): ?>
+            <button class="btn btn-primary" onclick="openOverlay('<?= $mo_primary_url ?>', document.querySelector('.nav-item-btn[onclick*=\'<?= $mo_primary_selector ?>\']'))">
+                <i data-lucide="arrow-right" style="width:16px;height:16px;"></i> Review now
+            </button>
+        <?php endif; ?>
+    </div>
+
+    <!-- Compact stat widgets -->
     <div class="dashboard-grid">
         <div class="stat-card">
             <div class="stat-value"><?= (int) $mo_research_groups_count ?></div>
             <div class="stat-label">Research Groups</div>
         </div>
-        <?php if ($mo_is_statistician): ?>
-            <div class="stat-card">
-                <div class="stat-value"><?= (int) ($stats_checklist_pending ?? 0) ?></div>
-                <div class="stat-label">Pending Data Validations</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value"><?= (int) $mo_approved_clearances ?></div>
-                <div class="stat-label">Approved Clearances</div>
-            </div>
-        <?php else: ?>
-            <div class="stat-card">
-                <div class="stat-value"><?= array_sum($mo_counts_by_college['ISAP']) ?></div>
-                <div class="stat-label">ISAP Pending Tasks</div>
-            </div>
-            <div class="stat-card">
-                <div class="stat-value"><?= array_sum($mo_counts_by_college['MCNP']) ?></div>
-                <div class="stat-label">MCNP Pending Tasks</div>
-            </div>
-        <?php endif; ?>
+        <div class="stat-card">
+            <div class="stat-value"><?= (int) $mo_action_needed ?></div>
+            <div class="stat-label"><?= $mo_is_statistician ? 'Pending Validations' : 'Needs Action' ?></div>
+        </div>
+        <div class="stat-card">
+            <div class="stat-value"><?= $mo_is_statistician ? (int) ($mo_approved_clearances ?? 0) : (int) ($mo_approved_docs ?? 0) ?></div>
+            <div class="stat-label"><?= $mo_is_statistician ? 'Approved Clearances' : 'Approved Documents' ?></div>
+        </div>
     </div>
 
     <!-- Interactive Student/Group Selector -->
@@ -171,7 +174,7 @@ $mo_message = $message ?? '';
                 <div style="display:flex; gap:16px;">
                     <img id="groupPfp" src="" class="profile-pfp">
                     <div>
-                        <h4 id="groupName" style="color:var(--mcnp-teal); font-family:'Cinzel', serif; font-size:16px;">Group Name</h4>
+                        <h4 id="groupName" style="color:var(--ink); font-size:16px; font-weight:700;">Group Name</h4>
                         <p id="groupLeader" style="font-weight:600; color:#4b5563; font-size:12.5px; margin-top:2px;">Leader: </p>
                         <p id="groupMail" style="font-family:'JetBrains Mono', monospace; font-size:11.5px; color:#6b7280;"></p>
                         <p id="groupDetails" style="font-size:11px; color:#9ca3af; margin-top:2px;"></p>
@@ -197,38 +200,43 @@ $mo_message = $message ?? '';
     $mo_activity_click_selector = $mo_is_statistician ? 'phase=stats' : 'phase=proposal';
     ?>
     <div class="activity-feed">
-        <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:12px;"><i data-lucide="activity"></i> Recent Activity Logs</h3>
+        <div class="feed-head">
+            <h3><i data-lucide="activity"></i> Recent Activity</h3>
+            <?php if (count($mo_recent_activities) > 5): ?>
+                <button type="button" class="feed-seeall" onclick="openActivityLogsModal()">
+                    <i data-lucide="list"></i> See all (<?= count($mo_recent_activities) ?>)
+                </button>
+            <?php endif; ?>
+        </div>
         <?php if (count($mo_recent_activities) === 0): ?>
-            <p style="text-align: center; color: var(--text-muted); padding: 30px;">No recent submissions yet.</p>
+            <p style="text-align: center; color: var(--muted); padding: 30px;">No recent activity yet.</p>
         <?php else: ?>
             <div id="activityLogsList">
                 <?php $mo_i = 0; foreach ($mo_recent_activities as $activity):
                     if ($mo_i >= 5) break;
-                    $icon_class = $activity['status_type'] === 'Approved' ? 'success' : ($activity['status_type'] === 'Revision Requested' ? 'warning' : 'info');
+                    // status_type in the logs is a mix of 'success'/'warning'/'info' and
+                    // 'Approved'/'Revision Requested' — normalise so the colour is always right.
+                    $st = strtolower(trim($activity['status_type'] ?? ''));
+                    if (in_array($st, ['approved', 'success'], true)) { $ac = 'success'; $ai = 'circle-check'; $al = 'Approved'; }
+                    elseif (in_array($st, ['revision requested', 'warning'], true)) { $ac = 'warning'; $ai = 'rotate-ccw'; $al = 'Revision'; }
+                    else { $ac = 'info'; $ai = 'file-text'; $al = 'Update'; }
                     $mo_i++;
                 ?>
                 <div class="activity-item" onclick="openOverlay('<?= $mo_activity_click_url ?>', document.querySelector('.nav-item-btn[onclick*=\'<?= $mo_activity_click_selector ?>\']'))">
-                    <div class="activity-icon <?= $icon_class ?>"><?= $icon_class === 'success' ? '✓' : ($icon_class === 'warning' ? '!' : '📄') ?></div>
+                    <div class="activity-icon <?= $ac ?>"><i data-lucide="<?= $ai ?>"></i></div>
                     <div class="activity-content">
-                        <div class="activity-title">New Submission: <?= htmlspecialchars($activity['title']) ?></div>
-                        <div class="activity-desc">Status: <?= htmlspecialchars($activity['status_type']) ?></div>
-                        <div class="activity-time">📦 <?= htmlspecialchars($activity['research_group_name']) ?> • <?= date('M d, Y @ h:i A', strtotime($activity['created_at'])) ?></div>
+                        <div class="activity-title"><?= htmlspecialchars($activity['title']) ?></div>
+                        <div class="activity-meta"><i data-lucide="users"></i> <?= htmlspecialchars($activity['research_group_name']) ?> &middot; <?= date('M d, Y \a\t g:i A', strtotime($activity['created_at'])) ?></div>
                     </div>
+                    <span class="activity-chip <?= $ac ?>"><?= $al ?></span>
                 </div>
                 <?php endforeach; ?>
             </div>
-            <?php if (count($mo_recent_activities) > 5): ?>
-                <div style="text-align: center; margin-top: 16px;">
-                    <button type="button" onclick="openActivityLogsModal()" style="background: #faf8f4; border: 1.5px solid var(--border-line); padding: 8px 18px; border-radius: 8px; font-family: var(--ui-sans); font-size: 12.5px; font-weight: 700; color: var(--mcnp-teal); cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
-                        <i data-lucide="history" style="width: 15px; height: 15px;"></i> See All Activity Logs (<?= count($mo_recent_activities) ?>)
-                    </button>
-                </div>
-            <?php endif; ?>
         <?php endif; ?>
     </div>
 
     <!-- ACTIVITY LOGS MODAL -->
-    <div id="activityLogsModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(12,52,61,0.45); backdrop-filter: blur(8px); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+    <div id="activityLogsModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(20,18,15,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
         <div style="background: var(--bg-white,#ffffff); width: 100%; max-width: 750px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
             <div style="padding: 20px 24px; border-bottom: 2.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: #faf8f4; flex-shrink: 0;">
                 <div style="display: flex; align-items: center; gap: 10px;">
@@ -236,7 +244,7 @@ $mo_message = $message ?? '';
                         <i data-lucide="history" style="width: 18px; height: 18px;"></i>
                     </div>
                     <div>
-                        <h3 style="font-family: 'Cinzel', serif; color: var(--mcnp-teal); font-size: 18px; margin: 0; font-weight: 800;">Comprehensive Activity Logs</h3>
+                        <h3 style="color: var(--ink); font-size: 18px; margin: 0; font-weight: 800; letter-spacing:-.01em;">Comprehensive Activity Logs</h3>
                         <p style="color: var(--text-muted); font-size: 11.5px; margin: 0;">Institutional Submission &amp; Review Logs Pipeline</p>
                     </div>
                 </div>
@@ -282,35 +290,28 @@ $mo_message = $message ?? '';
     </div>
 </div>
 
+<!-- Styles for these classes (dashboard-grid, stat-card, activity-feed, badges, etc.)
+     now live in the shared assets/css/portal.css design system. -->
 <style>
-    /* Master overview partial: classes coordinator.php doesn't already define */
-    .dashboard-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 18px; margin-bottom: 28px; }
-    .stat-card { background: var(--bg-white); border-radius: var(--card-radius); padding: 24px; box-shadow: 0 8px 25px rgba(12,52,61,0.03); border-left: 5px solid var(--mcnp-teal); border: 1.5px solid var(--border-line); position: relative; overflow: hidden; }
-    .stat-card::after { content: ''; position: absolute; bottom: 0; right: 0; width: 40px; height: 40px; background: linear-gradient(135deg, transparent 40%, rgba(204,153,0,0.1) 100%); }
-    .stat-value { font-size: 32px; font-weight: 800; color: var(--mcnp-teal); margin-bottom: 4px; font-family: 'Cinzel', serif; }
-    .stat-label { font-size: 12.5px; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.8px; font-weight: bold; }
-    .alert-success { background: #ecfdf5; color: #136643; padding: 16px 20px; border-radius: 14px; margin-bottom: 24px; font-weight: 700; border-left: 5px solid var(--success, #059669); }
-    .activity-feed { background: var(--bg-white); border-radius: var(--card-radius); padding: 28px; border: 1.5px solid var(--border-line); box-shadow: 0 10px 30px rgba(0,0,0,0.02); margin-bottom: 28px; }
-    .activity-item { display: flex; gap: 14px; padding: 14px; border-bottom: 1.5px solid var(--border-line); cursor: pointer; transition: 0.2s; }
-    .activity-item:hover { background: #faf8f4; border-radius: var(--control-radius); }
-    .activity-item:last-child { border-bottom: none; }
-    .activity-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
-    .activity-icon.success { background: #d1fae5; color: #059669; }
-    .activity-icon.warning { background: #fef3c7; color: #d97706; }
-    .activity-icon.info { background: #dbeafe; color: #2563eb; }
-    .activity-content { flex: 1; }
-    .activity-title { font-weight: bold; color: var(--text-dark); font-size: 13px; }
-    .activity-desc { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
-    .activity-time { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
-    .badge-unpaid { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
+    /* Group-explorer custom dropdown — theme via design-system tokens (light + dark) */
+    #customDropdownTrigger { background: var(--surface-2) !important; color: var(--ink) !important; border-color: var(--line) !important; }
+    #customDropdownTrigger:hover, #customDropdownTrigger:focus { border-color: var(--accent) !important; box-shadow: 0 0 0 3px var(--accent-ghost); }
+    .custom-dropdown-menu { background: var(--surface) !important; border-color: var(--line) !important; box-shadow: var(--shadow-3) !important; }
+    #customDropdownMenu > div:first-child { background: var(--surface-2) !important; border-color: var(--line) !important; }
+    .custom-dropdown-item { color: var(--ink) !important; border-color: var(--line-soft) !important; }
+    .custom-dropdown-item:hover { background: var(--surface-2) !important; }
+    #moShowMoreGroups { background: var(--surface-2) !important; color: var(--accent) !important; border-color: var(--line) !important; }
 </style>
 
 <script>
     (function () {
-        // Clock for the master overview header
+        // Clock widget for the master overview header (time + date, PH time)
         function updateMoClock() {
-            var el = document.getElementById('directorTimeClock');
-            if (el) el.innerHTML = new Date().toLocaleString("en-US", { timeZone: "Asia/Manila", hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            var now = new Date();
+            var t = document.getElementById('directorTimeClock');
+            if (t) t.textContent = now.toLocaleString("en-US", { timeZone: "Asia/Manila", hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            var d = document.getElementById('directorClockDate');
+            if (d) d.textContent = now.toLocaleString("en-US", { timeZone: "Asia/Manila", weekday: 'short', month: 'short', day: 'numeric' });
         }
         setInterval(updateMoClock, 1000); updateMoClock();
 
@@ -424,26 +425,29 @@ $mo_message = $message ?? '';
             container.innerHTML = '';
             var matched = 0;
             allRecentActivities.forEach(function (a) {
-                var title = a.title || '', desc = a.description || '', st = a.status_type || '', grp = a.research_group_name || '', usr = a.username || '';
+                var title = a.title || '', desc = a.description || '', st = (a.status_type || '').toLowerCase(), grp = a.research_group_name || '', usr = a.username || '';
+                var cls = (st === 'approved' || st === 'success') ? 'success' : ((st === 'revision requested' || st === 'warning') ? 'warning' : 'info');
                 var category = getFormCategory(title, desc);
                 var ms = title.toLowerCase().includes(searchVal) || desc.toLowerCase().includes(searchVal) || grp.toLowerCase().includes(searchVal) || usr.toLowerCase().includes(searchVal);
                 var mst = true;
-                if (statusVal === 'Approved') mst = (st === 'Approved');
-                else if (statusVal === 'Revision Requested') mst = (st === 'Revision Requested');
-                else if (statusVal === 'other') mst = (st !== 'Approved' && st !== 'Revision Requested');
+                if (statusVal === 'Approved') mst = (cls === 'success');
+                else if (statusVal === 'Revision Requested') mst = (cls === 'warning');
+                else if (statusVal === 'other') mst = (cls === 'info');
                 var mf = (formVal === 'all' || category === formVal);
                 if (ms && mst && mf) {
                     matched++;
-                    var ic = st === 'Approved' ? 'success' : (st === 'Revision Requested' ? 'warning' : 'info');
+                    var icon = cls === 'success' ? 'circle-check' : (cls === 'warning' ? 'rotate-ccw' : 'file-text');
+                    var label = cls === 'success' ? 'Approved' : (cls === 'warning' ? 'Revision' : 'Update');
                     container.insertAdjacentHTML('beforeend',
                         '<div class="activity-item" style="cursor:default; margin-bottom:0;">' +
-                        '<div class="activity-icon ' + ic + '">' + (ic === 'success' ? '✓' : (ic === 'warning' ? '!' : '📄')) + '</div>' +
-                        '<div class="activity-content" style="flex:1;">' +
-                        '<div style="display:flex; justify-content:space-between; flex-wrap:wrap; gap:8px;">' +
-                        '<div class="activity-title">New Submission: ' + escapeHtml(title) + '</div></div>' +
+                        '<div class="activity-icon ' + cls + '"><i data-lucide="' + icon + '"></i></div>' +
+                        '<div class="activity-content">' +
+                        '<div class="activity-title">' + escapeHtml(title) + '</div>' +
                         '<div class="activity-desc">' + escapeHtml(desc) + '</div>' +
-                        '<div class="activity-time">📦 ' + escapeHtml(grp) + ' (' + escapeHtml(usr) + ') • ' + formatLogDate(a.created_at) + '</div>' +
-                        '</div></div>');
+                        '<div class="activity-meta"><i data-lucide="users"></i> ' + escapeHtml(grp) + ' (' + escapeHtml(usr) + ') &middot; ' + formatLogDate(a.created_at) + '</div>' +
+                        '</div>' +
+                        '<span class="activity-chip ' + cls + '">' + label + '</span>' +
+                        '</div>');
                 }
             });
             document.getElementById('modalLogCount').textContent = 'Showing ' + matched + ' of ' + allRecentActivities.length + ' logs';

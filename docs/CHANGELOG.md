@@ -5,6 +5,43 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Staff dashboards — Apple/macOS redesign + shared design system + data fixes (2026-07-09)**: the four
+  staff surfaces (`dashboards/director.php`, `coordinator.php`, `statistician.php`, the shared approval
+  engine `dashboards/admin_module_dynamic.php`, and the `dashboards/_master_overview.php` partial) carried
+  ~700 lines of duplicated inline CSS each. All of it was extracted into a single **shared design system** —
+  new `assets/css/portal.css` and `assets/js/portal.js` — and the look was rebuilt in a **true Apple/macOS
+  direction**:
+  - **Pure-white surfaces, system font** (`-apple-system`/SF Pro; the `Cinzel` serif was dropped from
+    headings), soft realistic card shadows, generous whitespace.
+  - **Themes collapsed to Light + Dark only** (one `rd-portal-theme` key for all roles, replacing the seven
+    colored themes and coordinator's divergent key; legacy theme values migrate to Light; theme is
+    postMessage-synced into module iframes). Settings now uses a Light/Dark segmented toggle.
+  - **Navbar replaced with a bottom macOS dock** (magnifying icons, tooltips, always-visible count badges,
+    an avatar menu) mirroring the student dashboard, so notification counts are never hidden.
+  - **Modules now open as macOS windows** with traffic lights — red = close (resets the iframe), yellow =
+    minimize back to the dock (state preserved), green = expand full — via a new `PortalWindows` manager,
+    replacing the single reused iframe overlay so admins can multitask between modules.
+  - **Master dashboard is action-first**: a "needs your review" banner, a premium widget clock (time + date
+    + live dot), compact stat widgets, then recent activity.
+  - **Data fixes (read-only re-sourcing, no workflow change):** the Interactive Student/Group Explorer and
+    the "Research Groups" stat were re-sourced from the full student-leader population (LEFT JOIN to each
+    group's latest approval) instead of the `approvals` table — so the explorer now lists **all 52 groups**
+    (previously only the 4 with an approvals row; 12 groups with uploads were invisible) and is searchable
+    across all of them. The misleading ISAP/MCNP partial tiles were replaced with accurate **Research Groups
+    / Needs Action / Approved Documents** counts (role-aware, latest-upload-deduped).
+  - The v1 review drawer (right-side, solid non-blur scrim replacing the glassmorphic `#docModal`) is kept
+    and re-toned to Light/Dark.
+  - Accent colour is a **muted brand purple** (`#6c5fa0` light / `#b3a6e6` dark) — desaturated so it reads
+    as brand without overpowering. The **Recent Activity** feed was rebuilt: real Lucide status icons +
+    colour-coded chips (Approved/Revision/Update) replacing emoji, a corrected status mapping
+    (`success`/`warning` were previously never colour-matched), and the "See all" control moved from the
+    bottom to the section header. The header clock now appears **only** on the master dashboard (removed
+    from the Settings/Statistics headers).
+  **Presentation + read-only data-source changes only — no approval/workflow logic, POST handlers, form
+  field names, or JS review contracts (`openDocumentModal`, `runForm008Tally`/`runForm011Tally`, AI
+  pre-score, CSRF) changed.** Verified: all surfaces render with no PHP fatals/warnings; headless-Chrome
+  screenshots of the dock, a module window (traffic lights), and Light + Dark; and a DB check confirming the
+  explorer/stat now report 52 groups.
 - **Statistics module UI parity with Proposal (2026-07-08)**: `dashboards/module_statistics.php`'s
   deliverable cards were rebuilt on the shared Apple-Wallet card system in `assets/css/dashboard-cards.css`
   (the same one Module Proposal uses) instead of a self-contained inline card design. Cards now use the

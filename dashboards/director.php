@@ -233,656 +233,79 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
-    <style>
-        :root {
-            --card-radius: 20px;
-            --control-radius: 12px;
-            --ui-sans: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-        }
-
-        body.theme-default, body {
-            --bg-canvas: #f7f5ef;
-            --bg-white: #ffffff;
-            --mcnp-teal: #0c343d;
-            --accent-teal: #1a5f6d;
-            --border-line: #dcd8cc;
-            --text-muted: #7d7569;
-            --text-dark: #2c2416;
-            --eagle-gold: #cc9900;
-        }
-        body.theme-dark {
-            --bg-canvas: #0f1214;
-            --bg-white: #171c1f;
-            --mcnp-teal: #22d3ee;
-            --accent-teal: #0891b2;
-            --border-line: #2d363d;
-            --text-muted: #94a3b8;
-            --text-dark: #f1f5f9;
-            --eagle-gold: #fbbf24;
-        }
-        body.theme-green {
-            --bg-canvas: #f2f8f2;
-            --bg-white: #ffffff;
-            --mcnp-teal: #1e3f20;
-            --accent-teal: #2d5f30;
-            --border-line: #cbdacd;
-            --text-muted: #6b7c6c;
-            --text-dark: #202c20;
-            --eagle-gold: #c39a24;
-        }
-        body.theme-red {
-            --bg-canvas: #f9f5f5;
-            --bg-white: #ffffff;
-            --mcnp-teal: #571616;
-            --accent-teal: #731e1e;
-            --border-line: #dbc8c8;
-            --text-muted: #8c7373;
-            --text-dark: #3b2020;
-            --eagle-gold: #cca500;
-        }
-        body.theme-pink {
-            --bg-canvas: #fcf4f7;
-            --bg-white: #ffffff;
-            --mcnp-teal: #5e1c3e;
-            --accent-teal: #7a2652;
-            --border-line: #e3cbd7;
-            --text-muted: #917183;
-            --text-dark: #3a1c2d;
-            --eagle-gold: #cb9300;
-        }
-        body.theme-purple {
-            --bg-canvas: #f6f4fa;
-            --bg-white: #ffffff;
-            --mcnp-teal: #3b1e5a;
-            --accent-teal: #50287a;
-            --border-line: #d5cbdc;
-            --text-muted: #827290;
-            --text-dark: #2c1a3e;
-            --eagle-gold: #cb9200;
-        }
-        body.theme-orange {
-            --bg-canvas: #fcf6f0;
-            --bg-white: #ffffff;
-            --mcnp-teal: #5d2b0e;
-            --accent-teal: #7b3d16;
-            --border-line: #e4ccd2;
-            --text-muted: #90766a;
-            --text-dark: #3a2216;
-            --eagle-gold: #cb9400;
-        }
-
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        
-        body {
-            font-family: var(--ui-sans);
-            background-color: var(--bg-canvas) !important;
-            min-height: 100vh; 
-            color: var(--text-dark); 
-            display: flex; 
-            font-size: 14px;
-        }
-
-        /* Container styling */
-        .app-dashboard-frame { 
-            background-color: var(--bg-canvas); 
-            width: 100vw; 
-            height: 100vh; 
-            display: flex; 
-            position: relative; 
-            overflow: hidden; 
-        }
-
-        /* Ambient subtle grid */
-        .app-dashboard-frame::before {
-            content: '';
-            position: absolute;
-            inset: 0;
-            background-image: 
-                radial-gradient(#e0dbc8 1px, transparent 1px),
-                linear-gradient(to right, rgba(0,0,0,0.01) 1px, transparent 1px);
-            background-size: 24px 24px, 128px 128px;
-            opacity: 0.5;
-            pointer-events: none;
-            z-index: 10;
-        }
-
-        /* SIDEBAR PANEL */
-        .app-sidebar { 
-            background-color: var(--mcnp-teal); 
-            color: white; 
-            width: 280px; 
-            padding: 35px 20px; 
-            display: flex; 
-            flex-direction: column; 
-            z-index: 110; 
-            flex-shrink: 0; 
-            box-shadow: 10px 0 35px rgba(12, 52, 61, 0.12);
-            border-right: 2px solid rgba(255,255,255,0.08);
-        }
-
-        .sidebar-header {
-            text-align: center;
-            border-bottom: 2px solid rgba(255,255,255,0.08);
-            padding-bottom: 25px;
-            margin-bottom: 25px;
-        }
-
-        .sidebar-logo {
-            width: 50px;
-            height: 50px;
-            background: white;
-            padding: 6px;
-            border-radius: 14px;
-            margin-bottom: 12px;
-            object-fit: contain;
-        }
-
-        .sidebar-header h2 {
-            font-family: 'Cinzel', serif;
-            font-size: 18px;
-            color: white;
-            letter-spacing: 0.8px;
-        }
-
-        .sidebar-header p {
-            font-size: 11.5px;
-            opacity: 0.7;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            margin-top: 4px;
-            color: var(--eagle-gold);
-            font-weight: 700;
-        }
-
-        .nav-menu-list { list-style: none; display: flex; flex-direction: column; gap: 8px; }
-        
-        .nav-item-btn { 
-            width: 100%; 
-            padding: 13px 16px; 
-            background: transparent; 
-            border: none; 
-            color: #d1d5db; 
-            font-family: inherit; 
-            font-size: 13.5px; 
-            text-align: left; 
-            border-radius: var(--control-radius); 
-            cursor: pointer; 
-            display: flex; 
-            align-items: center; 
-            gap: 12px; 
-            transition: all 0.25s; 
-            font-weight: 550;
-        }
-        
-        .nav-item-btn:hover { 
-            background: rgba(255, 255, 255, 0.08); 
-            color: white;
-            transform: translateX(3px);
-        }
-        
-        .nav-item-btn.active { 
-            background: rgba(255, 255, 255, 0.15); 
-            color: white; 
-            font-weight: 700; 
-            border-left: 4px solid var(--eagle-gold);
-        }
-        
-        .nav-badge { 
-            background: #ef4444; 
-            color: white; 
-            padding: 2px 7px; 
-            border-radius: var(--control-radius); 
-            font-size: 10px; 
-            font-weight: bold; 
-            margin-left: auto; 
-        }
-
-        /* MAIN WORKSPACE WRAPPER */
-        .main-workspace-content { 
-            flex: 1; 
-            padding: 30px; 
-            overflow-y: auto; 
-            position: relative; 
-            z-index: 20;
-            background: #faf9f6;
-        }
-
-        .container { max-width: 1080px; margin: 0 auto; }
-        
-        .header { 
-            display: flex; 
-            flex-wrap: wrap; 
-            justify-content: space-between; 
-            align-items: center;
-            gap: 20px; 
-            margin-bottom: 28px; 
-            border-bottom: 2px solid var(--border-line);
-            padding-bottom: 20px;
-        }
-        
-        .header-title h1 { 
-            font-family: 'Cinzel', serif;
-            font-size: 26px; 
-            color: var(--mcnp-teal); 
-            margin-bottom: 6px; 
-            font-weight: 800;
-        }
-        
-        .header-title p { color: var(--text-muted); font-size: 13.5px; }
-
-        /* Current Time clock */
-        .clock-widget {
-            background: white;
-            border: 1.5px solid var(--border-line);
-            padding: 12px 18px;
-            border-radius: 14px;
-            display: flex;
-            align-items: center;
-            gap: 12px;
-            font-family: 'JetBrains Mono', monospace;
-            box-shadow: 0 5px 15px rgba(0,0,0,0.02);
-        }
-
-        .clock-widget i {
-            color: var(--mcnp-teal);
-        }
-
-        .clock-widget span {
-            font-weight: 700;
-            color: var(--mcnp-teal);
-            font-size: 14px;
-        }
-
-        /* Stats Cards */
-        .dashboard-grid { 
-            display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); 
-            gap: 18px; 
-            margin-bottom: 28px; 
-        }
-        
-        .stat-card { 
-            background: var(--bg-white); 
-            border-radius: var(--card-radius); 
-            padding: 24px; 
-            box-shadow: 0 8px 25px rgba(12,52,61,0.03); 
-            border-left: 5px solid var(--mcnp-teal); 
-            border: 1.5px solid var(--border-line);
-            position: relative;
-            overflow: hidden;
-        }
-
-        .stat-card::after {
-            content: '';
-            position: absolute;
-            bottom: 0;
-            right: 0;
-            width: 40px;
-            height: 40px;
-            background: linear-gradient(135deg, transparent 40%, rgba(204, 153, 0, 0.1) 100%);
-        }
-        
-        .stat-value { 
-            font-size: 32px; 
-            font-weight: 800; 
-            color: var(--mcnp-teal); 
-            margin-bottom: 4px; 
-            font-family: 'Cinzel', serif;
-        }
-        
-        .stat-label { 
-            font-size: 12.5px; 
-            color: var(--text-muted); 
-            text-transform: uppercase;
-            letter-spacing: 0.8px;
-            font-weight: bold;
-        }
-
-        /* Interactive student selector panel */
-        .selector-section {
-            background: white;
-            border: 1.5px solid var(--border-line);
-            border-radius: 20px;
-            padding: 22px;
-            margin-bottom: 28px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02);
-        }
-
-        .selector-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 1.5px solid var(--border-line);
-            padding-bottom: 12px;
-            margin-bottom: 18px;
-        }
-
-        .selector-header h3 {
-            font-family: 'Cinzel', serif;
-            font-size: 14.5px;
-            color: var(--mcnp-teal);
-        }
-
-        .select-group-dropdown {
-            padding: 10px 14px;
-            border-radius: 10px;
-            border: 1.5px solid var(--border-line);
-            font-size: 13.5px;
-            font-family: inherit;
-            background: #faf9f6;
-            width: 100%;
-            max-width: 320px;
-            outline: none;
-            cursor: pointer;
-        }
-
-        .selected-group-profile-card {
-            display: none;
-            background: #faf8f3;
-            border: 1px solid var(--border-line);
-            border-radius: 16px;
-            padding: 18px;
-            animation: slideIn 0.3s ease;
-        }
-
-        @keyframes slideIn {
-            from { opacity: 0; transform: translateY(-10px); }
-            to { opacity: 1; transform: translateY(0); }
-        }
-
-        .profile-pfp {
-            width: 50px;
-            height: 50px;
-            border-radius: 50%;
-            border: 1.5px solid var(--mcnp-teal);
-            object-fit: cover;
-            background: white;
-        }
-
-        /* General sections */
-        .section { 
-            background: var(--bg-white); 
-            border-radius: var(--card-radius); 
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02); 
-            border: 1.5px solid var(--border-line);
-            padding: 28px; 
-            margin-bottom: 24px; 
-        }
-        
-        .section h3 { 
-            font-family: 'Cinzel', serif;
-            color: var(--mcnp-teal); 
-            margin-bottom: 16px; 
-            font-size: 16px;
-            letter-spacing: 0.3px;
-        }
-        
-        .table-wrapper { overflow-x: auto; border-radius: 12px; border: 1.5px solid var(--border-line); }
-        
-        table { width: 100%; border-collapse: collapse; min-width: 760px; }
-        
-        th, td { padding: 14px 16px; text-align: left; vertical-align: middle; border-bottom: 1px solid var(--border-line); }
-        
-        th { 
-            background: #faf8f4; 
-            color: var(--text-dark); 
-            font-size: 11px;
-            text-transform: uppercase;
-            font-weight: 800;
-            letter-spacing: 0.5px;
-        }
-
-        tr:last-child td {
-            border-bottom: none;
-        }
-
-        select, textarea { 
-            width: 100%; 
-            padding: 11px 14px; 
-            border-radius: var(--control-radius); 
-            border: 1.5px solid var(--border-line); 
-            background: #fdfbf7; 
-            color: var(--text-dark); 
-            font-family: inherit; 
-            font-size: 13.5px; 
-            margin-top: 6px; 
-            outline: none;
-            transition: all 0.2s;
-        }
-        
-        select:focus, textarea:focus { 
-            border-color: var(--mcnp-teal); 
-            background: var(--bg-white); 
-            box-shadow: 0 0 0 3px rgba(12,52,61,0.08); 
-        }
-        
-        textarea { resize: vertical; min-height: 80px; }
-        
-        .btn { 
-            display: inline-flex; 
-            align-items: center; 
-            justify-content: center; 
-            border: none; 
-            border-radius: 10px; 
-            padding: 10px 18px; 
-            font-weight: 700; 
-            cursor: pointer; 
-            text-decoration: none; 
-            font-size: 12.5px;
-            gap: 8px;
-            transition: all 0.2s;
-        }
-        
-        .btn-primary { 
-            background: var(--mcnp-teal); 
-            color: #fff; 
-        }
-        
-        .btn-primary:hover { 
-            opacity: 0.9;
-            transform: translateY(-1px);
-            box-shadow: 0 4px 12px rgba(12, 52, 61, 0.15);
-        }
-        
-        .btn-secondary { 
-            background: var(--bg-white); 
-            color: var(--text-dark); 
-            border: 1.5px solid var(--border-line); 
-        }
-        
-        .btn-secondary:hover { 
-            background: #faf8f4; 
-        }
-        
-        .btn-dispatch { 
-            background: #4d0026; 
-            color: #fff; 
-        }
-        
-        .btn-dispatch:hover { 
-            opacity: .95; 
-        }
-
-        .badge-status { 
-            padding: 4px 10px; 
-            border-radius: 20px; 
-            font-size: 10px; 
-            font-weight: 800; 
-            text-transform: uppercase; 
-            display: inline-block; 
-            letter-spacing: 0.5px;
-        }
-        
-        .badge-paid { background: #d1fae5; color: #065f46; border: 1px solid #6ee7b7; }
-        .badge-unpaid { background: #fee2e2; color: #991b1b; border: 1px solid #fca5a5; }
-        .badge-pending { background: #fff3cd; color: #856404; border: 1px solid #fcd34d; }
-
-        .form-actions { margin-top: 18px; }
-
-        .alert-success { background: #ecfdf5; color: #136643; padding: 16px 20px; border-radius: 14px; margin-bottom: 24px; font-weight: 700; border-left: 5px solid var(--success); }
-
-        /* Recent Activity feed */
-        .activity-feed { 
-            background: var(--bg-white); 
-            border-radius: var(--card-radius); 
-            padding: 28px; 
-            border: 1.5px solid var(--border-line);
-            box-shadow: 0 10px 30px rgba(0,0,0,0.02); 
-            margin-bottom: 28px; 
-        }
-        
-        .activity-item { 
-            display: flex; 
-            gap: 14px; 
-            padding: 14px; 
-            border-bottom: 1.5px solid var(--border-line); 
-            cursor: pointer; 
-            transition: 0.2s; 
-        }
-        
-        .activity-item:hover { 
-            background: #faf8f4; 
-            border-radius: var(--control-radius); 
-        }
-        
-        .activity-item:last-child { border-bottom: none; }
-        
-        .activity-icon { 
-            width: 36px; 
-            height: 36px; 
-            border-radius: 50%; 
-            display: flex; 
-            align-items: center; 
-            justify-content: center; 
-            font-weight: bold; 
-            flex-shrink: 0; 
-        }
-        
-        .activity-icon.success { background: #d1fae5; color: #059669; }
-        .activity-icon.warning { background: #fef3c7; color: #d97706; }
-        .activity-icon.info { background: #dbeafe; color: #2563eb; }
-        
-        .activity-content { flex: 1; }
-        .activity-title { font-weight: bold; color: var(--text-dark); font-size: 13px; }
-        .activity-desc { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
-        .activity-time { color: var(--text-muted); font-size: 11px; margin-top: 4px; }
-
-        .sidebar-footer { 
-            margin-top: auto; 
-            padding-top: 20px; 
-            border-top: 2px solid rgba(255,255,255,0.08); 
-            text-align: center; 
-        }
-        
-        .sidebar-footer p { font-size: 11.5px; opacity: 0.7; margin-bottom: 12px; color: white; }
-        
-        .logout-btn { 
-            width: 100%; 
-            padding: 11px 14px; 
-            background: rgba(220, 38, 38, 0.85); 
-            border: none; 
-            color: white; 
-            border-radius: 10px; 
-            cursor: pointer; 
-            font-weight: bold; 
-            font-size: 12.5px; 
-            transition: 0.2s; 
-            text-decoration: none; 
-            display: block; 
-        }
-        
-        .logout-btn:hover { background: #b91c1c; }
-
-        @media (max-width: 900px) {
-            .app-sidebar { display: none; }
-            table { min-width: 100%; }
-        }
-
-        /* IFRAME OVERLAY SYSTEM FOR EMBEDDED CONSOLE */
-        .fullscreen-overlay { 
-            position: absolute; 
-            top: 0; 
-            left: 280px; 
-            width: calc(100% - 280px); 
-            height: 100%; 
-            background-color: #faf9f6; 
-            z-index: 150; 
-            padding: 0; 
-            display: none; 
-        }
-        
-        .fullscreen-overlay.active { 
-            display: block; 
-            animation: fadeIn 0.3s ease; 
-        }
-        
-        .overlay-iframe { 
-            width: 100%; 
-            height: 100%; 
-            border: none; 
-            border-radius: 0; 
-            background: transparent; 
-        }
-        
-        @keyframes fadeIn { 
-            from { opacity: 0; transform: translateY(10px); } 
-            to { opacity: 1; transform: translateY(0); } 
-        }
-    </style>
+    <link rel="stylesheet" href="../assets/css/portal.css">
+    <script src="../assets/js/portal.js"></script>
 </head>
 <body>
     <div class="app-dashboard-frame">
-        <aside class="app-sidebar">
-            <div class="sidebar-header">
-                <img src="../mcnp-isap.jpg" class="sidebar-logo">
-                <h2>Staff Portal</h2>
-                <p>Research Director</p>
-            </div>
-            
-            <ul class="nav-menu-list">
-                <li><button class="nav-item-btn active" onclick="showMasterDashboard(this)">
-                    <i data-lucide="layout-dashboard"></i> Master Dashboard
-                </button></li>
-                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
-                    <i data-lucide="file-check"></i> Proposal Defense
-                    <?= $pending_counts['proposal_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['proposal_pending'] . '</span>' : '' ?>
-                </button></li>
-                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=final', this)">
-                    <i data-lucide="award"></i> Final Manuscript
-                    <?= $pending_counts['final_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['final_pending'] . '</span>' : '' ?>
-                </button></li>
-                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
-                    <i data-lucide="calculator"></i> Statistics Clearance
-                    <?= $pending_counts['stats_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['stats_pending'] . '</span>' : '' ?>
-                </button></li>
-                <li><button class="nav-item-btn" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
-                    <i data-lucide="file-warning"></i> Plagiarism Verify
-                    <?= $pending_counts['plag_pending'] > 0 ? '<span class="nav-badge">' . $pending_counts['plag_pending'] . '</span>' : '' ?>
-                </button></li>
-                <li><button class="nav-item-btn" onclick="openOverlay('message.php', this)">
-                    <i data-lucide="message-square"></i> Messages
-                </button></li>
-                <li><button class="nav-item-btn" onclick="showCalendarDashboard(this)">
-                    <i data-lucide="calendar-days"></i> Institutional Calendar
-                </button></li>
-                <li><button class="nav-item-btn" id="settings-nav-btn" onclick="showSettingsDashboard(this)">
-                    <i data-lucide="settings"></i> Panel Settings
-                </button></li>
-            </ul>
-            
-            <div class="sidebar-footer" style="padding-top: 15px; display: flex; align-items: center; justify-content: space-between; gap: 10px; width: 100%; border-top: 2px solid rgba(255,255,255,0.08); margin-top: auto;">
-                <div style="display: flex; align-items: center; gap: 10px; overflow: hidden; text-align: left;">
-                    <img src="<?= htmlspecialchars($current_pfp) ?>" style="width: 38px; height: 38px; border-radius: 50%; object-fit: cover; border: 1.5px solid #cc9900; background: white; flex-shrink: 0;" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';">
-                    <div style="display: flex; flex-direction: column; overflow: hidden;">
-                        <span style="font-weight: 600; font-size: 13px; color: white; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;"><?= htmlspecialchars($currentUser['username']) ?></span>
-                        <span style="font-size: 10px; color: #cc9900; font-weight: bold; text-transform: uppercase; letter-spacing: 0.5px;">Director</span>
+        <nav class="app-dock-navigation" aria-label="Primary navigation">
+            <ul class="dock-menu-list">
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn active" data-view="home" onclick="showMasterDashboard(this)"><i data-lucide="house"></i></button>
+                    <span class="dock-tooltip">Dashboard</span>
+                </li>
+                <li class="dock-divider" aria-hidden="true"></li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Proposal Defense" data-win-icon="file-check" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
+                        <i data-lucide="file-check"></i>
+                        <?= $pending_counts['proposal_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['proposal_pending'] . '</span>' : '' ?>
+                    </button>
+                    <span class="dock-tooltip">Proposal Defense</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Final Manuscript" data-win-icon="graduation-cap" onclick="openOverlay('admin_module_dynamic.php?phase=final', this)">
+                        <i data-lucide="graduation-cap"></i>
+                        <?= $pending_counts['final_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['final_pending'] . '</span>' : '' ?>
+                    </button>
+                    <span class="dock-tooltip">Final Manuscript</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Statistics Clearance" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
+                        <i data-lucide="sigma"></i>
+                        <?= $pending_counts['stats_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['stats_pending'] . '</span>' : '' ?>
+                    </button>
+                    <span class="dock-tooltip">Statistics Clearance</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Verify" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
+                        <i data-lucide="shield-check"></i>
+                        <?= $pending_counts['plag_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['plag_pending'] . '</span>' : '' ?>
+                    </button>
+                    <span class="dock-tooltip">Plagiarism Verify</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i></button>
+                    <span class="dock-tooltip">Messages</span>
+                </li>
+                <li class="dock-divider" aria-hidden="true"></li>
+                <li class="dock-item">
+                    <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">
+                        <div class="dock-avatar-ring"><img src="<?= htmlspecialchars($current_pfp) ?>" class="dock-avatar-img" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';"></div>
+                    </button>
+                    <div class="dock-dropdown" id="dockAvatarMenu" onclick="event.stopPropagation()">
+                        <div class="dock-dropdown-head">
+                            <div class="dock-dropdown-name"><?= htmlspecialchars($currentUser['username']) ?></div>
+                            <div class="dock-dropdown-role">Director</div>
+                        </div>
+                        <a onclick="showSettingsDashboard(document.getElementById('settings-nav-btn')); toggleDockMenu('dockAvatarMenu')"><i data-lucide="settings-2"></i> Panel Settings</a>
+                        <a href="../auth/logout.php" class="danger"><i data-lucide="log-out"></i> Log out</a>
                     </div>
-                </div>
-                <a href="../auth/logout.php" style="width: 34px; height: 34px; display: flex; align-items: center; justify-content: center; background: rgba(239, 68, 68, 0.15); color: #f87171; border-radius: 8px; transition: all 0.25s; flex-shrink: 0; border: 1px solid rgba(239, 68, 68, 0.2); text-decoration: none;" onmouseover="this.style.background='rgba(239, 68, 68, 0.3)'; this.style.color='white';" onmouseout="this.style.background='rgba(239, 68, 68, 0.15)'; this.style.color='#f87171';" title="Logout">
-                    <i data-lucide="log-out" style="width: 15px; height: 15px;"></i>
-                </a>
-            </div>
-        </aside>
+                </li>
+                <li class="dock-divider" aria-hidden="true"></li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-view="calendar" onclick="showCalendarDashboard(this)"><i data-lucide="calendar-days"></i></button>
+                    <span class="dock-tooltip">Calendar</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" id="settings-nav-btn" data-view="settings" onclick="showSettingsDashboard(this)"><i data-lucide="settings-2"></i></button>
+                    <span class="dock-tooltip">Settings</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn dock-logout" onclick="window.location.href='../auth/logout.php'"><i data-lucide="log-out"></i></button>
+                    <span class="dock-tooltip">Log out</span>
+                </li>
+            </ul>
+        </nav>
 
         <main class="main-workspace-content">
             <?php include __DIR__ . "/_master_overview.php"; ?>
@@ -893,10 +316,6 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     <div class="header-title">
                         <h1>Statistics & Approvals</h1>
                         <p>Review workflow approvals and authorize outgoing SMTP email notifications.</p>
-                    </div>
-                    <div class="clock-widget">
-                        <i data-lucide="clock"></i>
-                        <span id="directorTimeClockStats">loading...</span>
                     </div>
                 </div>
 
@@ -1047,11 +466,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 <div class="header">
                     <div class="header-title">
                         <h1>Panel Settings & Environment Customize</h1>
-                        <p>Modify your name, edit profile elements, choose color palettes, and change secure credentials.</p>
-                    </div>
-                    <div class="clock-widget">
-                        <i data-lucide="clock"></i>
-                        <span id="directorTimeClockSettings">loading...</span>
+                        <p>Modify your name, edit profile elements, and change secure credentials.</p>
                     </div>
                 </div>
 
@@ -1089,17 +504,12 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                                 </div>
                             </div>
 
-                            <!-- Theme Selection Palette grid -->
+                            <!-- Appearance: Light / Dark -->
                             <div style="margin-bottom: 22px;">
-                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">Dashboard Theme</label>
-                                <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                                    <button type="button" class="theme-select-btn default" onclick="setSettingTheme('theme-default')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #f7f5ef 50%, #0c343d 50%); cursor:pointer;" title="MCNP Blue-Teal Default"></button>
-                                    <button type="button" class="theme-select-btn dark" onclick="setSettingTheme('theme-dark')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #171c1f 50%, #22d3ee 50%); cursor:pointer;" title="Midnight Dark"></button>
-                                    <button type="button" class="theme-select-btn green" onclick="setSettingTheme('theme-green')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #1e3f20 50%); cursor:pointer;" title="Science Green"></button>
-                                    <button type="button" class="theme-select-btn red" onclick="setSettingTheme('theme-red')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #571616 50%); cursor:pointer;" title="ISAP Red Maroon"></button>
-                                    <button type="button" class="theme-select-btn pink" onclick="setSettingTheme('theme-pink')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5e1c3e 50%); cursor:pointer;" title="Rose Pastel"></button>
-                                    <button type="button" class="theme-select-btn purple" onclick="setSettingTheme('theme-purple')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #3b1e5a 50%); cursor:pointer;" title="Lavender Pastel"></button>
-                                    <button type="button" class="theme-select-btn orange" onclick="setSettingTheme('theme-orange')" style="width: 32px; height: 32px; border-radius: 9px; border: 2.5px solid transparent; background: linear-gradient(135deg, #ffffff 50%, #5d2b0e 50%); cursor:pointer;" title="Amber Sand"></button>
+                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:8px;">Appearance</label>
+                                <div class="seg-toggle">
+                                    <button type="button" data-theme="theme-light" onclick="setPortalTheme('theme-light')"><i data-lucide="sun"></i> Light</button>
+                                    <button type="button" data-theme="theme-dark" onclick="setPortalTheme('theme-dark')"><i data-lucide="moon"></i> Dark</button>
                                 </div>
                             </div>
 
@@ -1203,10 +613,8 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             </div>
         </main>
 
-        <!-- MODULAR OVERLAY CONTAINER -->
-        <div class="fullscreen-overlay" id="moduleOverlay">
-            <iframe id="moduleFrame" class="overlay-iframe"></iframe>
-        </div>
+        <!-- macOS window layer (modules open here as draggable-feel windows) -->
+        <div class="window-layer" id="windowLayer"></div>
     </div>
 
     <script>
@@ -1234,8 +642,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             document.getElementById('statisticsDashboard').style.display = 'none';
             document.getElementById('settingsDashboard').style.display = 'none';
             document.getElementById('calendarDashboard').style.display = 'none';
-            document.getElementById('moduleOverlay').classList.remove('active');
-            document.getElementById('moduleFrame').src = 'about:blank';
+            PortalWindows.collapseAll();   // tuck any open module windows back to the dock
         }
 
         function showMasterDashboard(btn) {
@@ -1266,12 +673,13 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             document.getElementById('calendarDashboard').style.display = 'block';
         }
 
+        // Open a module as a macOS-style window (state preserved when minimized).
+        // Signature kept as (url, btn) so existing callers — including the cross-file
+        // activity-log links in _master_overview.php — keep working unchanged.
         function openOverlay(url, btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('moduleFrame').src = url;
-            document.getElementById('moduleOverlay').classList.add('active');
+            const title = (btn && btn.dataset.winTitle) || 'Module';
+            const icon = (btn && btn.dataset.winIcon) || 'app-window';
+            PortalWindows.open(url, url, title, icon, btn);
         }
 
         // Settings Avatar and Theme update helpers
@@ -1281,22 +689,11 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
             el.style.borderColor = 'var(--mcnp-teal)';
         }
 
+        // Theme now flows through the shared controller (portal.js): one localStorage
+        // key for every role, body markers preserved, swatch + iframe sync handled there.
         function setSettingTheme(t) {
-            localStorage.setItem('rd-portal-theme', t);
-            document.body.className = t;
-            
-            // Sync active theme indicator button
-            document.querySelectorAll('.theme-select-btn').forEach(btn => btn.style.borderColor = 'transparent');
-            const trimmed = t.replace('theme-', '');
-            const targetBtn = document.querySelector(`.theme-select-btn.${trimmed}`);
-            if (targetBtn) targetBtn.style.borderColor = 'var(--accent-teal)';
+            setPortalTheme(t);
         }
-
-        // Initialize active theme buttons on load
-        window.addEventListener('load', () => {
-            const currentTheme = localStorage.getItem('rd-portal-theme') || 'theme-default';
-            setSettingTheme(currentTheme);
-        });
     </script>
 </body>
 </html>

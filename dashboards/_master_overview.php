@@ -49,11 +49,15 @@ if ($mo_is_statistician) {
     $mo_action_needed = (int) ($stats_checklist_pending ?? 0) + (int) ($stats_payment_pending ?? 0) + (int) ($stats_release_pending ?? 0);
     $mo_approved_clearances = (int) $pdo->query("SELECT COUNT(*) FROM approvals WHERE statistician_status = 'Approved'")->fetchColumn();
 } else {
+    // Scope to the exact item ranges the dock badges use (proposal 11-16, final 21-27,
+    // stats 30-35, plagiarism 4) so the banner equals the sum of the nav badges — not every
+    // Pending upload (which would include items no review module surfaces, e.g. 3 / 36 / 37).
     $mo_act = $pdo->prepare("
         SELECT COUNT(*) FROM uploads up
         INNER JOIN (SELECT user_id, item_id, MAX(uploaded_at) AS md FROM uploads GROUP BY user_id, item_id) l
           ON up.user_id = l.user_id AND up.item_id = l.item_id AND up.uploaded_at = l.md
-        WHERE up.verification_status = ?");
+        WHERE up.verification_status = ?
+          AND up.item_id IN (11,12,13,14,15,16,21,22,23,24,25,26,27,30,31,32,33,34,35,4)");
     $mo_act->execute([$mo_action_status]);
     $mo_action_needed = (int) $mo_act->fetchColumn();
     $mo_approved_docs = (int) $pdo->query("

@@ -4,6 +4,15 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Staff dashboard follow-ups (code review, 2026-07-09):** `PortalWindows.close()` and
+  `collapseAll()` (`assets/js/portal.js`) hid/reset a module window on a bare 300ms timeout;
+  re-opening within that window blanked or hid it. Both now guard on `.shown` (a re-open aborts
+  the teardown), matching `minimize()`. The master-dashboard "needs your review" count
+  (`_master_overview.php`) is now scoped to the same item ranges as the dock badges
+  (11-16/21-27/30-35/4) so the banner always equals the badge sum instead of counting Pending
+  items no review module surfaces.
+
 ### Changed
 - **Staff dashboards — Apple/macOS redesign + shared design system + data fixes (2026-07-09)**: the four
   staff surfaces (`dashboards/director.php`, `coordinator.php`, `statistician.php`, the shared approval

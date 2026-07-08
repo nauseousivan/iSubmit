@@ -88,6 +88,7 @@
             var w = wins[key]; if (!w) return;
             w.el.classList.remove('shown');
             setTimeout(function () {
+                if (w.el.classList.contains('shown')) return;   // re-opened during the fade — abort teardown
                 w.el.classList.remove('active', 'expanded');
                 w.iframe.src = 'about:blank'; w._loaded = false;
             }, 300);
@@ -96,8 +97,11 @@
         expand: function (key) { var w = wins[key]; if (w) w.el.classList.toggle('expanded'); },
         collapseAll: function () {
             Object.keys(wins).forEach(function (k) {
-                wins[k].el.classList.remove('shown');
-                setTimeout(function () { wins[k].el.classList.remove('active'); }, 300);
+                var w = wins[k];
+                w.el.classList.remove('shown');
+                setTimeout(function () {
+                    if (!w.el.classList.contains('shown')) w.el.classList.remove('active');   // don't hide a re-opened window
+                }, 300);
             });
         },
         _home: function () {

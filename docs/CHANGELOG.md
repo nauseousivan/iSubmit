@@ -5,6 +5,57 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Plagiarism module: single-stage Accept/Revise + versioned Turnitin reports (2026-07-10):**
+  redesigned how a plagiarism submission gets decided. Previously the generic per-phase review
+  modal let staff set `Approved` directly (no Turnitin report required), while a separate "Report
+  Release" card independently released a report — two conflicting decision surfaces, and
+  acceptance was reachable before any report existed. Now: the generic modal is disabled for
+  item 4 (`admin_module_dynamic.php` rejects a direct Approve on `target_item_id=4`, and the
+  per-item card shows a plain "View Manuscript" link instead of the Approve/Revision-Requested
+  dropdown); the two-stage Coordinator-forwards/Director-finalizes flow is collapsed into a single
+  stage — any of Coordinator/Director/Statistician can directly **Accept Submission** or
+  **Request Revision**, both of which now *require* uploading the Turnitin similarity report
+  (previously revision only carried a text remark). A new **Replace Report** action (neutral/
+  outline styling, distinct from Accept's green) corrects an already-uploaded report without
+  touching the Approved status. The report itself is stored as a normal, versioned row in the
+  same `uploads` table every other document uses (new `item_id = 40`, "Turnitin Similarity
+  Report") instead of a single overwritable column — so report history now works exactly like
+  manuscript history (a "Report History" panel on both the admin and student side shows every
+  past version, nothing is silently overwritten). The manuscript checklist item was also renamed
+  from "Plagiarism-Free Manuscript" to "Research Manuscript (Turnitin Scan)" (the old name
+  presumed an outcome before review), and the student-facing Pending label changed to "In Review".
+  Migration: `database/migrations/2026-07-10_plagiarism_report_history.sql`.
+- **Real Plagiarism module lifecycle (2026-07-10):** the Plagiarism module (`item_id = 4`) was
+  previously a bare checklist entry with no catalog row (filenames silently fell back to
+  `"Document"`), no control number, and an "Approved" state that linked to a hardcoded static
+  `stats.pdf`. It now has: a `PLAG-{DEPT}-{COURSE}-{SEQ}` control number auto-generated on first
+  upload and reused across re-uploads (new `plagiarism_checks` table + migration
+  `database/migrations/2026-07-10_plagiarism_module.sql`, also backfills the missing `forms`/
+  `checklist_items` catalog rows); a real staff-side "Report Release — Plagiarism Clearance" card
+  in `admin_module_dynamic.php` letting Coordinator/Director/Statistician release (or replace) the
+  actual per-student report with an optional note, or send an Approved item back for revision;
+  Statistician now has full-parity access to `phase=plag` (acts as first-pass reviewer or
+  finalizer depending on the item's current stage) with a new nav button in `statistician.php`;
+  and `module_plagiarism.php` was rewritten onto the same wallet-card / history-panel / modal-
+  upload UI (`dashboard-cards.css`/`.js`) already used by Statistics and Proposal, replacing the
+  old plain upload list. The unrelated Proposal-phase payment check that `module_plagiarism.php`
+  was borrowing (`approvals WHERE form_id=1`) was removed — plagiarism clearance has no payment
+  step. Also added a 3-step tracker (Upload Manuscript → Under Review → Clearance Report, matching
+  Statistics' tracker visual minus the payment step) and removed the page's redundant `<h2>` title
+  (module title already lives in the parent window chrome, same as Statistics).
+- **Plagiarism control-number bug fix (2026-07-10):** the school-code half of `PLAG-{DEPT}-...`
+  was wired to the wrong reference implementation — it checked `users.department` for the literal
+  substring `"ISAP"`, which never matches (that column stores full institution names like
+  "International School of Asia and the Pacific"), so every control number silently defaulted to
+  `MCNP` regardless of the student's actual program. Fixed to mirror the real, live logic already
+  used for STAT control numbers (`admin_module_dynamic.php`'s `acknowledge_payment` action):
+  derive the school from a keyword whitelist against `users.program`, and the course code from
+  stopword-stripped initials of the same field. Also fixed: sending an Approved-and-released
+  plagiarism item back to revision (from the new Report Release card) now clears the previously
+  released `result_file`/`release_notes` — otherwise the stale report would silently reappear as
+  "ready" once the resubmitted manuscript is re-approved, without staff ever reviewing the new
+  version. Also switched the module's default accent off the old blue (`#1e40af`) onto the same
+  neutral slate (`#0f172a`) Statistics already uses.
 - **Group 360 Profile (2026-07-09):** the master dashboard's Group Explorer card now has a "View
   Full Profile" button opening a full dossier — team roster (`research_group_members`), all 4
   milestone statuses + days-in-current-stage, per-phase completion (Proposal/Final/Stats/Plag)
@@ -43,6 +94,13 @@ All notable changes to the `iSubmit` project will be documented in this file.
   items no review module surfaces.
 
 ### Changed
+- **Plagiarism module — mobile bottom-sheet + white sheet parity (2026-07-10)**: finished the student-facing
+  mobile parity so opening the Plagiarism module now animates up as a white rounded draggable bottom-sheet
+  over the dashboard (drag-to-dismiss), identical to Proposal/Statistics. In `dashboards/student.php` the
+  three `@media(max-width:768px)` sheet CSS blocks and the drag-handle JS array now also include `#zoom-plag`
+  (were `#zoom-proposal, #zoom-stats`). In `dashboards/module_plagiarism.php` the default page background was
+  switched from the light-blue `--bg-beige: #f3f7fa` to `#ffffff` so the sheet reads pure white. No workflow
+  or card logic touched.
 - **Staff dashboards — Apple/macOS redesign + shared design system + data fixes (2026-07-09)**: the four
   staff surfaces (`dashboards/director.php`, `coordinator.php`, `statistician.php`, the shared approval
   engine `dashboards/admin_module_dynamic.php`, and the `dashboards/_master_overview.php` partial) carried

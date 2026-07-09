@@ -22,11 +22,11 @@ $effective_user_id = $leader_id_for_current_user ?? $user_id;
 $safe_username = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["username"] ?? "Student")));
 $safe_program = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["program"] ?? "")));
 
-// CSRF validation (proposal + stats flows). Other module contexts are unaffected for now.
+// CSRF validation (proposal + stats + plagiarism flows). Other module contexts are unaffected for now.
 function csrf_ok_for_proposal($context)
 {
-    if (!in_array($context, ['proposal', 'stats'], true)) {
-        return true; // scope: proposal and stats flows only
+    if (!in_array($context, ['proposal', 'stats', 'plagiarism'], true)) {
+        return true; // scope: proposal, stats and plagiarism flows only
     }
     return isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']);
 }
@@ -87,6 +87,70 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
     
     // Overwrite original name so it looks pretty in DB and UI
     $original_name = $new_filename;
+
+    // Plagiarism control-number filename override: the group's control number is generated
+    // once (on first upload) and lives on plagiarism_checks, keyed by the leader, so every
+    // re-upload/revision reuses the same number instead of minting a new one.
+    if ($module_context === 'plagiarism' && $item_id === 4) {
+        $pc_stmt = $pdo->prepare("SELECT formatted_control_no FROM plagiarism_checks WHERE user_id = ?");
+        $pc_stmt->execute([$effective_user_id]);
+        $pc_row = $pc_stmt->fetch();
+
+        if ($pc_row && !empty($pc_row['formatted_control_no'])) {
+            $formatted_control_no = $pc_row['formatted_control_no'];
+        } else {
+            // Dept/course abbreviation: mirrors the REAL, live logic used for STAT control
+            // numbers (admin_module_dynamic.php's acknowledge_payment action) — keyed off the
+            // student's actual program/course, not the institution-level `department` field
+            // (that field stores full names like "International School of Asia and the
+            // Pacific", which never literally contains the substring "ISAP").
+            $stmt_leader_info = $pdo->prepare("SELECT program FROM users WHERE user_id = ?");
+            $stmt_leader_info->execute([$effective_user_id]);
+            $leader_info = $stmt_leader_info->fetch();
+
+            $prog = strtoupper($leader_info['program'] ?? 'GEN');
+            $dept = 'ISAP';
+            if (strpos($prog, 'NURSING') !== false || strpos($prog, 'MEDICAL') !== false || strpos($prog, 'RADIOLOGIC') !== false || strpos($prog, 'PHARMACY') !== false || strpos($prog, 'MIDWIFERY') !== false || strpos($prog, 'DENTAL') !== false || strpos($prog, 'CAREGIVING') !== false) {
+                $dept = 'MCNP';
+            }
+
+            $course_stopwords = ['BS', 'BA', 'AB', 'BSED', 'OF', 'IN', 'AND', 'THE'];
+            $course_words = preg_split('/\s+/', trim($leader_info['program'] ?? ''));
+            $course_significant = [];
+            foreach ($course_words as $w) {
+                if ($w !== '' && !in_array(strtoupper($w), $course_stopwords, true)) {
+                    $course_significant[] = strtoupper($w);
+                }
+            }
+            if (count($course_significant) === 1) {
+                $course_abbr = $course_significant[0];
+            } elseif (count($course_significant) > 1) {
+                $course_abbr = '';
+                foreach ($course_significant as $w) { $course_abbr .= $w[0]; }
+            } else {
+                $course_abbr = 'GEN';
+            }
+
+            $seq_stmt = $pdo->query("SELECT MAX(control_number_seq) FROM plagiarism_checks");
+            $next_seq = intval($seq_stmt->fetchColumn()) + 1;
+            $candidate_control_no = "PLAG-$dept-$course_abbr-" . str_pad($next_seq, 3, '0', STR_PAD_LEFT);
+
+            // Race-safe insert-if-not-exists: UNIQUE KEY(user_id) means a concurrent second
+            // member's upload either wins or loses this INSERT IGNORE; the re-SELECT below
+            // always returns whichever row actually won, so both requests end up naming their
+            // file identically.
+            $pdo->prepare("INSERT IGNORE INTO plagiarism_checks (user_id, control_number_seq, formatted_control_no) VALUES (?, ?, ?)")
+                ->execute([$effective_user_id, $next_seq, $candidate_control_no]);
+
+            $pc_stmt->execute([$effective_user_id]);
+            $formatted_control_no = $pc_stmt->fetchColumn();
+        }
+
+        $safe_control_no = preg_replace("/[^a-zA-Z0-9\-]+$/", "", preg_replace("/[^a-zA-Z0-9\-]+/", "_", trim($formatted_control_no)));
+        $new_filename = $safe_control_no . "_" . $short_username . "." . $ext;
+        $file_path = $upload_dir . $new_filename;
+        $original_name = $new_filename;
+    }
 
     if (move_uploaded_file($file['tmp_name'], $file_path)) {
         // Insert into uploads database as 'Pending'

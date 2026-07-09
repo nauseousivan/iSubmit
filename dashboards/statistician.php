@@ -144,6 +144,16 @@ $stats_release_pending = $pdo->query("
     SELECT COUNT(*) FROM form_stat_treatment WHERE status = 'Phase 7: Statistical Treatment'
 ")->fetchColumn();
 
+// Plagiarism nav badge: Statistician has full parity with Coordinator/Director on phase=plag,
+// so items at either the first-pass (Pending) or final (Under Review) stage count as actionable.
+$plag_pending_count = $pdo->query("
+    SELECT COUNT(*) FROM uploads up
+    INNER JOIN (
+        SELECT user_id, MAX(upload_id) AS max_id FROM uploads WHERE item_id = 4 GROUP BY user_id
+    ) latest ON latest.max_id = up.upload_id
+    WHERE up.item_id = 4 AND up.verification_status IN ('Pending', 'Under Review')
+")->fetchColumn();
+
 // Backward-compat alias: the "Pending Data Validations" stat card (and the Master Dashboard
 // partial's Statistician branch) reads this same corrected value.
 $pending_uploads_count = (int) $stats_checklist_pending;
@@ -223,6 +233,13 @@ $recent_activities = $pdo->query("
                         <?= $stats_release_pending > 0 ? '<span class="dock-badge">' . $stats_release_pending . '</span>' : '' ?>
                     </button>
                     <span class="dock-tooltip">Release Results</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Verify" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
+                        <i data-lucide="shield-check"></i>
+                        <?= $plag_pending_count > 0 ? '<span class="dock-badge">' . $plag_pending_count . '</span>' : '' ?>
+                    </button>
+                    <span class="dock-tooltip">Plagiarism Verify</span>
                 </li>
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i></button>

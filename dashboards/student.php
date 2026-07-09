@@ -2676,7 +2676,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal, #zoom-stats {
+            #zoom-proposal, #zoom-stats, #zoom-plag {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -2688,7 +2688,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active, #zoom-stats.active {
+            #zoom-proposal.active, #zoom-stats.active, #zoom-plag.active {
                 transform: translateY(0) !important;
             }
         }
@@ -3427,7 +3427,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal, #zoom-stats {
+            #zoom-proposal, #zoom-stats, #zoom-plag {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -3439,7 +3439,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active, #zoom-stats.active {
+            #zoom-proposal.active, #zoom-stats.active, #zoom-plag.active {
                 transform: translateY(0) !important;
             }
         }
@@ -4651,7 +4651,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         /* BOTTOM SHEET FOR PROPOSAL DEFENSE (MOBILE) */
         @media (max-width: 768px) {
-            #zoom-proposal, #zoom-stats {
+            #zoom-proposal, #zoom-stats, #zoom-plag {
                 top: auto !important;
                 bottom: 0 !important;
                 height: 85vh !important;
@@ -4663,7 +4663,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-top: 15px !important;
             }
 
-            #zoom-proposal.active, #zoom-stats.active {
+            #zoom-proposal.active, #zoom-stats.active, #zoom-plag.active {
                 transform: translateY(0) !important;
             }
         }
@@ -4716,7 +4716,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
     <script>
         // Bottom Sheet Drag Logic for Proposal Defense + Statistical Treatment
         document.addEventListener('DOMContentLoaded', () => {
-          ['zoom-proposal', 'zoom-stats'].forEach((sheetId) => {
+          ['zoom-proposal', 'zoom-stats', 'zoom-plag'].forEach((sheetId) => {
             const proposalSheet = document.getElementById(sheetId);
             if (!proposalSheet) return;
 

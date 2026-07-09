@@ -12,7 +12,7 @@ $message = "";
 
 $phase = $_GET['phase'] ?? 'proposal';
 
-if ($_SESSION['role'] === 'Statistician' && $phase !== 'stats') {
+if ($_SESSION['role'] === 'Statistician' && !in_array($phase, ['stats', 'plag'], true)) {
     exit("Access Denied");
 }
 $phase_map = [
@@ -100,8 +100,8 @@ $rubric_stats_sections = [
 
 // Process Document Verifications
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'verify_upload') {
-    // CSRF protection (proposal + stats flows): reject forged reviews.
-    if (in_array($phase, ['proposal', 'stats'], true) && (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']))) {
+    // CSRF protection (proposal + stats + plagiarism flows): reject forged reviews.
+    if (in_array($phase, ['proposal', 'stats', 'plag'], true) && (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']))) {
         exit('Invalid security token. Please refresh and try again.');
     }
     $upload_id = $_POST['upload_id'];
@@ -145,6 +145,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
     }
 
     $json_rubric_data = !empty($rubric_payload) ? json_encode($rubric_payload) : null;
+
+    // Plagiarism clearance can only be decided via the dedicated Plagiarism Review & Clearance
+    // section (plag_accept/plag_revise below), which requires a Turnitin report — this generic
+    // modal must never be able to set item 4 to Approved directly.
+    if ($target_item_id === 4 && $status === 'Approved') {
+        exit('Plagiarism clearance must be decided via the Plagiarism Review & Clearance section (requires a Turnitin report).');
+    }
 
     // Pass to director queue if Coordinator approves
     if ($role === 'Research Coordinator') {
@@ -386,6 +393,89 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
     }
 }
 
+// Plagiarism Review & Clearance: single-stage decisions. Any of Coordinator/Director/Statistician
+// may Accept, Request Revision, or Replace a Turnitin report on a plagiarism manuscript — the
+// report is always required and is stored as a normal versioned `uploads` row under item_id=40
+// (same table/history architecture as every other document in this system), not a single
+// overwritable column.
+$plag_actions = ['plag_accept', 'plag_revise', 'plag_replace'];
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action_type'] ?? '', $plag_actions, true)) {
+    $plag_action = $_POST['action_type'];
+    if (in_array($role, ['Research Coordinator', 'Research Director', 'Statistician'], true)) {
+        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+            exit('Invalid security token. Please refresh and try again.');
+        }
+        $student_id = $_POST['student_id'];
+        $notes = trim($_POST['notes'] ?? '');
+
+        if (isset($_FILES['report_file']) && $_FILES['report_file']['error'] === UPLOAD_ERR_OK) {
+            $ext = strtolower(pathinfo($_FILES['report_file']['name'], PATHINFO_EXTENSION));
+            if (in_array($ext, ['pdf', 'doc', 'docx'], true)) {
+                $chk_stmt = $pdo->prepare("SELECT upload_id FROM uploads WHERE user_id = ? AND item_id = 4 ORDER BY uploaded_at DESC LIMIT 1");
+                $chk_stmt->execute([$student_id]);
+                $manuscript_exists = $chk_stmt->fetchColumn();
+
+                if ($manuscript_exists) {
+                    $pc_stmt = $pdo->prepare("SELECT formatted_control_no FROM plagiarism_checks WHERE user_id = ?");
+                    $pc_stmt->execute([$student_id]);
+                    $control_no = $pc_stmt->fetchColumn();
+                    $prefix = $control_no ?: ('PLAG_' . $student_id);
+
+                    $report_dir = '../uploads/plagiarism/reports/';
+                    if (!is_dir($report_dir)) mkdir($report_dir, 0777, true);
+                    $report_filename = $prefix . '_TurnitinReport_' . time() . '.' . $ext;
+                    $report_path = $report_dir . $report_filename;
+
+                    if (move_uploaded_file($_FILES['report_file']['tmp_name'], $report_path)) {
+                        $report_status = ($plag_action === 'plag_revise') ? 'Revision Requested' : 'Approved';
+
+                        $pdo->prepare("INSERT INTO uploads (user_id, item_id, file_path, original_filename, verification_status, remarks, uploaded_at) VALUES (?, 40, ?, ?, ?, ?, CURRENT_TIMESTAMP)")
+                            ->execute([$student_id, $report_path, $report_filename, $report_status, $notes ?: null]);
+
+                        if ($plag_action !== 'plag_replace') {
+                            // Accept / Revise also finalize the manuscript's own decision.
+                            // Replace only corrects the report on an already-Approved manuscript.
+                            $default_note = ($plag_action === 'plag_accept')
+                                ? 'Accepted — Turnitin clearance confirmed.'
+                                : 'Revision requested — see the attached Turnitin report.';
+                            $pdo->prepare("UPDATE uploads SET verification_status = ?, remarks = ? WHERE user_id = ? AND item_id = 4 ORDER BY uploaded_at DESC LIMIT 1")
+                                ->execute([$report_status, $notes ?: $default_note, $student_id]);
+                        }
+
+                        $log_titles = [
+                            'plag_accept' => 'Plagiarism Clearance Accepted',
+                            'plag_revise' => 'Plagiarism Revision Requested',
+                            'plag_replace' => 'Plagiarism Report Replaced',
+                        ];
+                        $log_descs = [
+                            'plag_accept' => 'Your manuscript has been accepted. Download your official Turnitin similarity report from the Plagiarism module.',
+                            'plag_revise' => 'Your manuscript needs revision — check the attached Turnitin similarity report for details, then re-upload.',
+                            'plag_replace' => 'Your official Turnitin similarity report has been updated with a corrected version.',
+                        ];
+                        $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, ?, ?, 'success', CURRENT_TIMESTAMP)")
+                            ->execute([$student_id, $log_titles[$plag_action], $log_descs[$plag_action]]);
+
+                        $messages = [
+                            'plag_accept' => 'Submission accepted and Turnitin report released.',
+                            'plag_revise' => 'Revision requested and Turnitin report attached.',
+                            'plag_replace' => 'Turnitin report replaced successfully.',
+                        ];
+                        $message = $messages[$plag_action];
+                    } else {
+                        $message = "Failed to save the Turnitin report file.";
+                    }
+                } else {
+                    $message = "No manuscript submission found for this group.";
+                }
+            } else {
+                $message = "Invalid report file format. Use PDF or Word document.";
+            }
+        } else {
+            $message = "No Turnitin report file was selected — a report is required for this action.";
+        }
+    }
+}
+
 // Get filter values
 $selected_department = $_GET['department'] ?? '';
 $selected_program = $_GET['program'] ?? '';
@@ -454,12 +544,17 @@ $where_clauses_uploads = $where_clauses;
 $where_clauses_uploads[] = "up.item_id IN ($item_list)";
 $where_uploads_sql = "WHERE " . implode(' AND ', $where_clauses_uploads);
 
+$plag_join_sql = ($phase === 'plag') ? "LEFT JOIN plagiarism_checks pc ON pc.user_id = u.user_id" : "";
+$plag_select_sql = ($phase === 'plag') ? ", pc.formatted_control_no AS plag_control_no" : "";
+
 $uploads_query = "
     SELECT up.upload_id, up.item_id, up.file_path, up.original_filename, up.verification_status, up.remarks, up.uploaded_at,
            up.form_008_data, up.form_008_score, up.form_008_decision, u.department, u.program,
            u.email, u.username, u.research_group_name, u.user_id as student_user_id, u.profile_pic
+           $plag_select_sql
     FROM uploads up
     JOIN users u ON up.user_id = u.user_id
+    $plag_join_sql
     $where_uploads_sql
     ORDER BY up.uploaded_at DESC
 ";
@@ -587,6 +682,40 @@ if ($phase === 'stats') {
                                   FROM form_stat_treatment f
                                   JOIN users u ON f.user_id = u.user_id
                                   WHERE f.status = 'Phase 7: Statistical Treatment' ORDER BY f.date_submitted DESC")->fetchAll(PDO::FETCH_ASSOC);
+}
+
+// Plagiarism Review & Clearance: single-stage decision queue. Lists every group with a manuscript
+// submission (item 4) alongside the full Turnitin report history (item 40) for that group — report
+// history comes from the same `uploads` table + versioning every other module already uses, not a
+// bespoke single-value column.
+$plag_manuscripts = [];
+$plag_reports_history = []; // [user_id => [report rows...]], DESC by uploaded_at
+$plag_awaiting_count = 0;
+if ($phase === 'plag') {
+    $plag_manuscripts = $pdo->query("
+        SELECT u.user_id, u.username, u.research_group_name, u.department, u.program,
+               up.upload_id AS latest_upload_id, up.file_path AS manuscript_path,
+               up.original_filename AS manuscript_filename, up.verification_status,
+               pc.formatted_control_no
+        FROM uploads up
+        JOIN users u ON u.user_id = up.user_id
+        INNER JOIN (SELECT user_id, MAX(upload_id) AS max_id FROM uploads WHERE item_id = 4 GROUP BY user_id) latest
+            ON latest.max_id = up.upload_id
+        LEFT JOIN plagiarism_checks pc ON pc.user_id = u.user_id
+        ORDER BY up.uploaded_at DESC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+
+    $plag_reports_stmt = $pdo->query("
+        SELECT upload_id, user_id, file_path, original_filename, verification_status, remarks, uploaded_at
+        FROM uploads WHERE item_id = 40 ORDER BY uploaded_at DESC
+    ")->fetchAll(PDO::FETCH_ASSOC);
+    foreach ($plag_reports_stmt as $r) {
+        $plag_reports_history[$r['user_id']][] = $r;
+    }
+
+    foreach ($plag_manuscripts as $m) {
+        if ($m['verification_status'] === 'Pending') $plag_awaiting_count++;
+    }
 }
 ?>
 <!DOCTYPE html>
@@ -879,6 +1008,106 @@ if ($phase === 'stats') {
                 </div>
             <?php endif; ?>
 
+            <?php if ($phase === 'plag' && count($plag_manuscripts) > 0): ?>
+                <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid var(--success);">
+                    <div class="req-header" onclick="toggleReq('plagreview', this)">
+                        <div class="req-title" style="color: var(--success);">
+                            <i data-lucide="shield-check" style="width: 20px; height: 20px; color: var(--success);"></i>
+                            Plagiarism Review &amp; Clearance
+                        </div>
+                        <div class="req-meta">
+                            <span class="badge animate-pulse" style="background: var(--danger); <?= $plag_awaiting_count > 0 ? '' : 'display:none;' ?>"><?= $plag_awaiting_count ?> Action Needed</span>
+                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px; color: var(--success);"></i>
+                        </div>
+                    </div>
+                    <div class="req-body" id="body-plagreview">
+                        <table>
+                            <thead>
+                                <tr>
+                                    <th style="width: 22%;">Research Group</th>
+                                    <th style="width: 20%;">Manuscript</th>
+                                    <th style="width: 58%;">Decision (Turnitin report required)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <?php foreach ($plag_manuscripts as $m):
+                                    $group_reports = $plag_reports_history[$m['user_id']] ?? [];
+                                    $latest_report = $group_reports[0] ?? null;
+                                    $is_approved = ($m['verification_status'] === 'Approved');
+                                ?>
+                                    <tr>
+                                        <td>
+                                            <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= htmlspecialchars($m['research_group_name']) ?></strong><br>
+                                            <span style="color: #6b7280; font-size: 11px;"><?= htmlspecialchars($m['department']) ?></span><br>
+                                            <strong style="font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color:var(--mcnp-teal);"><?= htmlspecialchars($m['formatted_control_no'] ?: 'N/A') ?></strong>
+                                        </td>
+                                        <td>
+                                            <a href="<?= htmlspecialchars($m['manuscript_path']) ?>" target="_blank" class="file-link" style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
+                                                <i data-lucide="file-text" style="width:13px; height:13px;"></i> Manuscript
+                                            </a>
+                                            <span class="status-pill <?= $is_approved ? 'approved' : ($m['verification_status'] === 'Revision Requested' ? 'revision' : 'pending') ?>" style="font-size:9px;"><?= htmlspecialchars($m['verification_status']) ?></span>
+                                            <?php if ($latest_report): ?>
+                                                <div style="margin-top:8px;">
+                                                    <a href="<?= htmlspecialchars($latest_report['file_path']) ?>" target="_blank" class="file-link" style="display:flex; align-items:center; gap:6px; font-size:11.5px;">
+                                                        <i data-lucide="file-check" style="width:12px; height:12px;"></i> Latest Report (<?= date('M d, Y', strtotime($latest_report['uploaded_at'])) ?>)
+                                                    </a>
+                                                    <?php if (!empty($latest_report['remarks'])): ?>
+                                                        <div style="font-size:10.5px; color:#64748b; font-style:italic; margin-top:2px;">"<?= htmlspecialchars($latest_report['remarks']) ?>"</div>
+                                                    <?php endif; ?>
+                                                    <?php if (count($group_reports) > 1): ?>
+                                                        <button type="button" class="history-toggle-btn" onclick="toggleHistory('plagrep-<?= $m['user_id'] ?>', this)" style="background: #f1ebd9; border: none; padding: 3px 7px; border-radius: 6px; font-size: 10px; font-weight: 600; color: var(--mcnp-teal); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-top:4px;">
+                                                            <i data-lucide="history" style="width: 11px; height: 11px;"></i> Report History (<?= count($group_reports) - 1 ?>)
+                                                        </button>
+                                                        <div id="plagrep-<?= $m['user_id'] ?>" class="history-content-box" style="display: none; margin-top: 6px; padding: 8px; background: #faf8f5; border: 1px solid var(--border-line); border-radius: 8px; font-size: 11px; max-height: 140px; overflow-y: auto;">
+                                                            <?php for ($i = 1; $i < count($group_reports); $i++): $pr = $group_reports[$i]; ?>
+                                                                <div style="padding-bottom:6px; margin-bottom:6px; border-bottom:1px dashed #e3dec9;">
+                                                                    <a href="<?= htmlspecialchars($pr['file_path']) ?>" target="_blank" style="font-weight:700; font-size:11px; color:var(--info);"><?= htmlspecialchars($pr['original_filename']) ?></a>
+                                                                    <div style="font-size:9.5px; color:#9ca3af;"><?= date('M d, Y h:i A', strtotime($pr['uploaded_at'])) ?> — <?= htmlspecialchars($pr['verification_status']) ?></div>
+                                                                    <?php if (!empty($pr['remarks'])): ?><div style="font-size:10px; font-style:italic; color:#64748b;">"<?= htmlspecialchars($pr['remarks']) ?>"</div><?php endif; ?>
+                                                                </div>
+                                                            <?php endfor; ?>
+                                                        </div>
+                                                    <?php endif; ?>
+                                                </div>
+                                            <?php endif; ?>
+                                        </td>
+                                        <td>
+                                            <?php if (!$is_approved): ?>
+                                                <form method="POST" enctype="multipart/form-data" class="action-form" style="margin-bottom:8px;">
+                                                    <input type="hidden" name="action_type" value="plag_accept">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                                    <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
+                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
+                                                    <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                    <button type="submit" class="btn-update" style="background: var(--success);">Accept Submission</button>
+                                                </form>
+                                            <?php else: ?>
+                                                <form method="POST" enctype="multipart/form-data" class="action-form" style="margin-bottom:8px;">
+                                                    <input type="hidden" name="action_type" value="plag_replace">
+                                                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                                    <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
+                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
+                                                    <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                    <button type="submit" class="btn-update" style="background:#ffffff; color:var(--mcnp-teal); border:1.5px solid var(--border-line);" title="Corrects an already-uploaded report — does not change the Approved status">Replace Report</button>
+                                                </form>
+                                            <?php endif; ?>
+                                            <form method="POST" enctype="multipart/form-data" class="action-form" onsubmit="return confirm('Send this group back to Revision Requested? They will need to re-upload.');">
+                                                <input type="hidden" name="action_type" value="plag_revise">
+                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                                <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
+                                                <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
+                                                <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                <button type="submit" class="btn-update" style="background: var(--warning);">Request Revision</button>
+                                            </form>
+                                        </td>
+                                    </tr>
+                                <?php endforeach; ?>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            <?php endif; ?>
+
             <?php foreach ($checklist_items as $item):
                 $item_id = $item['item_id'];
                 // Payment documents (36 Validated Form / 37 Official Receipt) are reviewed entirely
@@ -892,6 +1121,13 @@ if ($phase === 'stats') {
 
                 $pending_count = 0;
                 foreach ($submissions as $sub) {
+                    if ($phase === 'plag') {
+                        // Single-stage: any of Coordinator/Director/Statistician sees the same
+                        // actionable count — real decisions happen in the dedicated Plagiarism
+                        // Review & Clearance section below, not this per-role split.
+                        if ($sub['verification_status'] === 'Pending') $pending_count++;
+                        continue;
+                    }
                     if ($role === 'Research Coordinator' && $sub['verification_status'] === 'Pending') $pending_count++;
                     if ($role === 'Research Director' && $sub['verification_status'] === 'Under Review') $pending_count++;
                     if ($role === 'Statistician' && $sub['verification_status'] === 'Pending') $pending_count++;
@@ -946,6 +1182,11 @@ if ($phase === 'stats') {
                                                 <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= highlightSearchTerm($sub['research_group_name'], $search_query) ?></strong><br>
                                                 <span style="color: #6b7280; font-size: 11px;"><?= highlightSearchTerm($sub['department'], $search_query) ?></span><br>
                                                 <span style="color: #6b7280; font-size: 11px;">Uploaded by <?= highlightSearchTerm($sub['username'], $search_query) ?></span>
+                                                <?php if ($phase === 'plag' && !empty($sub['plag_control_no'])): ?>
+                                                    <div style="font-size:11px; margin-top:4px; font-family:'JetBrains Mono', monospace; color:var(--mcnp-teal); font-weight:700;">
+                                                        <i data-lucide="hash" style="width:10px;height:10px;vertical-align:middle;"></i> <?= htmlspecialchars($sub['plag_control_no']) ?>
+                                                    </div>
+                                                <?php endif; ?>
                                                 <?php if ($item_id == 14 && !empty($sub['form_008_decision'])): ?>
                                                     <div style="font-size:11px; margin-top:5px; color:var(--warning); font-weight:700;">Score: <?= $sub['form_008_score'] ?>/22 (<?= $sub['form_008_decision'] ?>)</div>
                                                 <?php endif; ?>
@@ -997,9 +1238,15 @@ if ($phase === 'stats') {
                                             </td>
                                             <td><span class="status-pill <?= $pill_class ?>"><?= htmlspecialchars($sub['verification_status']) ?></span></td>
                                             <td>
-                                                <button type="button" class="btn-evaluate" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub)) ?>, '<?= htmlspecialchars($item['item_name']) ?>', <?= $item_id ?>)">
-                                                    <i data-lucide="eye" style="width: 15px; height: 15px;"></i> View &amp; Evaluate
-                                                </button>
+                                                <?php if ($item_id == 4): ?>
+                                                    <a href="<?= htmlspecialchars($sub['file_path']) ?>" target="_blank" class="btn-evaluate" style="background:#ffffff; color:var(--mcnp-teal); border:1.5px solid var(--border-line); text-decoration:none; display:inline-flex;">
+                                                        <i data-lucide="eye" style="width: 15px; height: 15px;"></i> View Manuscript
+                                                    </a>
+                                                <?php else: ?>
+                                                    <button type="button" class="btn-evaluate" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub)) ?>, '<?= htmlspecialchars($item['item_name']) ?>', <?= $item_id ?>)">
+                                                        <i data-lucide="eye" style="width: 15px; height: 15px;"></i> View &amp; Evaluate
+                                                    </button>
+                                                <?php endif; ?>
                                             </td>
                                         </tr>
                                     <?php endforeach; ?>

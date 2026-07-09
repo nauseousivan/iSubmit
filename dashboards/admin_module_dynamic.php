@@ -611,16 +611,10 @@ if ($phase === 'stats') {
             <h1 class="page-title"><?= htmlspecialchars($current_phase['title']) ?></h1>
             <p class="page-subtitle">Manage, review, and approve individual prerequisite documents uploaded by research groups.</p>
         </div>
-
-        <!-- Live Real-Time clock widget for Admins -->
-        <div class="admin-time-widget">
-            <i data-lucide="clock" style="width: 18px; height: 18px; color: var(--mcnp-teal);"></i>
-            <div class="time-digits" id="dashboardClock">00:00:00</div>
-        </div>
     </div>
 
     <?php if ($message): ?>
-        <div class="alert font-bold">
+        <div class="alert font-bold" id="adminModuleAlert">
             <i data-lucide="check-circle" style="vertical-align: middle; margin-right: 8px;"></i>
             <?= htmlspecialchars($message) ?>
         </div>
@@ -1163,22 +1157,17 @@ if ($phase === 'stats') {
     <script>
         lucide.createIcons();
 
-        // 1. Real-Time clock showing Time Metric for Admins
-        function updateAdminClock() {
-            const clockEl = document.getElementById('dashboardClock');
-            if (clockEl) {
-                const now = new Date();
-                const phtime = now.toLocaleString("en-US", {
-                    timeZone: "Asia/Manila",
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-                clockEl.innerHTML = phtime;
-            }
-        }
-        setInterval(updateAdminClock, 1000);
-        updateAdminClock();
+        // Auto-dismiss the post-action success banner so it doesn't linger until a manual refresh.
+        (function () {
+            const bannerEl = document.getElementById('adminModuleAlert');
+            if (!bannerEl) return;
+            setTimeout(function () {
+                bannerEl.style.transition = 'opacity .4s ease, transform .4s ease';
+                bannerEl.style.opacity = '0';
+                bannerEl.style.transform = 'translateY(-6px)';
+                setTimeout(function () { bannerEl.remove(); }, 400);
+            }, 3500);
+        })();
 
         const groupProgressData = <?= json_encode($group_progress) ?>;
         let activeGroupId = null; // null means "all"

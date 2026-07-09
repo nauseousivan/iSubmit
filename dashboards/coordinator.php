@@ -204,6 +204,10 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                     <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i></button>
                     <span class="dock-tooltip">Messages</span>
                 </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Analytics" data-win-icon="bar-chart-3" onclick="openOverlay('analytics.php', this)"><i data-lucide="bar-chart-3"></i></button>
+                    <span class="dock-tooltip">Analytics</span>
+                </li>
                 <li class="dock-divider" aria-hidden="true"></li>
                 <li class="dock-item">
                     <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">

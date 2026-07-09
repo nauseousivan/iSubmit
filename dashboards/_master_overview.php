@@ -95,7 +95,7 @@ $mo_message = $message ?? '';
     </div>
 
     <?php if (!empty($mo_message)): ?>
-        <div class="alert-success">
+        <div class="alert-success" id="masterOverviewAlert">
             <i data-lucide="check-circle" style="vertical-align: middle; margin-right: 6px;"></i>
             <?= htmlspecialchars($mo_message) ?>
         </div>
@@ -191,7 +191,33 @@ $mo_message = $message ?? '';
                         <div style="font-size:12px;"><span style="color:#6b7280;">Statistician:</span> <strong id="progStats">Pending</strong></div>
                         <div style="font-size:12px;"><span style="color:#6b7280;">Payment Status:</span> <strong id="progPay">Unpaid</strong></div>
                     </div>
+                    <button type="button" class="btn btn-secondary" id="viewFullProfileBtn" style="margin-top:10px; font-size:11.5px; padding:7px 14px;" onclick="openGroupProfileModal()">
+                        <i data-lucide="id-card" style="width:14px;height:14px;"></i> View Full Profile
+                    </button>
                 </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- GROUP 360 PROFILE MODAL -->
+    <div id="groupProfileModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(20,18,15,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+        <div style="background: var(--bg-white,#ffffff); width: 100%; max-width: 720px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
+            <div style="padding: 20px 24px; border-bottom: 2.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: var(--surface-2); flex-shrink: 0;">
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <div style="background: var(--mcnp-teal); color: var(--canvas); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                        <i data-lucide="id-card" style="width: 18px; height: 18px;"></i>
+                    </div>
+                    <div>
+                        <h3 style="color: var(--ink); font-size: 18px; margin: 0; font-weight: 800; letter-spacing:-.01em;" id="gpModalTitle">Group Profile</h3>
+                        <p style="color: var(--text-muted); font-size: 11.5px; margin: 0;">Full roster, phase progress &amp; submission timeline</p>
+                    </div>
+                </div>
+                <button type="button" onclick="closeGroupProfileModal()" style="background: transparent; border: none; cursor: pointer; color: var(--text-muted); padding: 6px;">
+                    <i data-lucide="x" style="width: 22px; height: 22px;"></i>
+                </button>
+            </div>
+            <div id="gpModalBody" style="padding: 20px 24px; overflow-y: auto; flex: 1; background: var(--surface);">
+                <p style="text-align:center; color:var(--text-muted); padding:30px;">Loading&hellip;</p>
             </div>
         </div>
     </div>
@@ -319,6 +345,18 @@ $mo_message = $message ?? '';
         }
         setInterval(updateMoClock, 1000); updateMoClock();
 
+        // Auto-dismiss the post-action success banner so it doesn't linger until a manual refresh.
+        (function () {
+            var bannerEl = document.getElementById('masterOverviewAlert');
+            if (!bannerEl) return;
+            setTimeout(function () {
+                bannerEl.style.transition = 'opacity .4s ease, transform .4s ease';
+                bannerEl.style.opacity = '0';
+                bannerEl.style.transform = 'translateY(-6px)';
+                setTimeout(function () { bannerEl.remove(); }, 400);
+            }, 3500);
+        })();
+
         // Custom dropdown open/close
         var trigger = document.getElementById('customDropdownTrigger');
         var menu = document.getElementById('customDropdownMenu');
@@ -390,8 +428,94 @@ $mo_message = $message ?? '';
             document.getElementById('progStats').className = 'badge-status ' + (data.statistician_status === 'Approved' ? 'badge-paid' : 'badge-pending');
             document.getElementById('progPay').textContent = data.payment_status;
             document.getElementById('progPay').className = 'badge-status ' + (data.payment_status === 'Paid' ? 'badge-paid' : 'badge-unpaid');
+            window.selectedGroupUserId = data.user_id;
             if (window.lucide) lucide.createIcons();
         };
+
+        // Group 360 Profile modal — fetches group_profile_data.php for the currently selected group
+        window.openGroupProfileModal = function () {
+            var uid = window.selectedGroupUserId;
+            var modal = document.getElementById('groupProfileModal');
+            var body = document.getElementById('gpModalBody');
+            if (!uid || !modal || !body) return;
+            modal.style.display = 'flex';
+            body.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:30px;">Loading&hellip;</p>';
+            fetch('group_profile_data.php?user_id=' + encodeURIComponent(uid))
+                .then(function (r) { return r.json(); })
+                .then(function (data) {
+                    if (data.error) { body.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:30px;">' + data.error + '</p>'; return; }
+                    renderGroupProfile(data);
+                })
+                .catch(function () { body.innerHTML = '<p style="text-align:center; color:var(--text-muted); padding:30px;">Could not load profile.</p>'; });
+        };
+        window.closeGroupProfileModal = function () {
+            var m = document.getElementById('groupProfileModal');
+            if (m) m.style.display = 'none';
+        };
+
+        function renderGroupProfile(data) {
+            var g = data.group, ms = data.milestones;
+            document.getElementById('gpModalTitle').textContent = g.research_group_name;
+
+            var badge = function (label, val, ok) { return '<div style="font-size:12px;"><span style="color:var(--text-muted);">' + label + ':</span> <strong class="badge-status ' + (ok ? 'badge-paid' : 'badge-pending') + '" style="margin-left:4px;">' + val + '</strong></div>'; };
+            var stageText = ms.stage_days === null ? 'No review cycle started yet' : (ms.stage_days + ' day' + (ms.stage_days === 1 ? '' : 's') + ' in current stage');
+
+            var roster = data.roster.length
+                ? data.roster.map(function (m) { return '<span style="display:inline-block; background:var(--surface-2); border:1px solid var(--line); border-radius:999px; padding:5px 12px; font-size:11.5px; font-weight:600; color:var(--ink); margin:0 6px 6px 0;">' + escapeHtml(m) + '</span>'; }).join('')
+                : '<span style="color:var(--text-muted); font-size:12px;">No team members listed beyond the leader.</span>';
+
+            var phaseOrder = ['proposal', 'final', 'stats', 'plag'];
+            var phasesHtml = phaseOrder.map(function (key) {
+                var p = data.phases[key];
+                return '<div style="margin-bottom:12px;">' +
+                    '<div style="display:flex; justify-content:space-between; font-size:12px; font-weight:700; color:var(--ink); margin-bottom:4px;"><span>' + escapeHtml(p.label) + '</span><span>' + p.approved + '/' + p.total + ' &middot; ' + p.pct + '%</span></div>' +
+                    '<div class="shimmer-bar"><div class="shimmer-progress" style="width:' + p.pct + '%;"></div></div>' +
+                    '</div>';
+            }).join('');
+
+            var timelineHtml = data.timeline.length
+                ? data.timeline.map(function (a) {
+                    var st = (a.status_type || '').toLowerCase();
+                    var cls = (st === 'approved' || st === 'success') ? 'success' : ((st === 'revision requested' || st === 'warning') ? 'warning' : 'info');
+                    var icon = cls === 'success' ? 'circle-check' : (cls === 'warning' ? 'rotate-ccw' : 'file-text');
+                    var label = cls === 'success' ? 'Approved' : (cls === 'warning' ? 'Revision' : 'Update');
+                    return '<div class="activity-item" style="cursor:default;">' +
+                        '<div class="activity-icon ' + cls + '"><i data-lucide="' + icon + '"></i></div>' +
+                        '<div class="activity-content">' +
+                        '<div class="activity-title">' + escapeHtml(a.title) + '</div>' +
+                        '<div class="activity-desc">' + escapeHtml(a.description) + '</div>' +
+                        '<div class="activity-meta">' + formatLogDate(a.created_at) + '</div>' +
+                        '</div>' +
+                        '<span class="activity-chip ' + cls + '">' + label + '</span>' +
+                        '</div>';
+                }).join('')
+                : '<p style="text-align:center; color:var(--text-muted); padding:20px;">No activity recorded yet.</p>';
+
+            var body = document.getElementById('gpModalBody');
+            body.innerHTML =
+                '<div style="display:flex; gap:16px; align-items:start; margin-bottom:18px;">' +
+                '<img src="' + (g.profile_pic || 'https://api.dicebear.com/9.x/bottts/svg?seed=' + encodeURIComponent(g.username)) + '" class="profile-pfp">' +
+                '<div style="flex:1;">' +
+                '<h4 style="color:var(--ink); font-size:15px; font-weight:700; margin:0;">' + escapeHtml(g.research_title || 'Untitled Research') + '</h4>' +
+                '<p style="font-weight:600; color:var(--ink-soft); font-size:12.5px; margin:2px 0 0;">Leader: ' + escapeHtml(g.username) + ' &middot; ' + escapeHtml(g.email) + '</p>' +
+                '<p style="font-size:11px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(g.program) + ' &middot; ' + escapeHtml(g.department) + '</p>' +
+                '</div>' +
+                '</div>' +
+                '<div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:14px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; align-items:center;">' +
+                badge('Coordinator', ms.coordinator_status, ms.coordinator_status === 'Approved') +
+                badge('Statistician', ms.statistician_status, ms.statistician_status === 'Approved') +
+                badge('Director', ms.director_status, ms.director_status === 'Approved') +
+                badge('Payment', ms.payment_status, ms.payment_status === 'Paid') +
+                '<div style="font-size:11.5px; color:var(--text-muted); font-weight:600;">' + stageText + '</div>' +
+                '</div>' +
+                '<h4 style="font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin:0 0 8px;">Team Roster</h4>' +
+                '<div style="margin-bottom:18px;">' + roster + '</div>' +
+                '<h4 style="font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin:0 0 10px;">Phase Progress</h4>' +
+                '<div style="margin-bottom:18px;">' + phasesHtml + '</div>' +
+                '<h4 style="font-size:12px; text-transform:uppercase; letter-spacing:.5px; color:var(--text-muted); margin:0 0 8px;">Full Submission Timeline</h4>' +
+                '<div>' + timelineHtml + '</div>';
+            if (window.lucide) lucide.createIcons();
+        }
 
         // Activity logs modal
         var allRecentActivities = <?= json_encode($mo_recent_activities) ?>;

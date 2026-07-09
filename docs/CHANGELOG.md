@@ -4,7 +4,29 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Group 360 Profile (2026-07-09):** the master dashboard's Group Explorer card now has a "View
+  Full Profile" button opening a full dossier — team roster (`research_group_members`), all 4
+  milestone statuses + days-in-current-stage, per-phase completion (Proposal/Final/Stats/Plag)
+  computed with the exact same latest-upload-per-item formula `admin_module_dynamic.php` already
+  uses for its own progress bars (verified to match on a sample group), and the group's full
+  submission timeline. New read-only endpoint `dashboards/group_profile_data.php`; no writes, no
+  workflow changes.
+- **Analytics & Export Dashboard (2026-07-09):** new `dashboards/analytics.php`, linked from a new
+  "Analytics" dock button (Director/Coordinator/Statistician). Cohort-wide phase pass/fail rates,
+  current bottleneck by phase, turnaround time (first submission → final approval, for groups that
+  fully cleared a phase), stage-aging distribution, department breakdown, and a 30-day activity
+  sparkline — all plain read-only SQL, no chart library. Includes a CSV export
+  (`analytics.php?export=csv`) of the full 52-group roster + statuses.
+
 ### Fixed
+- **Sticky success banner + redundant clock (2026-07-09):** the "Profile information updated
+  successfully" banner (and other post-action success banners on the master dashboard and on the
+  Proposal/Final/Stats/Plagiarism review modules) was a static server-rendered `<div>` with no
+  dismiss logic, so it stayed on screen until the page was refreshed. Both banners now auto-fade
+  and remove themselves ~3.9s after render. Also removed the redundant live clock widget from
+  `admin_module_dynamic.php` (shown on every review-module page) — the clock now only appears on
+  the master dashboard/overview header, as intended.
 - **Staff dashboard follow-ups (code review, 2026-07-09):** `PortalWindows.close()` and
   `collapseAll()` (`assets/js/portal.js`) hid/reset a module window on a bare 300ms timeout;
   re-opening within that window blanked or hid it. Both now guard on `.shown` (a re-open aborts

@@ -12,6 +12,10 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Statistician') {
 
 $uid = $_SESSION['user_id'];
 $message = "";
+if (isset($_SESSION['flash_message'])) {
+    $message = $_SESSION['flash_message'];
+    unset($_SESSION['flash_message']);
+}
 
 // Profile Information save (username + avatar preset; theme is client-only via localStorage)
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'update_profile') {
@@ -27,6 +31,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === '
         }
         $message = "Profile information updated successfully.";
     }
+    // Redirect-after-POST: prevents a page refresh from resubmitting the form and re-showing this message.
+    $_SESSION['flash_message'] = $message;
+    header("Location: statistician.php");
+    exit();
 }
 
 // Change Password save
@@ -57,6 +65,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === '
             }
         }
     }
+    // Redirect-after-POST: prevents a page refresh from resubmitting the form and re-showing this message.
+    $_SESSION['flash_message'] = $message;
+    header("Location: statistician.php");
+    exit();
 }
 
 // Fetch active profile details

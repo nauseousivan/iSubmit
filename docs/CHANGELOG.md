@@ -20,6 +20,13 @@ All notable changes to the `iSubmit` project will be documented in this file.
   (`analytics.php?export=csv`) of the full 52-group roster + statuses.
 
 ### Fixed
+- **"Profile information updated" reappearing on reload (2026-07-10):** `director.php` /
+  `coordinator.php` / `statistician.php` processed the Settings "Save" POST inline without
+  redirecting afterward, so any page refresh silently resubmitted the form and re-triggered the
+  success message. Both the profile-update and change-password handlers now redirect-after-POST
+  (flash the message via `$_SESSION['flash_message']`, `Location:` redirect, `exit()`), so the
+  message shows exactly once and a reload no longer resubmits anything. Verified end-to-end via a
+  simulated POST → GET → GET sequence: message present on the first reload, gone on the second.
 - **Sticky success banner + redundant clock (2026-07-09):** the "Profile information updated
   successfully" banner (and other post-action success banners on the master dashboard and on the
   Proposal/Final/Stats/Plagiarism review modules) was a static server-rendered `<div>` with no

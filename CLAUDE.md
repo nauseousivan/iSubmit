@@ -28,10 +28,23 @@ School research submission + approval portal. Students upload research documents
 ## Domain facts (non-obvious)
 - Roles: `Student`, `Research Coordinator`, `Research Director`, `Statistician`.
 - `uploads.verification_status`: `Pending` → (coordinator) `Under Review` → (director) `Approved` / `Revision Requested`.
-  Coordinator/Statistician act on **Pending**; Director acts on **Under Review**.
-- `checklist_items.item_id`: proposal 11–16 (Capsule/Form008 = **14**, approving it cascades-clears 13/15/16), final 21–27, stats 30–37, plagiarism = **4**. Statistician progress lives in `form_stat_treatment.status` (`Phase 1..7`).
+  Coordinator/Statistician act on **Pending**; Director acts on **Under Review**. **Exception: item 4**
+  (plagiarism manuscript) is single-stage — `Pending` → `Approved`/`Revision Requested` directly, no
+  `Under Review`, decided by any of Coordinator/Director/Statistician, and only via the dedicated
+  Accept/Revise/Replace actions in `admin_module_dynamic.php` (the generic review modal is blocked
+  from approving item 4 — server-side guard, not just UI).
+- `checklist_items.item_id`: proposal 11–16 (Capsule/Form008 = **14**, approving it cascades-clears 13/15/16), final 21–27, stats 30–37, plagiarism manuscript = **4**, plagiarism Turnitin report = **40**
+  (staff-uploaded only, never through the student upload flow — one new `uploads` row per Accept/
+  Revise/Replace decision, giving the report full version history same as any other document).
+  Plagiarism control numbers (`PLAG-{SCHOOL}-{COURSE}-{SEQ}`) live in their own `plagiarism_checks`
+  table (one row per group), not on `uploads`. Statistician progress lives in `form_stat_treatment.status` (`Phase 1..7`).
 - A "research group" = a `users` row with `role='Student'`, non-empty `research_group_name`, `leader_id IS NULL` (~52). `approvals` has ≤1 workflow row per group — **don't** source group lists from `approvals` (incomplete); use the leader-group query.
 - Theme key: `localStorage['rd-portal-theme']` = `theme-light` | `theme-dark`.
+- **Watch for dead vs. live reference code**: this codebase sometimes has two implementations of the
+  same logic where only one is actually wired up (e.g. `stat_form_handler.php`'s control-number
+  auto-increment is dead — overwritten later — while `admin_module_dynamic.php`'s `acknowledge_payment`
+  action is the real one). Before copying a pattern, grep for where the *displayed* value actually
+  comes from, don't assume the first match you find is live.
 
 ## Rules
 - **Presentation changes must not touch** workflow logic, POST handlers, SQL writes, form field

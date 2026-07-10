@@ -39,6 +39,10 @@ Stores metadata and file paths for research documents uploaded by users.
 - **`original_filename`** (VARCHAR 255)
 - **`file_path`** (VARCHAR 255) - Path relative to the server root (e.g., `uploads/file.pdf`).
 - **`verification_status`** (ENUM) - `Pending`, `Under Review`, `Approved`, `Revision Requested`.
+  Every checklist item follows `Pending → Under Review → Approved/Revision Requested`, **except item 4**
+  (plagiarism manuscript), which is single-stage: `Pending → Approved/Revision Requested` directly,
+  decided by any of Coordinator/Director/Statistician via a dedicated action that requires an
+  attached Turnitin report (item 40) — see "Plagiarism checklist items" below.
 
 **Lifecycle note:** each upload is a version row. The newest row per `(user_id, item_id)` is the "current"
 submission; reviewed rows form a read-only history. A student may delete only a `Pending` draft, and a new
@@ -64,6 +68,21 @@ Statistics checklist items (form_id 3): `30` Initial Coded Data, `31–35` deliv
 Final Coded Data, Communication Letter, MOM), `36` Validated RDC Form No. 011, `37` Official Receipt
 (items 36/37 accept image scans). Their uploads follow the same version-row lifecycle as proposals, and
 deleting a pending draft rewinds `form_stat_treatment.status` to the matching earlier phase.
+
+### `plagiarism_checks`
+One row per research group's plagiarism control-number bookkeeping (keyed to the leader's `user_id`).
+- **`user_id`** (INT, UNIQUE) - The group leader (effective user id).
+- **`control_number_seq`** (INT) - Global auto-incremented sequence, assigned on first manuscript upload.
+- **`formatted_control_no`** (VARCHAR) - `PLAG-{SCHOOL}-{COURSE}-{SEQ}` (no year segment), generated
+  once and reused across re-uploads/revisions — never regenerated.
+
+Plagiarism checklist items (form_id 4): **`4`** Research Manuscript (Turnitin Scan) — student-uploaded,
+single-stage review (see the `verification_status` note above: no `Under Review` stage here, unlike
+every other checklist item). **`40`** Turnitin Similarity Report — staff-uploaded only, one new
+`uploads` row per Accept/Revise/Replace decision (so the report has full version history, same
+lifecycle as any other document); `verification_status` mirrors the decision (`Approved` for Accept/
+Replace, `Revision Requested` for Revise), `remarks` holds the optional note. A Turnitin report is
+required on every Accept and Revise decision — acceptance is unreachable without one.
 
 ### `approvals`
 Tracks the status of a specific document or stage in the research lifecycle.

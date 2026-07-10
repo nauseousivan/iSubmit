@@ -4,6 +4,44 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Statistics Review card permanently stuck at 0% (2026-07-11):** `dashboards/student.php` derived
+  the card's ring/chip off `uploads` for `item_id = 3` — but that item doesn't exist in
+  `checklist_items` and has zero rows in `uploads` for any user, ever, so the card could never
+  show progress no matter how far a group actually advanced through the real 7-phase statistics
+  workflow (`form_stat_treatment.status`, the same source `module_statistics.php` already used).
+  Replaced with a `getStatsPhaseStatus()`/phase-to-percent map read off `form_stat_treatment`,
+  with values chosen to land in the correct existing chip/ring color bucket (e.g. "Registered" —
+  control number issued, student just needs to upload more — is progress, not a rejection, so it
+  must not fall in the red revision band even though it's mid-workflow). Footer next-step text is
+  now phase-aware too ("Submit payment proof", "Upload remaining requirements", etc.) instead of a
+  generic placeholder.
+
+### Changed
+- **Student dashboard: milestone card redesign + mobile dock pill (2026-07-11):** the 4 milestone
+  cards on `dashboards/student.php` (`.stage-card-tab`) were reworked from a centered vertical
+  stack to a horizontal layout — a faint background ghost numeral (1-4) per card, status chip
+  top-right, a 64px progress ring next to the title/meta line, and a bottom action pill showing
+  context-aware next-step text ("Download clearing form", "Upload Endorsement Letter", "Under
+  review", etc.). The old per-stage tonal purple icon tile was removed entirely (was colliding
+  visually with the 3-dot info button). Default cards now carry a low-saturation purple tint
+  (`color-mix(in srgb, var(--active-accent) 4%, white)`, ~10% in dark mode) mirroring the existing
+  green tint completed cards get. The footer action pill and meta line are both hidden entirely
+  until a card has real progress (was showing "Upload X to begin" / "Not started yet" on brand-new
+  accounts, which read as noise). Footer text renders two variants — a full/specific one for
+  tablet+desktop and a short/generic one for phone (`Download form`, `Upload next file`, etc.) —
+  so it never wraps to 2 lines or gets ellipsis-truncated, since phone card widths can't fit the
+  longest checklist item names on one line. Also fixed a real bug in the process: the progress ring
+  had a hardcoded inline `style="stroke:#7c3aed"` that silently overrode the CSS `.cp-fill.approved`
+  class, so completed cards never actually turned green. The `$final_locked`/`$stats_locked`/
+  `$plag_locked` gating (all 4 cards are unlocked by design) and its dead `card-locked-blur`/
+  `lock-shake` CSS+JS were removed. Separately, the mobile bottom dock (`≤640px`) got an
+  "expressive pill" treatment — the active tab morphs from a 50px circle to a 78px filled pill
+  (`var(--active-accent)` background, white icon) instead of the previous static tonal highlight.
+  The "Recent Group Activities" timeline card was also capped at a fixed max-height with an
+  internal scroll (previously grew unbounded with a group's full upload history, sometimes 15+
+  items tall) — "See All" still opens the untruncated list.
+
 ### Added
 - **Plagiarism module: single-stage Accept/Revise + versioned Turnitin reports (2026-07-10):**
   redesigned how a plagiarism submission gets decided. Previously the generic per-phase review

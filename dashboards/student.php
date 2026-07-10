@@ -150,23 +150,133 @@ function getStageProgress($pdo, $userId, $itemIds)
     return (int)round(($total_score / $max_score) * 100);
 }
 
+// Statistics has no single checklist item to track — its real progress lives in
+// form_stat_treatment.status (a 7-phase workflow). item_id 3 doesn't exist in checklist_items
+// and never receives uploads, so deriving the card off it (old behavior) was permanently stuck at 0%.
+function getStatsPhaseStatus($pdo, $userId)
+{
+    $stmt = $pdo->prepare("SELECT status, date_submitted FROM form_stat_treatment WHERE user_id = ? ORDER BY date_submitted DESC LIMIT 1");
+    $stmt->execute([$userId]);
+    $row = $stmt->fetch();
+    return [
+        'status' => $row['status'] ?? 'Phase 1: Pending Coded Data',
+        'date_submitted' => $row['date_submitted'] ?? null,
+    ];
+}
+
 $proposal_progress = getStageProgress($pdo, $effective_user_id, [11, 12, 13, 14, 15, 16]);
 $final_progress    = getStageProgress($pdo, $effective_user_id, [21, 22, 23, 24, 25, 26, 27]);
-$stats_progress    = getSpecificItemProgress($pdo, $effective_user_id, 3);
-$plag_progress     = getSpecificItemProgress($pdo, $effective_user_id, 4);
+$stats_phase = getStatsPhaseStatus($pdo, $effective_user_id);
+// Values are chosen to land in the same chip/ring color bucket the rest of the page already
+// uses (0 none · 1-49 pending/yellow · 50-74 revision/red · 75-99 review/amber · 100 approved/green)
+// — e.g. "Registered" (control number issued, student just needs to upload more) is progress,
+// not a problem, so it must NOT fall in the red revision band even though it's mid-workflow.
+$stats_progress_map = [
+    'Phase 1: Pending Coded Data'    => 0,
+    'Phase 2: Form Download'         => 20,
+    'Phase 5: Registered'            => 40,
+    'Phase 1: Coded Data Rejected'   => 55,
+    'Phase 6: Revision Requested'    => 65,
+    'Phase 1: Coded Data Review'     => 75,
+    'Phase 4: Payment Verification'  => 82,
+    'Phase 6: Under Review'          => 88,
+    'Phase 7: Statistical Treatment' => 95,
+    'Phase 7: Completed'             => 100,
+];
+$stats_progress = $stats_progress_map[$stats_phase['status']] ?? 0;
+$plag_progress  = getSpecificItemProgress($pdo, $effective_user_id, 4);
 
 // Fetch dynamic asset validation status rows
-$stmt = $pdo->prepare("SELECT item_id, verification_status, remarks, file_path FROM uploads WHERE user_id = ? ORDER BY uploaded_at ASC");
+$stmt = $pdo->prepare("SELECT item_id, verification_status, remarks, file_path, uploaded_at FROM uploads WHERE user_id = ? ORDER BY uploaded_at ASC");
 $stmt->execute([$effective_user_id]);
 $uploads = $stmt->fetchAll();
 
+// Latest upload per item_id — $uploads is ASC by time, so later entries overwrite earlier ones (latest wins)
+$latest_by_item = [];
 foreach ($uploads as $up) {
-    if ($up['item_id'] == 3) {
-        $stats_remarks = $up['remarks'] ?? '';
-    } elseif ($up['item_id'] == 4) {
+    $latest_by_item[$up['item_id']] = $up;
+    if ($up['item_id'] == 4) {
         $plag_remarks = $up['remarks'] ?? '';
     }
 }
+
+// MILESTONE CARD DATA — req counts, last-updated, and "what's next" text for the 4 dashboard cards
+function formatRelativeDate($timestamp)
+{
+    if (!$timestamp) return '';
+    $diff = time() - $timestamp;
+    if ($diff < 3600) return max(1, (int)round($diff / 60)) . 'm ago';
+    if ($diff < 86400) return (int)round($diff / 3600) . 'h ago';
+    if ($diff < 604800) return (int)round($diff / 86400) . 'd ago';
+    return date('M j', $timestamp);
+}
+
+// Footer text comes in a "full" (desktop/tablet, room for the specific item name) and a "short"
+// (phone, always a couple words so the pill never wraps or gets ellipsis-cut) version.
+function getStageCardMeta($pdo, $latestByItem, $itemIds, $cascadedIds = [])
+{
+    $lastTs = 0;
+    $revItem = $noUploadItem = null;
+    $actionableIds = array_diff($itemIds, $cascadedIds);
+
+    $itemNames = [];
+    if ($actionableIds) {
+        $in = implode(',', array_map('intval', $actionableIds));
+        $rows = $pdo->query("SELECT item_id, item_name FROM checklist_items WHERE item_id IN ($in)")->fetchAll();
+        foreach ($rows as $r) $itemNames[$r['item_id']] = $r['item_name'];
+    }
+
+    foreach ($itemIds as $id) {
+        $u = $latestByItem[$id] ?? null;
+        $status = $u['verification_status'] ?? 'No Upload';
+        if (!empty($u['uploaded_at'])) $lastTs = max($lastTs, strtotime($u['uploaded_at']));
+
+        if (in_array($id, $cascadedIds)) continue;
+        if ($status === 'Revision Requested' && !$revItem) $revItem = $itemNames[$id] ?? 'a requirement';
+        if ($status === 'No Upload' && !$noUploadItem) $noUploadItem = $itemNames[$id] ?? 'the next requirement';
+    }
+
+    if ($revItem) {
+        $nextFull = 'Revise: ' . $revItem;
+        $nextShort = 'Revise a file';
+    } elseif ($noUploadItem) {
+        $nextFull = 'Upload ' . $noUploadItem;
+        $nextShort = 'Upload next file';
+    } else {
+        $nextFull = $nextShort = 'Awaiting review';
+    }
+
+    return ['updated' => formatRelativeDate($lastTs), 'next_full' => $nextFull, 'next_short' => $nextShort];
+}
+
+$proposal_meta = getStageCardMeta($pdo, $latest_by_item, [11, 12, 13, 14, 15, 16], [13, 15, 16]);
+$final_meta    = getStageCardMeta($pdo, $latest_by_item, [21, 22, 23, 24, 25, 26, 27]);
+
+// Statistics card: phase status (form_stat_treatment) drives the ring/chip and the "updated" meta date
+$stats_updated = formatRelativeDate($stats_phase['date_submitted'] ? strtotime($stats_phase['date_submitted']) : 0);
+$stats_next_full_map = [
+    'Phase 1: Pending Coded Data'   => 'Upload coded data to begin',
+    'Phase 1: Coded Data Rejected'  => 'Revise coded data',
+    'Phase 2: Form Download'        => 'Submit payment proof',
+    'Phase 5: Registered'           => 'Upload remaining requirements',
+    'Phase 6: Revision Requested'   => 'Revise a requirement',
+];
+$stats_next_short_map = [
+    'Phase 1: Pending Coded Data'   => 'Upload data',
+    'Phase 1: Coded Data Rejected'  => 'Revise data',
+    'Phase 2: Form Download'        => 'Submit payment',
+    'Phase 5: Registered'           => 'Upload files',
+    'Phase 6: Revision Requested'   => 'Revise file',
+];
+$stats_next_full  = $stats_next_full_map[$stats_phase['status']]  ?? 'Awaiting review';
+$stats_next_short = $stats_next_short_map[$stats_phase['status']] ?? 'Awaiting review';
+
+// Plagiarism card: item 4 drives the ring/chip and the "updated" meta date
+$plag_updated = formatRelativeDate(!empty($latest_by_item[4]['uploaded_at']) ? strtotime($latest_by_item[4]['uploaded_at']) : 0);
+$plag_next_full_map  = [50 => 'Revise manuscript', 25 => 'Awaiting review', 0 => 'Upload manuscript to begin'];
+$plag_next_short_map = [50 => 'Revise file', 25 => 'Awaiting review', 0 => 'Upload file'];
+$plag_next_full  = $plag_next_full_map[$plag_progress] ?? 'Awaiting review';
+$plag_next_short = $plag_next_short_map[$plag_progress] ?? 'Awaiting review';
 
 // Fetch Announcements
 try {
@@ -743,21 +853,21 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             .stage-card-tab h4 {
-                font-size: 14px;
+                font-size: 16px;
             }
 
             .cp-ring-wrap {
-                width: 80px;
-                height: 80px;
+                width: 72px;
+                height: 72px;
             }
 
             .cp-svg {
-                width: 80px;
-                height: 80px;
+                width: 72px;
+                height: 72px;
             }
 
             .cp-pct {
-                font-size: 16px;
+                font-size: 15px;
             }
 
             .workspace-core-grid {
@@ -781,17 +891,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             .stage-card-tab {
                 padding: 26px 26px 28px;
                 border-radius: 32px;
-            }
-
-            .card-floating-icon {
-                width: 48px;
-                height: 48px;
-            }
-
-            .card-floating-icon svg,
-            .card-floating-icon i {
-                width: 24px;
-                height: 24px;
             }
         }
 
@@ -913,27 +1012,46 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         }
 
         .stage-card-tab {
-            background: #ffffff;
-            border: 1px solid rgba(15, 23, 42, 0.06);
-            border-radius: 28px;
+            background: color-mix(in srgb, var(--active-accent) 4%, white);
+            border: 1px solid rgba(15, 23, 42, 0.07);
+            border-radius: 26px;
             position: relative;
             cursor: pointer;
             text-align: left;
             box-shadow: var(--shadow-sm);
             display: flex;
             flex-direction: column;
-            align-items: center;
-            padding: 18px 18px 20px;
+            align-items: stretch;
+            padding: 18px 18px 16px;
             opacity: 0;
             transform: translateY(15px);
             margin-top: 0;
             overflow: hidden;
-            transition: transform 0.4s var(--spring), opacity 0.6s var(--smooth), border-color 0.4s var(--smooth), box-shadow 0.4s var(--smooth);
+            transition: transform 0.4s var(--spring), opacity 0.6s var(--smooth), border-color 0.4s var(--smooth), box-shadow 0.4s var(--smooth), background-color 0.4s var(--smooth);
         }
 
         body.theme-dark .stage-card-tab {
-            background: #151c24;
+            background: color-mix(in srgb, var(--active-accent) 10%, #151c24);
             border-color: rgba(255, 255, 255, 0.07);
+        }
+
+        /* Completed stage gets a subtle green tint; everything else gets a low-saturation purple */
+        .stage-card-tab.card-completed {
+            background: #f2fbf7;
+        }
+
+        body.theme-dark .stage-card-tab.card-completed {
+            background: rgba(16, 185, 129, 0.08);
+            border-color: rgba(16, 185, 129, 0.25);
+        }
+
+        /* Higher specificity than the generic :hover rule below so completed cards stay green on hover */
+        .stage-card-tab.card-completed:hover {
+            background-color: #e9f9f1;
+        }
+
+        body.theme-dark .stage-card-tab.card-completed:hover {
+            background-color: rgba(16, 185, 129, 0.14);
         }
 
         .stage-card-tab.visible {
@@ -954,7 +1072,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             content: '';
             position: absolute;
             inset: 0;
-            border-radius: 28px;
+            border-radius: 26px;
             background: linear-gradient(105deg, transparent 35%, rgba(255, 255, 255, 0.22) 50%, transparent 65%);
             background-size: 200% 100%;
             background-position: -100% 0;
@@ -982,56 +1100,51 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             transform: translateY(-6px) scale(1.02);
             box-shadow: 0 20px 40px -12px rgba(15, 23, 42, 0.12);
             border-color: rgba(15, 23, 42, 0.08);
-            background-color: #ffffff;
+            background-color: color-mix(in srgb, var(--active-accent) 7%, white);
         }
 
         body.theme-dark .stage-card-tab:hover {
             border-color: rgba(255, 255, 255, 0.12);
-            background: #1a222d;
+            background: color-mix(in srgb, var(--active-accent) 15%, #151c24);
         }
 
-        /* ── IN-CARD ICON (tonal, no white box) ── */
-        .card-top-cluster {
+        /* ── GHOST STAGE NUMBER (big background numeral, sits behind everything) ── */
+        .card-ghost-num {
+            position: absolute;
+            top: -26px;
+            right: -6px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 110px;
+            font-weight: 800;
+            color: rgba(15, 23, 42, 0.045);
+            user-select: none;
+            pointer-events: none;
+            line-height: 1;
+            z-index: 0;
+        }
+
+        body.theme-dark .card-ghost-num {
+            color: rgba(255, 255, 255, 0.04);
+        }
+
+        /* Wrapper that keeps real content above the ghost numeral */
+        .card-content-wrap {
+            position: relative;
+            z-index: 1;
             display: flex;
             flex-direction: column;
-            align-items: center;
-            gap: 8px;
+            gap: 14px;
             width: 100%;
-            min-height: 72px;
-            justify-content: flex-start;
-            padding-top: 2px;
+            flex: 1;
         }
 
-        .card-floating-icon {
-            position: relative;
-            top: auto;
-            left: auto;
-            transform: none;
-            width: 44px;
-            height: 44px;
-            border-radius: 14px;
+        /* ── TOP ROW: status chip, right-aligned so it clears the 3-dot button at top-left ── */
+        .card-top-row {
             display: flex;
-            align-items: center;
-            justify-content: center;
-            background: rgba(124, 58, 237, 0.1);
-            background: color-mix(in srgb, var(--active-accent) 11%, transparent);
-            border: none;
-            flex-shrink: 0;
-            transition: transform 0.35s var(--spring), background 0.35s var(--smooth);
-            z-index: 2;
-        }
-
-        .card-floating-icon svg,
-        .card-floating-icon i {
-            width: 22px;
-            height: 22px;
-            color: var(--active-accent) !important;
-            stroke: var(--active-accent) !important;
-        }
-
-        .stage-card-tab:hover .card-floating-icon {
-            transform: scale(1.08);
-            background: color-mix(in srgb, var(--active-accent) 18%, transparent);
+            align-items: flex-start;
+            justify-content: flex-end;
+            width: 100%;
+            min-height: 20px;
         }
 
         /* ── CARD INFO (3-DOT) BUTTON ── */
@@ -1066,92 +1179,17 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             stroke-width: 2.5px;
         }
 
-        /* ── LOCK BADGE (corner pill — no longer covers card content) ── */
-        /* The blur overlay is gone. Card title, status chip, and progress ring are always readable. */
-        .card-locked-blur {
-            position: absolute;
-            top: 10px;
-            right: 10px;
-            z-index: 6;
-            display: flex;
-            align-items: center;
-            gap: 5px;
-            background: rgba(124, 58, 237, 0.08);
-            border: none;
-            border-radius: 20px;
-            padding: 4px 10px 4px 7px;
-            pointer-events: none;
-        }
-
-        .lock-icon-circle {
-            /* Now just the icon part inside the pill — no circle background */
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            color: var(--text-muted);
-            transition: transform 0.4s var(--spring);
-        }
-
-        .lock-icon-circle svg {
-            width: 12px;
-            height: 12px;
-            stroke-width: 2.5px;
-        }
-
-        /* "Pending" label next to lock icon */
-        .card-locked-blur::after {
-            content: 'Pending';
-            font-family: 'Inter', sans-serif;
-            font-size: 9.5px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 0.4px;
-            color: var(--text-muted);
-        }
-
-        /* Locked cards get a very subtle muted border to signal state — readable content stays */
-        .card-locked {
-            opacity: 0.88;
-        }
-
-        .card-locked .card-floating-icon {
-            opacity: 0.7;
-        }
-
-        @keyframes lockShake {
-
-            0%,
-            100% {
-                transform: translateX(0);
-            }
-
-            20%,
-            60% {
-                transform: translateX(-5px);
-            }
-
-            40%,
-            80% {
-                transform: translateX(5px);
-            }
-        }
-
-        .lock-shake {
-            animation: lockShake 0.5s ease-in-out;
-        }
-
         /* ── CIRCULAR PROGRESS RING (stopwatch style) ── */
         .cp-ring-wrap {
             position: relative;
-            width: 72px;
-            height: 72px;
+            width: 64px;
+            height: 64px;
             flex-shrink: 0;
-            margin: 4px auto 0;
         }
 
         .cp-svg {
-            width: 72px;
-            height: 72px;
+            width: 64px;
+            height: 64px;
             transform: rotate(-90deg);
         }
 
@@ -1208,22 +1246,103 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             letter-spacing: 0.5px;
         }
 
-        /* ── CARD CONTENT AREA ── */
-        .card-info-content {
+        /* ── MIDDLE ROW: progress ring (left) + title/meta (right), horizontal ── */
+        .card-mid-row {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            text-align: left;
+        }
+
+        .card-mid-text {
             display: flex;
             flex-direction: column;
-            align-items: center;
-            gap: 4px;
-            width: 100%;
-            text-align: center;
+            gap: 3px;
+            min-width: 0;
+            flex: 1;
         }
 
         .stage-card-tab h4 {
-            font-size: 12.5px;
+            font-size: 15px;
             color: var(--text-primary);
             font-weight: 800;
             line-height: 1.3;
-            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .card-meta-line {
+            font-size: 11.5px;
+            font-weight: 600;
+            color: #64748b;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* ── FOOTER ACTION ROW ── */
+        .card-footer-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 8px;
+            width: 100%;
+            background: rgba(255, 255, 255, 0.75);
+            border: 1px solid rgba(15, 23, 42, 0.06);
+            border-radius: 14px;
+            padding: 10px 14px;
+        }
+
+        body.theme-dark .card-footer-row {
+            background: rgba(255, 255, 255, 0.04);
+            border-color: rgba(255, 255, 255, 0.08);
+        }
+
+        .card-footer-text {
+            font-size: 11.5px;
+            font-weight: 700;
+            flex: 1;
+            min-width: 0;
+            white-space: nowrap;
+            overflow: hidden;
+        }
+
+        .card-footer-text.tone-approved {
+            color: #047857;
+        }
+
+        body.theme-dark .card-footer-text.tone-approved {
+            color: #34d399;
+        }
+
+        .card-footer-text.tone-review {
+            color: #b45309;
+        }
+
+        body.theme-dark .card-footer-text.tone-review {
+            color: #fbbf24;
+        }
+
+        .card-footer-text.tone-default {
+            color: #475569;
+        }
+
+        body.theme-dark .card-footer-text.tone-default {
+            color: #94a3b8;
+        }
+
+        .card-footer-arrow {
+            flex-shrink: 0;
+            display: flex;
+            color: var(--text-muted);
+        }
+
+        .card-footer-arrow svg {
+            width: 13px;
+            height: 13px;
+            stroke-width: 2.5px;
         }
 
         /* ── STATUS CHIP ── */
@@ -1269,14 +1388,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             background: #fef9c3;
             color: #854d0e;
             border: 1px solid #fde047;
-        }
-
-        .card-bottom-row {
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            width: 100%;
-            margin-top: 2px;
         }
 
         /* CORE GRID */
@@ -1352,6 +1463,27 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             color: #ffffff;
             transform: translateY(-1.5px);
             box-shadow: 0 4px 12px -2px var(--active-glow);
+        }
+
+        /* Caps the activity card's height so a group with many uploads doesn't push the whole
+           page down — "See All" already exists for the full list, this just scrolls in-place. */
+        .activity-scroll-container {
+            max-height: 460px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+
+        .activity-scroll-container::-webkit-scrollbar {
+            width: 5px;
+        }
+
+        .activity-scroll-container::-webkit-scrollbar-track {
+            background: transparent;
+        }
+
+        .activity-scroll-container::-webkit-scrollbar-thumb {
+            background: var(--border-subtle);
+            border-radius: 10px;
         }
 
         /* TIMELINE ACTIVITY STREAM */
@@ -2350,53 +2482,54 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             .stage-card-tab {
-                flex-direction: column !important;
                 height: auto !important;
-                align-items: center !important;
-                padding: 14px 12px 16px !important;
+                padding: 14px 12px !important;
                 border-radius: 22px;
             }
 
-            .card-top-cluster {
-                min-height: 64px;
-                gap: 6px;
+            .card-content-wrap {
+                gap: 10px;
             }
 
-            .card-floating-icon {
-                width: 40px;
-                height: 40px;
-                border-radius: 12px;
+            .card-ghost-num {
+                font-size: 56px;
+                top: -12px;
+                right: -2px;
             }
 
-            .card-floating-icon svg,
-            .card-floating-icon i {
-                width: 20px;
-                height: 20px;
-            }
-
-            .card-info-content {
-                align-items: center !important;
-                text-align: center !important;
-                padding: 0 !important;
-                gap: 4px !important;
+            .card-mid-row {
+                gap: 8px;
             }
 
             .stage-card-tab h4 {
-                font-size: 11px !important;
+                font-size: 11.5px !important;
+            }
+
+            .card-meta-line {
+                font-size: 9.5px;
             }
 
             .cp-ring-wrap {
-                width: 60px;
-                height: 60px;
+                width: 52px;
+                height: 52px;
             }
 
             .cp-svg {
-                width: 60px;
-                height: 60px;
+                width: 52px;
+                height: 52px;
             }
 
             .cp-pct {
-                font-size: 12px !important;
+                font-size: 11px !important;
+            }
+
+            .card-footer-row {
+                padding: 8px 10px;
+                border-radius: 12px;
+            }
+
+            .card-footer-text {
+                font-size: 10px;
             }
 
             /* ── COMPACT MOBILE HEADER ── */
@@ -2479,12 +2612,22 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             .dock-btn {
                 width: 50px;
                 height: 50px;
-                border-radius: 14px;
+                border-radius: 23px;
+                color: #94a3b8;
+                flex-shrink: 0;
+                transition: width 0.45s var(--spring), background-color 0.3s var(--smooth), color 0.3s var(--smooth);
             }
 
             .dock-btn svg {
                 width: 26px;
                 height: 26px;
+                stroke-width: 2.5px;
+            }
+
+            .dock-btn.active {
+                width: 78px;
+                background-color: var(--active-accent);
+                color: #ffffff;
             }
 
             .dock-avatar-wrapper {
@@ -2849,22 +2992,34 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
             <!-- CARDS MILESTONE ROW -->
             <?php
-            // Calculate locking logic for milestones
-            $proposal_locked = false; // Stage 1 is never locked
-            $final_locked = ($proposal_progress < 100);
-            $stats_locked = ($final_progress < 100);
-            $plag_locked = ($final_progress < 100);
+            // Footer action-row text: green when complete, amber while in review, otherwise the
+            // dynamic next-step text computed above (Revise:/Upload .../Awaiting review).
+            function cardFooterHTML($progress, $completedFull, $completedShort, $nextFull, $nextShort)
+            {
+                if ($progress >= 100) {
+                    $tone = 'tone-approved';
+                    $full = $completedFull;
+                    $short = $completedShort;
+                } elseif ($progress >= 75) {
+                    $tone = 'tone-review';
+                    $full = $short = 'Under review';
+                } else {
+                    $tone = 'tone-default';
+                    $full = $nextFull;
+                    $short = $nextShort;
+                }
+                // Short (generic, always fits one line) on phone; full (specific) on tablet/desktop
+                return '<span class="card-footer-text ' . $tone . ' desktop-hidden">' . htmlspecialchars($short) . '</span>'
+                     . '<span class="card-footer-text ' . $tone . ' mobile-hidden">' . htmlspecialchars($full) . '</span>';
+            }
+            $footerArrowSvg = '<span class="card-footer-arrow"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg></span>';
             ?>
             <section class="stage-tabs-row">
                 <!-- Proposal Card — pink/rose accent -->
-                <div class="stage-card-tab <?= $proposal_locked ? 'card-locked' : '' ?>"
+                <div class="stage-card-tab <?= $proposal_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     onclick="pushView('zoom-proposal','module_proposal.php',this)">
-                    <?php if ($proposal_locked): ?>
-                        <div class="card-locked-blur">
-                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
-                        </div>
-                    <?php endif; ?>
+                    <div class="card-ghost-num">1</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'proposal')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2872,44 +3027,48 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-info-content">
-                        <div class="card-top-cluster">
-                            <div class="card-floating-icon">
-                                <i data-lucide="file-text"></i>
-                            </div>
+                    <div class="card-content-wrap">
+                        <div class="card-top-row">
                             <?php
                             if ($proposal_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
                             elseif ($proposal_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
                             elseif ($proposal_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
                             elseif ($proposal_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            else                                 echo '<span></span>';
                             ?>
                         </div>
-                        <h4>1. Proposal Defense</h4>
-                        <div class="card-bottom-row">
+                        <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $proposal_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
-                                        data-pct="<?= $proposal_progress ?>"
-                                        style="stroke:#7c3aed;" />
+                                        data-pct="<?= $proposal_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $proposal_progress ?>%</span>
                                 </div>
                             </div>
+                            <div class="card-mid-text">
+                                <h4>Proposal Defense</h4>
+                                <?php if ($proposal_meta['updated']): ?>
+                                    <span class="card-meta-line"><?= $proposal_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($proposal_meta['updated']) ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
+                        <?php if ($proposal_progress > 0): ?>
+                            <div class="card-footer-row">
+                                <?= cardFooterHTML($proposal_progress, 'Download clearing form', 'Download form', $proposal_meta['next_full'], $proposal_meta['next_short']) ?>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Final Defense Card -->
-                <div class="stage-card-tab <?= $final_locked ? 'card-locked' : '' ?>"
+                <div class="stage-card-tab <?= $final_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     onclick="pushView('zoom-final','module_final.php',this)">
-                    <?php if ($final_locked): ?>
-                        <div class="card-locked-blur">
-                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
-                        </div>
-                    <?php endif; ?>
+                    <div class="card-ghost-num">2</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'final')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2917,44 +3076,48 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-info-content">
-                        <div class="card-top-cluster">
-                            <div class="card-floating-icon">
-                                <i data-lucide="award"></i>
-                            </div>
+                    <div class="card-content-wrap">
+                        <div class="card-top-row">
                             <?php
                             if ($final_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
                             elseif ($final_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
                             elseif ($final_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
                             elseif ($final_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            else                               echo '<span></span>';
                             ?>
                         </div>
-                        <h4>2. Final Defense</h4>
-                        <div class="card-bottom-row">
+                        <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $final_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
-                                        data-pct="<?= $final_progress ?>"
-                                        style="stroke:#7c3aed;" />
+                                        data-pct="<?= $final_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $final_progress ?>%</span>
                                 </div>
                             </div>
+                            <div class="card-mid-text">
+                                <h4>Final Defense</h4>
+                                <?php if ($final_meta['updated']): ?>
+                                    <span class="card-meta-line"><?= $final_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($final_meta['updated']) ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
+                        <?php if ($final_progress > 0): ?>
+                            <div class="card-footer-row">
+                                <?= cardFooterHTML($final_progress, 'Download approval form', 'Download form', $final_meta['next_full'], $final_meta['next_short']) ?>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Statistics Card -->
-                <div class="stage-card-tab <?= $stats_locked ? 'card-locked' : '' ?>"
+                <div class="stage-card-tab <?= $stats_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     onclick="pushView('zoom-stats','module_statistics.php',this)">
-                    <?php if ($stats_locked): ?>
-                        <div class="card-locked-blur">
-                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
-                        </div>
-                    <?php endif; ?>
+                    <div class="card-ghost-num">3</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'stats')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -2962,44 +3125,48 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-info-content">
-                        <div class="card-top-cluster">
-                            <div class="card-floating-icon">
-                                <i data-lucide="calculator"></i>
-                            </div>
+                    <div class="card-content-wrap">
+                        <div class="card-top-row">
                             <?php
                             if ($stats_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
                             elseif ($stats_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
                             elseif ($stats_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
                             elseif ($stats_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            else                               echo '<span></span>';
                             ?>
                         </div>
-                        <h4>3. Statistics Review</h4>
-                        <div class="card-bottom-row">
+                        <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
-                                    <circle class="cp-fill <?= $stats_progress == 100 ? 'approved' : ($stats_progress == 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
-                                        data-pct="<?= $stats_progress ?>"
-                                        style="stroke:#7c3aed;" />
+                                    <circle class="cp-fill <?= $stats_progress == 100 ? 'approved' : ($stats_progress >= 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
+                                        data-pct="<?= $stats_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $stats_progress ?>%</span>
                                 </div>
                             </div>
+                            <div class="card-mid-text">
+                                <h4>Statistics Review</h4>
+                                <?php if ($stats_updated): ?>
+                                    <span class="card-meta-line"><?= $stats_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($stats_updated) ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
+                        <?php if ($stats_progress > 0): ?>
+                            <div class="card-footer-row">
+                                <?= cardFooterHTML($stats_progress, 'Results released', 'Results released', $stats_next_full, $stats_next_short) ?>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
 
                 <!-- Plagiarism Card -->
-                <div class="stage-card-tab <?= $plag_locked ? 'card-locked' : '' ?>"
+                <div class="stage-card-tab <?= $plag_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     onclick="pushView('zoom-plag','module_plagiarism.php',this)">
-                    <?php if ($plag_locked): ?>
-                        <div class="card-locked-blur">
-                            <div class="lock-icon-circle"><i data-lucide="lock"></i></div>
-                        </div>
-                    <?php endif; ?>
+                    <div class="card-ghost-num">4</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'plag')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -3007,32 +3174,40 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                             <circle cx="12" cy="19" r=".6" fill="currentColor" />
                         </svg>
                     </button>
-                    <div class="card-info-content">
-                        <div class="card-top-cluster">
-                            <div class="card-floating-icon">
-                                <i data-lucide="shield-alert"></i>
-                            </div>
+                    <div class="card-content-wrap">
+                        <div class="card-top-row">
                             <?php
                             if ($plag_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
                             elseif ($plag_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
                             elseif ($plag_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
                             elseif ($plag_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            else                               echo '<span></span>';
                             ?>
                         </div>
-                        <h4>4. Plagiarism Test</h4>
-                        <div class="card-bottom-row">
+                        <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
                                     <circle class="cp-fill <?= $plag_progress == 100 ? 'approved' : ($plag_progress == 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
-                                        data-pct="<?= $plag_progress ?>"
-                                        style="stroke:#7c3aed;" />
+                                        data-pct="<?= $plag_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
                                     <span class="cp-pct"><?= $plag_progress ?>%</span>
                                 </div>
                             </div>
+                            <div class="card-mid-text">
+                                <h4>Plagiarism Test</h4>
+                                <?php if ($plag_updated): ?>
+                                    <span class="card-meta-line"><?= $plag_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($plag_updated) ?></span>
+                                <?php endif; ?>
+                            </div>
                         </div>
+                        <?php if ($plag_progress > 0): ?>
+                            <div class="card-footer-row">
+                                <?= cardFooterHTML($plag_progress, 'Manuscript cleared', 'Cleared', $plag_next_full, $plag_next_short) ?>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             </section>
@@ -3046,34 +3221,36 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                         <a href="javascript:void(0)" onclick="pushView('zoom-activities', 'activities_all.php')" class="btn-see-all">See All</a>
                     </div>
 
-                    <div class="activity-stream-box timeline-stream">
-                        <?php if (count($recent_activities) > 0): ?>
-                            <?php foreach ($recent_activities as $act): ?>
-                                <div class="timeline-item">
-                                    <div class="timeline-badge-container">
-                                        <div class="timeline-badge <?= $act['status_type'] === 'success' ? 'success' : ($act['status_type'] === 'warning' ? 'warning' : 'info') ?>">
-                                            <?php if ($act['status_type'] === 'success'): ?>
-                                                <i data-lucide="check" style="width: 12px; height: 12px;"></i>
-                                            <?php elseif ($act['status_type'] === 'warning'): ?>
-                                                <i data-lucide="alert-triangle" style="width: 12px; height: 12px;"></i>
-                                            <?php else: ?>
-                                                <i data-lucide="info" style="width: 12px; height: 12px;"></i>
-                                            <?php endif; ?>
+                    <div class="activity-scroll-container">
+                        <div class="activity-stream-box timeline-stream">
+                            <?php if (count($recent_activities) > 0): ?>
+                                <?php foreach ($recent_activities as $act): ?>
+                                    <div class="timeline-item">
+                                        <div class="timeline-badge-container">
+                                            <div class="timeline-badge <?= $act['status_type'] === 'success' ? 'success' : ($act['status_type'] === 'warning' ? 'warning' : 'info') ?>">
+                                                <?php if ($act['status_type'] === 'success'): ?>
+                                                    <i data-lucide="check" style="width: 12px; height: 12px;"></i>
+                                                <?php elseif ($act['status_type'] === 'warning'): ?>
+                                                    <i data-lucide="alert-triangle" style="width: 12px; height: 12px;"></i>
+                                                <?php else: ?>
+                                                    <i data-lucide="info" style="width: 12px; height: 12px;"></i>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+                                        <div class="timeline-content">
+                                            <h4 class="timeline-title"><?= htmlspecialchars($act['title']) ?></h4>
+                                            <p class="timeline-description"><?= htmlspecialchars($act['description']) ?></p>
+                                            <span class="timeline-time" data-timestamp="<?= strtotime($act['created_at']) ?>">
+                                                <i data-lucide="clock" style="width: 10px; height: 10px;"></i>
+                                                <span class="time-text"><?= date('M d, Y • h:i A', strtotime($act['created_at'])) ?></span>
+                                            </span>
                                         </div>
                                     </div>
-                                    <div class="timeline-content">
-                                        <h4 class="timeline-title"><?= htmlspecialchars($act['title']) ?></h4>
-                                        <p class="timeline-description"><?= htmlspecialchars($act['description']) ?></p>
-                                        <span class="timeline-time" data-timestamp="<?= strtotime($act['created_at']) ?>">
-                                            <i data-lucide="clock" style="width: 10px; height: 10px;"></i>
-                                            <span class="time-text"><?= date('M d, Y • h:i A', strtotime($act['created_at'])) ?></span>
-                                        </span>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        <?php else: ?>
-                            <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 40px;"><i data-lucide="folder-open" style="width:28px;height:28px;display:block;margin:0 auto 10px auto;opacity:0.4;"></i>No recent verification milestones logged yet.</p>
-                        <?php endif; ?>
+                                <?php endforeach; ?>
+                            <?php else: ?>
+                                <p style="font-size: 13px; color: var(--text-muted); text-align: center; padding: 40px;"><i data-lucide="folder-open" style="width:28px;height:28px;display:block;margin:0 auto 10px auto;opacity:0.4;"></i>No recent verification milestones logged yet.</p>
+                            <?php endif; ?>
+                        </div>
                     </div>
                 </div>
 
@@ -3798,16 +3975,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 panelId: panelId,
                 url: url
             }, "", "#" + moduleName);
-            // Locked cards show cosmetic shake + info toast, but DO NOT block access
-            if (triggerEl && triggerEl.classList.contains('card-locked')) {
-                const lockIcon = triggerEl.querySelector('.lock-icon-circle');
-                if (lockIcon) {
-                    lockIcon.classList.remove('lock-shake');
-                    void lockIcon.offsetWidth;
-                    lockIcon.classList.add('lock-shake');
-                }
-                // NOTE: No return — card still opens so students can submit inside
-            }
 
             collapseZoomModules();
 

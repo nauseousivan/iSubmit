@@ -13,92 +13,91 @@
             box-sizing: border-box;
         }
 
-        /* Shared Styles (Progress Widget) */
+        /* Shared Styles */
         .mobile-stack-hint {
             display: none;
         }
 
-        .hero-widgets {
-            display: flex;
-            flex-direction: row;
-            justify-content: flex-start;
-            margin-bottom: 24px;
+        /* Prev/next buttons for the web-only horizontal items-grid scroller — hidden by default,
+           shown only at the ≥1025px breakpoint (see WEB COMPACTING block further down). */
+        .items-scroll-nav {
+            display: none;
         }
 
-        .widget-card {
-            background: white;
-            border-radius: 20px;
-            padding: 16px;
-            text-align: center;
-            box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05);
-            border: 1px solid #f3f4f6;
-            width: 140px;
-            height: 140px;
+        /* Wraps the next-step banner + filter tabs. Plain column stack on mobile (identical to two
+           sibling divs — don't add gap/alignment here, mobile layout must stay exactly as-is).
+           Desktop-only reordering/centering lives in the ≥1025px block further down. */
+        .proposal-hero-stack {
             display: flex;
             flex-direction: column;
+        }
+
+        /* Compact next-step / clearance banner — sits above the filter tabs, capped width on
+           desktop so it doesn't stretch into a long empty bar (was flex:1 next to a progress widget
+           that no longer exists). */
+        .next-step-banner-compact {
+            margin-bottom: 14px;
+        }
+
+        /* All / Needs you / Cleared filter tabs — filters .item-card via data-filter, wired up
+           per-page (see module_proposal.php's inline <script>). */
+        .status-filter-tabs {
+            display: inline-flex;
             align-items: center;
-            justify-content: center;
+            gap: 2px;
+            background: #f1f5f9;
+            border-radius: 999px;
+            padding: 4px;
+            margin-bottom: 20px;
         }
 
-        .circular-chart {
-            display: block;
-            margin: 0 auto;
-            max-width: 60px;
-            max-height: 60px;
-        }
-
-        .circle-bg {
-            fill: none;
-            stroke: #e2e8f0;
-            stroke-width: 3.5;
-        }
-
-        .circle {
-            fill: none;
-            stroke-width: 3.5;
-            stroke-linecap: round;
-            animation: progress 1s ease-out forwards;
-        }
-
-        @keyframes progress {
-            0% {
-                stroke-dasharray: 0 100;
-            }
-        }
-
-        .percentage {
-            fill: #1e293b;
+        .status-filter-tab {
+            display: inline-flex;
+            align-items: center;
+            gap: 5px;
+            border: none;
+            background: transparent;
+            color: #64748b;
             font-family: 'Inter', sans-serif;
-            font-size: 8px;
-            font-weight: 800;
-            text-anchor: middle;
-            dominant-baseline: central;
-        }
-
-        .widget-label {
-            font-size: 11px;
+            font-size: 13px;
             font-weight: 700;
-            color: #64748b;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-top: 10px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 6px;
+            padding: 8px 14px;
+            border-radius: 999px;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
         }
 
-        .widget-value {
-            font-size: 18px;
-            font-weight: 800;
+        .status-filter-tab:hover:not(.active) {
+            color: #334155;
+        }
+
+        .status-filter-tab.active {
+            background: #ffffff;
             color: #0f172a;
-            margin: 4px 0 2px 0;
+            box-shadow: 0 1px 3px rgba(15, 23, 42, 0.1);
         }
 
-        .widget-subtext {
-            font-size: 11px;
-            color: #64748b;
-            margin: 0;
+        .status-filter-tab .tab-count {
+            font-size: 11.5px;
+            font-weight: 700;
+            color: #94a3b8;
+        }
+
+        .status-filter-tab.active .tab-count {
+            color: #6d28d9;
+        }
+
+        @media (max-width: 768px) {
+            .status-filter-tabs {
+                display: flex;
+                width: 100%;
+            }
+
+            .status-filter-tab {
+                flex: 1;
+                justify-content: center;
+            }
         }
 
         /* Buttons and Shared Form Elements */
@@ -489,15 +488,6 @@
 
             .mobile-stack-hint {
                 display: none;
-            }
-
-            .hero-widgets {
-                flex-direction: row;
-                gap: 24px;
-            }
-
-            .hero-widgets .widget-card {
-                flex: 1;
             }
 
             .items-grid {
@@ -913,12 +903,23 @@
             border-radius: 0;
         }
         @media (min-width: 769px) {
+            /* Real blur + darken behind the drawer (was fully transparent — the page content
+               showing through unobscured against the panel's hard edge read as a rendering
+               glitch, not an intentional shadow). Web only, per request — mobile stays as-is. */
+            .history-backdrop {
+                background: rgba(15, 23, 42, 0.32);
+                backdrop-filter: blur(6px);
+                -webkit-backdrop-filter: blur(6px);
+            }
+
             .history-panel {
                 width: 400px;
                 left: auto;
                 top: 0;
                 transform: translateX(100%);
-                border-radius: 0;
+                border-radius: 24px 0 0 24px;
+                overflow: hidden;
+                box-shadow: -12px 0 40px rgba(15, 23, 42, 0.22);
             }
             .history-panel.open { transform: translateX(0); }
         }
@@ -1124,51 +1125,102 @@
            ======================================================== */
         @media (min-width: 1025px) {
 
-            /* ── Slimmer hero widgets so "0 / 6" no longer looks oversized ── */
-            .hero-widgets {
-                gap: 16px;
+            /* Next-step banner no longer needs to stretch to fill a row beside a progress widget —
+               cap it so it reads as a slim strip, not a long empty bar. Centered as a matched-width
+               pair with the filter tabs below (mobile keeps its own separate, untouched layout). */
+            .proposal-hero-stack {
+                align-items: center;
+            }
+
+            .next-step-banner-compact {
+                width: 480px;
+                max-width: 480px;
+            }
+
+            /* Bigger, centered, tabs-first — same visual weight as the step-tracker on the
+               Statistics module. order:-1 moves it above the banner without touching DOM/mobile order. */
+            .status-filter-tabs {
+                order: -1;
+                display: flex;
+                width: 480px;
+                padding: 6px;
+                gap: 4px;
                 margin-bottom: 16px;
-                align-items: stretch;
             }
 
-            .hero-widgets .widget-card {
-                flex: 0 0 168px;
-                width: 168px;
-                height: 116px;
-                padding: 12px;
-                border-radius: 16px;
+            .status-filter-tab {
+                flex: 1;
+                justify-content: center;
+                font-size: 14.5px;
+                padding: 13px 18px;
             }
 
-            .circular-chart {
-                max-width: 46px;
-                max-height: 46px;
+            .status-filter-tab .tab-count {
+                font-size: 13px;
             }
 
-            .widget-label {
-                margin-top: 6px;
-                font-size: 10px;
-            }
-
-            .widget-value {
-                font-size: 16px;
-                margin: 3px 0 1px 0;
-            }
-
-            .widget-subtext {
-                font-size: 10px;
-            }
-
-            /* Clearance card equalised to the (now shorter) progress card */
-            .hero-widgets .clearance-widget {
-                height: 116px !important;
-                margin-left: 0 !important;
-            }
-
-            /* ── Compact requirement cards so all 6 fit without scrolling ── */
+            /* ── Requirement cards become a single horizontally-scrollable row instead of
+               wrapping to a sparse, "isolated"-looking second row once there are 5+ items ── */
             .items-grid {
-                grid-template-columns: repeat(auto-fill, minmax(288px, 1fr));
+                display: flex;
+                flex-wrap: nowrap;
+                overflow-x: auto;
                 gap: 16px;
                 margin-top: 16px;
+                scroll-behavior: smooth;
+                scrollbar-width: none;
+                -ms-overflow-style: none;
+            }
+
+            .items-grid::-webkit-scrollbar {
+                display: none;
+            }
+
+            /* calc(25% - 12px) reproduces exactly what the old 4-column grid rendered (4 cards *
+               cardWidth + 3 gaps of 16px = container width) — so cards 1-4 stay their original
+               size, unchanged, and 5/6 just inherit that same width instead of a shrunk fixed one. */
+            .items-grid .item-card {
+                flex: 0 0 calc(25% - 12px);
+                width: calc(25% - 12px);
+                min-width: 288px;
+            }
+
+            .items-scroll-nav {
+                display: flex;
+                justify-content: center;
+                gap: 10px;
+                margin-top: 14px;
+            }
+
+            .items-scroll-btn {
+                width: 36px;
+                height: 36px;
+                border-radius: 50%;
+                border: 1px solid #e2e8f0;
+                background: #ffffff;
+                color: #334155;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                cursor: pointer;
+                box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+                transition: background 0.2s ease, color 0.2s ease, opacity 0.2s ease;
+            }
+
+            .items-scroll-btn svg {
+                width: 16px;
+                height: 16px;
+            }
+
+            .items-scroll-btn:hover:not(:disabled) {
+                background: #0f172a;
+                color: #ffffff;
+                border-color: #0f172a;
+            }
+
+            .items-scroll-btn:disabled {
+                opacity: 0.35;
+                cursor: default;
             }
 
             .card-header {

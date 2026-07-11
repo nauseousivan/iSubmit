@@ -98,12 +98,18 @@ $message_type = $_GET['type'] ?? '';
     <?php
     $total_items = count($checklist_items);
     $approved_items = 0;
-    foreach ($item_statuses as $s) {
-        if ($s['status'] === 'Approved') $approved_items++;
+    $needs_you_items = 0;
+    foreach ($checklist_items as $ci) {
+        $st = $item_statuses[$ci['item_id']]['status'];
+        $is_cascaded = in_array($ci['item_id'], [13, 15, 16]);
+        if ($st === 'Approved') {
+            $approved_items++;
+        } elseif (!$is_cascaded && in_array($st, ['No Upload', 'Revision Requested'])) {
+            // Cascaded items (13/15/16) auto-derive from item 14 — the student can't act on them
+            // directly, so they don't count as "needs you" even while still unapproved.
+            $needs_you_items++;
+        }
     }
-    $progress_pct = $total_items > 0 ? round(($approved_items / $total_items) * 100) : 0;
-    $dash_array = "$progress_pct, 100";
-    $stroke_color = '#3b82f6'; // Always blue like screenshot
     ?>
 
     <?php
@@ -167,40 +173,33 @@ $message_type = $_GET['type'] ?? '';
     }
     ?>
 
-    <div class="hero-widgets">
-        <!-- Progress Widget -->
-        <div class="widget-card">
-            <svg viewBox="0 0 36 36" class="circular-chart">
-                <path class="circle-bg" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                <path class="circle" stroke="<?= $stroke_color ?>" stroke-dasharray="<?= $dash_array ?>" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" />
-                <text x="18" y="21" class="percentage"><?= $progress_pct ?>%</text>
-            </svg>
-            <div class="widget-label"><i data-lucide="target" style="width:14px;height:14px;"></i> PROGRESS</div>
-            <div class="widget-value"><?= $approved_items ?> / <?= $total_items ?></div>
-            <p class="widget-subtext">Reqs Cleared</p>
-        </div>
-
+    <div class="proposal-hero-stack">
         <?php if ($overall_prop_status === 'Approved'): ?>
-            <div class="clearance-widget" style="flex: 1; height: 140px; margin-left: 12px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:20px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box; overflow: hidden;">
+            <div class="next-step-banner-compact" style="display:flex; flex-direction:column; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:16px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box;">
                 <div style="display:flex; align-items:center; gap:8px; width:100%;">
                     <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
                     <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">INSTITUTIONAL CLEARANCE OBTAINED!</strong>
                 </div>
                 <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Your Capsule Proposal Stage is fully evaluated and cleared. You may now download your form.</p>
-                <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 6px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; margin-top: auto; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Form</button>
+                <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Form</button>
             </div>
         <?php else: ?>
-            <div class="clearance-widget next-step-widget <?= $nsb_class ?>" style="flex: 1; height: 140px; margin-left: 12px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:10px; background:<?= $nsb_bg ?>; border: 1px solid <?= $nsb_border ?>; border-radius:20px; padding:16px 20px; box-shadow: <?= $nsb_shadow ?>; box-sizing: border-box; overflow: hidden;">
-                <div style="display:flex; align-items:center; gap:8px; width:100%;">
-                    <div style="width:32px; height:32px; border-radius:10px; background:<?= $nsb_icon_bg ?>; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
-                        <i data-lucide="<?= $nsb_icon ?>" style="width:16px;height:16px;color:<?= $nsb_icon_color ?>;"></i>
-                    </div>
-                    <strong style="color:<?= $nsb_title_color ?>; font-size:12px; font-weight:700; letter-spacing:0.5px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">NEXT STEP</strong>
+            <div class="next-step-banner-compact <?= $nsb_class ?>" style="display:flex; align-items:center; gap:10px; background:<?= $nsb_bg ?>; border: 1px solid <?= $nsb_border ?>; border-radius:16px; padding:10px 16px; box-shadow: <?= $nsb_shadow ?>; box-sizing: border-box;">
+                <div style="width:30px; height:30px; border-radius:9px; background:<?= $nsb_icon_bg ?>; display:flex; align-items:center; justify-content:center; flex-shrink:0;">
+                    <i data-lucide="<?= $nsb_icon ?>" style="width:15px;height:15px;color:<?= $nsb_icon_color ?>;"></i>
                 </div>
-                <p style="margin:0; font-size:13px; color:<?= $nsb_text_color ?>; font-family:'Inter', sans-serif; flex:1; display:flex; flex-direction:column; align-items:flex-start; justify-content:center;"><?= $nsb_action ?></p>
-                <div style="width: 100%; text-align: right; font-size: 11px; color: #94a3b8; font-weight: 500;"><b><?= $approved_items ?>/<?= $total_items ?></b> reqs cleared</div>
+                <div style="min-width:0;">
+                    <strong style="color:<?= $nsb_title_color ?>; font-size:10.5px; font-weight:700; letter-spacing:0.5px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase; display:block;">NEXT STEP</strong>
+                    <p style="margin:2px 0 0; font-size:12.5px; color:<?= $nsb_text_color ?>; font-family:'Inter', sans-serif; line-height:1.35;"><?= $nsb_action ?></p>
+                </div>
             </div>
         <?php endif; ?>
+
+        <div class="status-filter-tabs">
+            <button type="button" class="status-filter-tab active" data-filter="all">All <span class="tab-count"><?= $total_items ?></span></button>
+            <button type="button" class="status-filter-tab" data-filter="needs-you">Needs you <span class="tab-count"><?= $needs_you_items ?></span></button>
+            <button type="button" class="status-filter-tab" data-filter="cleared">Cleared <span class="tab-count"><?= $approved_items ?></span></button>
+        </div>
     </div>
 
     <div class="mobile-stack-hint">
@@ -235,8 +234,17 @@ $message_type = $_GET['type'] ?? '';
                 $status_class = 'no-upload';
                 $pill_text = 'No Upload';
             }
+
+            // Same bucket the "All / Needs you / Cleared" tabs above use
+            $is_cascaded_item = in_array($item['item_id'], [13, 15, 16]);
+            $filter_bucket = 'other';
+            if ($current_status === 'Approved') {
+                $filter_bucket = 'cleared';
+            } elseif (!$is_cascaded_item && in_array($current_status, ['No Upload', 'Revision Requested'])) {
+                $filter_bucket = 'needs-you';
+            }
         ?>
-            <div class="item-card <?= $status_class ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
+            <div class="item-card <?= $status_class ?>" data-filter="<?= $filter_bucket ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
                 <div class="card-inner-bg">
 
 
@@ -399,19 +407,18 @@ $message_type = $_GET['type'] ?? '';
                     </div>
                 </div>
             </div>
-            <?php if ($item['item_id'] == 16): // Literature Matrix 
-            ?>
-                <!-- Status Legend -->
-                <div class="status-legend" style="grid-column: 1 / -1; display:flex; flex-wrap:wrap; gap:14px; font-size:11px; font-family:'Inter', sans-serif; justify-content:center; margin: 8px 0 16px 0; color:#64748b;">
-                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#8b5cf6;"></span> No Upload</div>
-                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#f59e0b;"></span> Under Review</div>
-                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#ef4444;"></span> Revision</div>
-                    <div style="display:flex; align-items:center; gap:6px;"><span style="width:8px;height:8px;border-radius:50%;background:#10b981;"></span> Accepted</div>
-                </div>
-            <?php endif; ?>
         <?php endforeach; ?>
     </div>
 
+    <!-- Web only: the items-grid becomes a horizontal scroller at ≥1025px (see dashboard-cards.css) -->
+    <div class="items-scroll-nav">
+        <button type="button" class="items-scroll-btn" id="itemsScrollPrev" title="Previous">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
+        </button>
+        <button type="button" class="items-scroll-btn" id="itemsScrollNext" title="Next">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
+        </button>
+    </div>
 
 
     <?php if ($message): ?>
@@ -485,6 +492,60 @@ $message_type = $_GET['type'] ?? '';
 
     <script>
         window.CSRF_TOKEN = '<?= htmlspecialchars($_SESSION['csrf_token']) ?>';
+    </script>
+    <script>
+        // All / Needs you / Cleared filter tabs — same behavior on mobile and web
+        document.querySelectorAll('.status-filter-tab').forEach(function(tab) {
+            tab.addEventListener('click', function() {
+                document.querySelectorAll('.status-filter-tab').forEach(function(t) {
+                    t.classList.remove('active');
+                });
+                tab.classList.add('active');
+                var filter = tab.getAttribute('data-filter');
+                var firstVisible = null;
+                document.querySelectorAll('.item-card').forEach(function(card) {
+                    var show = (filter === 'all' || card.getAttribute('data-filter') === filter);
+                    card.style.display = show ? '' : 'none';
+                    // Reset any previous override — the mobile wallet stack only cancels the
+                    // cascading -85px overlap margin on the true DOM :first-child (via CSS), so
+                    // after filtering hides that card the next VISIBLE one needs the same reset,
+                    // otherwise it overlaps upward into the filter pills above it.
+                    card.style.marginTop = '';
+                    if (show && !firstVisible) firstVisible = card;
+                });
+                if (firstVisible) firstVisible.style.marginTop = '0';
+            });
+        });
+
+        // Web-only horizontal scroller nav (items-grid becomes a single scrollable row at ≥1025px)
+        (function() {
+            var grid = document.querySelector('.items-grid');
+            var prevBtn = document.getElementById('itemsScrollPrev');
+            var nextBtn = document.getElementById('itemsScrollNext');
+            if (!grid || !prevBtn || !nextBtn) return;
+            var scrollAmount = 304;
+
+            prevBtn.addEventListener('click', function() {
+                grid.scrollBy({
+                    left: -scrollAmount,
+                    behavior: 'smooth'
+                });
+            });
+            nextBtn.addEventListener('click', function() {
+                grid.scrollBy({
+                    left: scrollAmount,
+                    behavior: 'smooth'
+                });
+            });
+
+            function updateScrollNavState() {
+                prevBtn.disabled = grid.scrollLeft <= 4;
+                nextBtn.disabled = grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 4);
+            }
+            grid.addEventListener('scroll', updateScrollNavState);
+            window.addEventListener('resize', updateScrollNavState);
+            updateScrollNavState();
+        })();
     </script>
     <script src="../assets/js/dashboard-cards.js"></script>
     <?php include 'components/form008_modal.php'; ?>

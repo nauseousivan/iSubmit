@@ -1286,13 +1286,13 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         .card-footer-row {
             display: flex;
             align-items: center;
-            justify-content: space-between;
+            justify-content: center;
             gap: 8px;
-            width: 100%;
+            align-self: flex-end;
             background: rgba(255, 255, 255, 0.75);
             border: 1px solid rgba(15, 23, 42, 0.06);
             border-radius: 14px;
-            padding: 10px 14px;
+            padding: 8px 12px;
         }
 
         body.theme-dark .card-footer-row {
@@ -1303,8 +1303,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         .card-footer-text {
             font-size: 11.5px;
             font-weight: 700;
-            flex: 1;
-            min-width: 0;
             white-space: nowrap;
             overflow: hidden;
         }

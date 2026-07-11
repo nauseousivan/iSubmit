@@ -41,6 +41,26 @@ All notable changes to the `iSubmit` project will be documented in this file.
   The "Recent Group Activities" timeline card was also capped at a fixed max-height with an
   internal scroll (previously grew unbounded with a group's full upload history, sometimes 15+
   items tall) — "See All" still opens the untruncated list.
+- **Proposal module: filter pills replace progress ring, side-scroll cards, history panel polish
+  (2026-07-11):** `dashboards/module_proposal.php` swapped the circular progress-ring widget for a
+  segmented All/Needs you/Cleared filter-pill control (counts computed server-side, excluding the
+  Form 008 cascade items 13/15/16 from "Needs you" since they clear automatically). Web-only: the
+  filter tabs moved above the Next Step banner, centered and matched to the banner's width so the
+  hero area balances against the hint card the way `module_statistics.php`'s top nav does; mobile's
+  pill placement/DOM order was left untouched. The status-color legend ("No Upload / Under Review /
+  Revision / Accepted") was removed as redundant with the cards' own status chips. Requirement cards
+  05-06 (previously isolated below the 4-card grid) now sit in the same horizontally-scrollable row
+  as 01-04 with prev/next buttons and a partial "peek" of the next card, web-only — the carousel
+  conversion uses `flex: 0 0 calc(25% - 12px)` specifically to reproduce the old grid's stretched
+  card width, since a naive fixed-px flex-basis had shrunk cards 01-04 from their original size.
+  Fixed a mobile-only bug where filtering (Needs you/Cleared) left the wallet cards' cascading
+  `margin-top: -85px` stacking applied to a now-hidden first card, causing visible overlap — the
+  filter JS now resets `margin-top` on the first *visible* card, not just the DOM first-child. The
+  history panel's desktop backdrop went from fully transparent (`rgba(0,0,0,0)`, which read as a
+  rendering glitch on open) to a real `rgba(15,23,42,.32)` tint with `backdrop-filter: blur(6px)`,
+  and the panel itself gained a curvy `border-radius: 24px 0 0 24px` + soft drop shadow to match the
+  Apple-style visual language — scoped inside the existing `@media (min-width: 769px)` block, so
+  mobile's flush bottom-sheet history panel is unaffected.
 
 ### Added
 - **Plagiarism module: single-stage Accept/Revise + versioned Turnitin reports (2026-07-10):**

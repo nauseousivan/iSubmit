@@ -4,7 +4,34 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+- **Statistics module: centered wrapping card grid on web + Step 2 RDC download relocated
+  (2026-07-13):** on `dashboards/module_statistics.php`, the wallet requirement cards on web used the
+  shared `dashboard-cards.css` horizontal scroller (fixed-width row + prev/next `<>` nav) inherited
+  from Module Proposal, which looked unbalanced for statistics' small, variable card counts (1 card in
+  step 1, 2 in step 2, 5 in step 3). Replaced it, at `@media (min-width:769px)`, with a centered
+  wrapping flex grid of fixed 288px cards (`flex-wrap:wrap; justify-content:center`, overriding the
+  shared `nowrap`/`overflow-x:auto`): 3 cards per row in the 960 column, so step 3's five cards fall
+  into a balanced 3-over-2 stack and a lone 1–2 card step sits centered. Removed the `.items-scroll-nav`
+  markup and its scroller JS from this module (still used by Module Proposal). Separately, the
+  "Download RDC Form No. 011" button moved from a full-width row at the bottom of the Step 2
+  (`Phase 2: Form Download`) alert to a compact `.step-alert-dl` chip pinned top-right of the alert
+  heading (`flex-wrap` so it drops below the title on very narrow screens), shrinking the oversized
+  Step 2 card. Presentation-only — no workflow, POST, SQL, or field changes.
+
 ### Fixed
+- **Statistics Review progress ring jumped around non-monotonically (2026-07-13):** on
+  `dashboards/student.php` the `$stats_progress_map` assigned percentages by *color bucket*, not
+  workflow order, so the ring lurched backwards as a group advanced — uploading coded data
+  (`Phase 1: Coded Data Review`) showed **75%**, then approval → payment (`Phase 2: Form Download` =
+  20%, `Phase 5: Registered` = 40%) dropped it to 40%. Replaced the map with `$stats_phase_meta`, a
+  single phase→[pct, chip, footer] table whose percentages are **monotonic** in real workflow order
+  (0 → 15 → 30 → 45 → 55 → 80 → 92 → 100) and **hold steady** on a rejection/revision (the ring never
+  regresses; only the chip flips red). Crucially the chip colour, ring-fill colour and footer text/tone
+  are now derived from the **phase itself**, not from `%` thresholds — previously the two were coupled,
+  which is why an honest mid-workflow number would have painted "Registered" (control number issued,
+  just needs more uploads) red like a revision. Removed the now-redundant `$stats_next_full/short_map`
+  (folded into the meta table). Ring/chip/footer for the other three stage cards are unchanged.
 - **Statistics Review card permanently stuck at 0% (2026-07-11):** `dashboards/student.php` derived
   the card's ring/chip off `uploads` for `item_id = 3` — but that item doesn't exist in
   `checklist_items` and has zero rows in `uploads` for any user, ever, so the card could never

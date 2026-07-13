@@ -167,23 +167,34 @@ function getStatsPhaseStatus($pdo, $userId)
 $proposal_progress = getStageProgress($pdo, $effective_user_id, [11, 12, 13, 14, 15, 16]);
 $final_progress    = getStageProgress($pdo, $effective_user_id, [21, 22, 23, 24, 25, 26, 27]);
 $stats_phase = getStatsPhaseStatus($pdo, $effective_user_id);
-// Values are chosen to land in the same chip/ring color bucket the rest of the page already
-// uses (0 none · 1-49 pending/yellow · 50-74 revision/red · 75-99 review/amber · 100 approved/green)
-// — e.g. "Registered" (control number issued, student just needs to upload more) is progress,
-// not a problem, so it must NOT fall in the red revision band even though it's mid-workflow.
-$stats_progress_map = [
-    'Phase 1: Pending Coded Data'    => 0,
-    'Phase 2: Form Download'         => 20,
-    'Phase 5: Registered'            => 40,
-    'Phase 1: Coded Data Rejected'   => 55,
-    'Phase 6: Revision Requested'    => 65,
-    'Phase 1: Coded Data Review'     => 75,
-    'Phase 4: Payment Verification'  => 82,
-    'Phase 6: Under Review'          => 88,
-    'Phase 7: Statistical Treatment' => 95,
-    'Phase 7: Completed'             => 100,
+// Statistics runs off form_stat_treatment's 7-phase workflow. Each phase maps to a MONOTONIC ring %
+// (progress climbs in workflow order and never regresses — a rejection/revision HOLDS the ring at the
+// level already reached and only turns the chip red) PLUS a SEMANTIC chip + footer derived from the
+// phase itself, not from the % number. Decoupling matters: a %-threshold chip would paint a
+// mid-workflow "Registered" (control number issued, just needs more uploads) red like a revision.
+// Fields: [pct, chip-class, chip-icon, chip-label, footer-tone, footer-full (desktop), footer-short (phone)]
+$stats_phase_meta = [
+    'Phase 1: Pending Coded Data'    => [0,   '',              '',               '',             'tone-default',  'Upload coded data to begin',    'Upload data'],
+    'Phase 1: Coded Data Review'     => [15,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Coded data under review',       'Under review'],
+    'Phase 1: Coded Data Rejected'   => [15,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise coded data',             'Revise data'],
+    'Phase 2: Form Download'         => [30,  'chip-pending',  'clock',          'Pending',      'tone-default',  'Submit payment proof',          'Submit payment'],
+    'Phase 4: Payment Verification'  => [45,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Payment under review',          'Under review'],
+    'Phase 5: Registered'            => [55,  'chip-pending',  'clock',          'In Progress',  'tone-default',  'Upload remaining requirements', 'Upload files'],
+    'Phase 6: Revision Requested'    => [80,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise a requirement',          'Revise file'],
+    'Phase 6: Under Review'          => [80,  'chip-review',   'beaker',         'Reviewed',     'tone-review',   'Requirements under review',     'Under review'],
+    'Phase 7: Statistical Treatment' => [92,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Statistical treatment ongoing', 'Processing'],
+    'Phase 7: Completed'             => [100, 'chip-approved', 'check-circle-2', 'Completed',    'tone-approved', 'Results released',              'Results released'],
 ];
-$stats_progress = $stats_progress_map[$stats_phase['status']] ?? 0;
+$sm = $stats_phase_meta[$stats_phase['status']] ?? $stats_phase_meta['Phase 1: Pending Coded Data'];
+$stats_progress     = $sm[0];
+$stats_chip_class   = $sm[1];
+$stats_chip_icon    = $sm[2];
+$stats_chip_label   = $sm[3];
+$stats_footer_tone  = $sm[4];
+$stats_footer_full  = $sm[5];
+$stats_footer_short = $sm[6];
+// Ring fill colour follows the chip's semantic state (approved/review), else the neutral default.
+$stats_ring_class   = $stats_chip_class === 'chip-approved' ? 'approved' : ($stats_chip_class === 'chip-review' ? 'review' : '');
 $plag_progress  = getSpecificItemProgress($pdo, $effective_user_id, 4);
 
 // Fetch dynamic asset validation status rows
@@ -252,24 +263,9 @@ function getStageCardMeta($pdo, $latestByItem, $itemIds, $cascadedIds = [])
 $proposal_meta = getStageCardMeta($pdo, $latest_by_item, [11, 12, 13, 14, 15, 16], [13, 15, 16]);
 $final_meta    = getStageCardMeta($pdo, $latest_by_item, [21, 22, 23, 24, 25, 26, 27]);
 
-// Statistics card: phase status (form_stat_treatment) drives the ring/chip and the "updated" meta date
+// Statistics card: phase status (form_stat_treatment) drives the ring/chip and the "updated" meta date.
+// Chip/footer/ring values are all computed above from $stats_phase_meta (monotonic % + semantic state).
 $stats_updated = formatRelativeDate($stats_phase['date_submitted'] ? strtotime($stats_phase['date_submitted']) : 0);
-$stats_next_full_map = [
-    'Phase 1: Pending Coded Data'   => 'Upload coded data to begin',
-    'Phase 1: Coded Data Rejected'  => 'Revise coded data',
-    'Phase 2: Form Download'        => 'Submit payment proof',
-    'Phase 5: Registered'           => 'Upload remaining requirements',
-    'Phase 6: Revision Requested'   => 'Revise a requirement',
-];
-$stats_next_short_map = [
-    'Phase 1: Pending Coded Data'   => 'Upload data',
-    'Phase 1: Coded Data Rejected'  => 'Revise data',
-    'Phase 2: Form Download'        => 'Submit payment',
-    'Phase 5: Registered'           => 'Upload files',
-    'Phase 6: Revision Requested'   => 'Revise file',
-];
-$stats_next_full  = $stats_next_full_map[$stats_phase['status']]  ?? 'Awaiting review';
-$stats_next_short = $stats_next_short_map[$stats_phase['status']] ?? 'Awaiting review';
 
 // Plagiarism card: item 4 drives the ring/chip and the "updated" meta date
 $plag_updated = formatRelativeDate(!empty($latest_by_item[4]['uploaded_at']) ? strtotime($latest_by_item[4]['uploaded_at']) : 0);
@@ -3126,18 +3122,16 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     <div class="card-content-wrap">
                         <div class="card-top-row">
                             <?php
-                            if ($stats_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                            elseif ($stats_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                            elseif ($stats_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                            elseif ($stats_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
-                            else                               echo '<span></span>';
+                            // Chip is phase-driven (see $stats_phase_meta) — NOT a threshold on the % ring.
+                            if ($stats_chip_class) echo '<span class="status-chip ' . $stats_chip_class . '"><i data-lucide="' . $stats_chip_icon . '"></i> ' . $stats_chip_label . '</span>';
+                            else                   echo '<span></span>';
                             ?>
                         </div>
                         <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
-                                    <circle class="cp-fill <?= $stats_progress == 100 ? 'approved' : ($stats_progress >= 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
+                                    <circle class="cp-fill <?= $stats_ring_class ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $stats_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
@@ -3153,7 +3147,9 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                         </div>
                         <?php if ($stats_progress > 0): ?>
                             <div class="card-footer-row">
-                                <?= cardFooterHTML($stats_progress, 'Results released', 'Results released', $stats_next_full, $stats_next_short) ?>
+                                <?php // Footer tone + text are phase-driven (see $stats_phase_meta), not %-threshold-driven. ?>
+                                <span class="card-footer-text <?= $stats_footer_tone ?> desktop-hidden"><?= htmlspecialchars($stats_footer_short) ?></span>
+                                <span class="card-footer-text <?= $stats_footer_tone ?> mobile-hidden"><?= htmlspecialchars($stats_footer_full) ?></span>
                                 <?= $footerArrowSvg ?>
                             </div>
                         <?php endif; ?>

@@ -391,6 +391,34 @@ foreach ([31,32,33,34,35] as $did) {
         }
         .btn-inline.outline:hover { background: #faf9f6; border-color: var(--teal); }
 
+        /* Compact download chip pinned top-right of an alert head (keeps the Step 2 card short) */
+        .step-alert-head {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+        .step-alert-head h3 { flex: 1; min-width: 0; }
+        .step-alert-dl {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            flex-shrink: 0;
+            padding: 6px 12px;
+            border-radius: 20px;
+            font-size: 11.5px;
+            font-weight: 700;
+            font-family: var(--font);
+            text-decoration: none;
+            background: #fff;
+            color: var(--gold);
+            border: 1.5px solid var(--gold-soft);
+            box-shadow: var(--shadow-sm);
+            transition: all 0.2s ease;
+        }
+        .step-alert-dl:hover { border-color: var(--gold); background: var(--gold-soft); }
+
         /* ── Deliverables Grid ─────────────────────── */
         .section-heading {
             display: flex;
@@ -682,6 +710,30 @@ foreach ([31,32,33,34,35] as $did) {
             .step-label { font-size: 9px; max-width: 70px; }
             .step-circle { width: 34px; height: 34px; font-size: 12px; }
         }
+
+        /* ── Web/tablet: centered wrapping card grid (no horizontal scroller) ────
+           Statistics shows a variable, small number of cards per step (1 in step 1, 2 in
+           step 2, 5 in step 3). Instead of Module Proposal's fixed-width horizontal scroller,
+           lay them out as a centered wrapping flex grid: fixed 288px cards, 3 per row in the
+           960 column, so step 3's five cards fall into a balanced 3-over-2 stack and a lone
+           1–2 card step sits centered. Overrides the shared nowrap/overflow scroller rules
+           from dashboard-cards.css. Mobile (≤768px wallet stack) is untouched. */
+        @media (min-width: 769px) {
+            .items-grid {
+                display: flex;
+                flex-wrap: wrap;
+                justify-content: center;
+                overflow-x: visible;
+                gap: 16px;
+                margin-top: 24px;
+            }
+            .items-grid .item-card {
+                flex: 0 0 288px;
+                width: 288px;
+                min-width: 0;
+                max-width: 288px;
+            }
+        }
     </style>
 </head>
 <body>
@@ -770,7 +822,12 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="wallet" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3>Step 2: Proceed to Finance Office</h3>
+                    <div class="step-alert-head">
+                        <h3>Step 2: Proceed to Finance Office</h3>
+                        <a href="downloads/rdc.jpg" target="_blank" class="step-alert-dl">
+                            <i data-lucide="download" style="width:14px; height:14px;"></i> RDC Form 011
+                        </a>
+                    </div>
                     <p>Your initial data has been <strong>approved</strong>! Please follow these exact steps:<br><br>
                     1. <strong>Print and fill out</strong> the Statistical Treatment Form (RDC Form No. 011). You can download it if you don't have it yet.<br>
                     2. <strong>Proceed to the Finance Office</strong> to pay the processing fee.<br>
@@ -781,11 +838,6 @@ foreach ([31,32,33,34,35] as $did) {
                             <strong>Statistician Remarks:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
                         </div>
                     <?php endif; ?>
-                    <div style="display: flex; gap: 10px; margin-top: 14px; flex-wrap: wrap;">
-                        <a href="downloads/rdc.jpg" target="_blank" class="btn-inline outline">
-                            <i data-lucide="download" style="width:15px; height:15px;"></i> Download RDC Form No. 011
-                        </a>
-                    </div>
                 </div>
             </div>
         <?php elseif ($stats_status === 'Phase 4: Payment Verification'): ?>

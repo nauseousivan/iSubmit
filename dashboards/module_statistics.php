@@ -748,13 +748,8 @@ foreach ([31,32,33,34,35] as $did) {
             </div>
         <?php endif; ?>
 
-        <!-- Flash Messages -->
-        <?php if (isset($_GET['msg'])): ?>
-            <div class="flash-msg <?= ($_GET['type'] ?? 'success') === 'error' ? 'error' : 'success' ?>">
-                <i data-lucide="<?= ($_GET['type'] ?? 'success') === 'error' ? 'alert-triangle' : 'check-circle-2' ?>" style="width:18px; height:18px; flex-shrink:0;"></i>
-                <?= htmlspecialchars($_GET['msg']) ?>
-            </div>
-        <?php endif; ?>
+        <!-- Flash messages removed by request — uploads (success and error) are silent -->
+
 
         <!-- Step Tracker -->
         <div class="step-tracker animate-in delay-1">

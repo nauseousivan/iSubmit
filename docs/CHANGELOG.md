@@ -5,6 +5,145 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Admin navigation: bottom dock → compact left side-nav; modules go full-view (2026-07-14):** all
+  three staff shells (`dashboards/coordinator.php`, `director.php`, `statistician.php`) moved from the
+  bottom macOS dock to a **~194px vertical left rail** (`assets/css/portal.css`: `.app-dashboard-frame`
+  → row, `.app-dock-navigation` → vertical rail of icon+label rows with `.nav-section-label` group
+  headings, account cluster pinned bottom via `.nav-account`; icon-only collapse ≤860px). Labels
+  shortened ("Proposal Defense" → "Proposal"). Items grouped into sections per role — Coordinator:
+  Overview / Review / Workspace / Account; Director adds a **Statistics** group (Statistics, Payment,
+  History); Statistician: **Statistics** (Clearance, Payment, History, Release) / Review / Workspace /
+  Account. Kept the `nav-item-btn` class (cross-file selector) and every existing `onclick`.
+- **Module windows are now full-view, chrome-free (2026-07-14):** `PortalWindows._build`
+  (`assets/js/portal.js`) dropped the 3 macOS traffic-light buttons; windows now open **full-view** to
+  the right of the rail (`portal.css` `.app-window { inset:0 }`, `.window-layer` offset by `--nav-w`).
+  Follow-up: the slim window titlebar (title + × close) was **removed entirely** too — the module iframe
+  now fills the whole area; navigation back is via the side rail (which collapses open windows).
+- **Plagiarism: redundant manuscript card removed + Review/Cleared sub-nav (2026-07-14):** the plag
+  workflow stays single-stage, but the confusing duplicate **"Research Manuscript (Turnitin Scan)"**
+  generic card was removed (`admin_module_dynamic.php` skips item 4 in the requirement loop and hides
+  the status tabs for `phase=plag`) — the manuscript is still viewable inside the dedicated decision
+  section. That section now splits by a `plag_view` sub-nav mirroring Statistics: **Review** (manuscripts
+  still needing a decision, default) and **Cleared** (already-approved + their Turnitin reports), with
+  per-view header/badge/empty-state. All three shells gained a **Plagiarism** nav section with **Review**
+  (carries the pending badge) + **Cleared** items (`?phase=plag&view=review|cleared`). No workflow change
+  — the `plag_accept`/`plag_revise`/`plag_replace` handlers are untouched.
+- **Payment queue & history no longer duplicated in the combined Statistics view (2026-07-14):** now
+  that Payment and History are their own nav items, the **Pending Payments Acknowledgment** card shows
+  only in `view=payments` and **Payment Decision History** only in `view=history` (previously both also
+  appeared in the `all`/combined stats view seen by Coordinator/Director). `admin_module_dynamic.php`.
+
+### Added
+- **Payment Decision History is its own view + Director access (2026-07-14):**
+  `dashboards/admin_module_dynamic.php` gained `view=history` (added to the `$stats_view` allow-list and
+  the stats skip-guards) that shows **only** the Payment Decision History card (no pending queue, no
+  requirement cards, no status tabs). Both **Statistician and Director** now have Payment + History nav
+  items; the payment **Register & Unlock** form renders only for `$role === 'Statistician'` (Director
+  sees the queue + a read-only note). The `acknowledge_payment` handler stays statistician-guarded.
+- **Group-inbox review layout — one profile → requirement mini-cards inside (2026-07-14):**
+  the admin review engine (`dashboards/admin_module_dynamic.php`) was requirement-centric — each
+  requirement a collapsible card with a table of every group — so one group's files were scattered
+  across many cards. Added a **group-inbox** default: one profile card per student group (avatar, name,
+  leader · program, `N to review` + `M files` badges), expandable to show that group's requirements as
+  status-colored **mini-cards** (name, status pill, file, Form 008 score for item 14, version history,
+  Review button). A **"By group / By requirement" toggle** near the status tabs flips to the original
+  view, which is kept verbatim (wrapped in `#viewByRequirement`) — nothing removed. **Applies to
+  Proposal, Final, and the Stats checklist** (`$use_group_inbox`); the Stats **payment docs (36/37)** are
+  excluded from the inbox since they live in the Pending Payments FIFO queue, and the Stats
+  payments/release sub-views and the Plagiarism dedicated review section keep their own layouts. New PHP
+  pivot `$submissions_by_group` (reuses the same upload rows, no new query); the filter JS
+  (`selectStudentGroup` / `filterByStatus` / `filterTableRows`) is view-aware and drives per-group action
+  badges; `openDocumentModal`, `toggleHistory`, and the `verify_upload` review flow are untouched.
+  Presentation-only; Coordinator (Pending) + Director (Under Review) + Statistician (Pending) all covered
+  by the one shared file.
+- **Plagiarism Review & Clearance reskinned to profile cards (2026-07-14):** the dedicated plag review
+  section (`admin_module_dynamic.php`, `phase=plag`) swapped its 3-column table for per-group profile
+  cards (`.plag-card`) that match the group-inbox look — avatar + group + program · control number +
+  status pill in the header, and a body with the manuscript link, latest Turnitin report (+ remarks and
+  report history), and a "Decision" panel holding the same Accept / Replace / Request-Revision forms.
+  Presentation-only: the `plag_accept` / `plag_replace` / `plag_revise` forms and their fields
+  (`report_file`, `notes`, `student_id`, `csrf_token`) are unchanged; query only gained `u.profile_pic`.
+- **Payment decision audit trail + history view (2026-07-14):** added a dedicated `payment_logs`
+  table (`log_id, form_id, student_id, actor_id, action, control_no, item_id, remarks, created_at`;
+  self-healing `CREATE TABLE IF NOT EXISTS` in `admin_module_dynamic.php` since the project has no
+  migration runner). Every statistician payment decision is now recorded with **who did it**:
+  `acknowledge_payment` (Register & Unlock) writes an `action='accepted'` row with the control number;
+  rejecting a payment document (item 36/37 → Revision Requested) writes an `action='rejected'` row with
+  the doc id + remarks. A new collapsible **"Payment Decision History"** card in the Statistician's
+  payment view lists the latest 30 decisions (green Accepted / red Rejected badge, group, control no or
+  doc, actor username, remarks, timestamp). Previously there was no payment-specific audit — only thin
+  student-side `activity_logs` with no actor. The accept/reject workflow itself is unchanged; the audit
+  INSERTs are additive.
+- **Payment Verification redesigned as a first-come-first-served queue (2026-07-14):** the
+  Statistician's Payment Verification view (`admin_module_dynamic.php`, `phase=stats&view=payments`)
+  replaced the dense 4-column table with a stack of **queue cards** — each has a ticket stub (queue
+  position `01, 02…` + days-waiting), the student's avatar, research group, leader · program, and
+  email, a status chip (Receipt uploaded / Physical · awaiting), the two viewable payment documents
+  (Validated Form 36 / Official Receipt 37, still opening the same `openDocumentModal` review flow),
+  and the Register (control-number) input. Queue is ordered `date_submitted ASC` (oldest first).
+  Presentation-only: the `acknowledge_payment` form fields (`action_type`, `csrf_token`, `form_id`,
+  `student_id`, `control_no`) and the doc-review JS contract are unchanged; the query only gained
+  `u.email, u.profile_pic` (read-only). Scoped `.pay-*` CSS added to the module head.
+- **Student calendar "View More" → full Events & Holidays list (2026-07-13):** the home
+  "Availability & events" mini-calendar now has a `View More` pill (`btn-see-all`) that opens a new
+  full-screen sub-page, `dashboards/calendar_all.php`, via the existing `pushView('zoom-calendar', …)`
+  overlay mechanism (added a matching `#zoom-calendar` iframe panel to `dashboards/student.php`). The
+  page lists every calendar entry as an easy-to-scan card list grouped by month: staff-scheduled
+  `calendar_events` (server-side) merged with PH public holidays fetched client-side for the current
+  and next year (`date.nager.at`, same source the mini-calendar uses). Filter pills — All / Holidays /
+  School events / Available / Unavailable — each with a live count; plus a search box. Entries are
+  categorised with the same keyword logic as the mini-calendar (unavailable keywords win over
+  "available"), colour-tinted date badges + tags, past dates dimmed, a "Today" chip. Pure-white,
+  theme-synced to the parent portal (`rd-portal-theme`) with full light/dark support; matches the
+  `activities_all.php` sub-page pattern. No workflow, POST, SQL-write, or field changes.
+
+### Changed
+- **Activity Log is now the user's OWN actions only, filtered by module (2026-07-13):**
+  `dashboards/activities_all.php` (the home "See All") previously pulled *every* log row, including
+  review verdicts (`Document Review - Approved`, `Statistician Evaluation - …`, `Payment
+  Acknowledged`, `Plagiarism Clearance …`) — but those are staff→student **notifications**, not the
+  student's own activity. The page now queries `status_type = 'info'` only (the self-action log:
+  files submitted / uploaded / removed, account changes), matching the home widget's existing intent.
+  Renamed to **"My Activity Log"**. The four status pills were replaced with six **module** pills
+  with live counts — **All / Proposal / Final / Statistics / Plagiarism / Others** — categorised by a
+  server-side `classify_module()` keyword matcher (plagiarism/turnitin → plag; statistical-treatment/
+  coded-data/RDC/statistician → stats; capsule/form 008/endorsement/adviser/proposal → proposal;
+  manuscript/final/communication-letter → final; else others = account/profile/generic). Each module
+  has its own colour + Lucide tag icon. Still the calendar-style card layout (date badge, tag pill,
+  month grouping, no timeline line/nodes), pure-white, parent-synced light/dark. Read-only — no
+  workflow, POST, SQL-write, or field changes.
+- **Notification bell: unread count badge instead of a static dot (2026-07-13):** in
+  `dashboards/student.php` the always-on `.notification-ping` red dot was replaced with a
+  `.notif-count-badge` number pill. Count = review-outcome logs (`status_type IN ('success','warning')`,
+  latest 50) newer than a per-browser "last read" marker (`localStorage['rd-notif-lastread-{uid}']`),
+  rendered client-side (caps at `9+`, hidden at 0, pops in on show). Opening the bell drawer marks
+  read and clears the badge; it stays cleared across reloads until a newer notification arrives. No
+  schema change — reuses the same `activity_logs` rows the drawer already displays.
+- **Notification badge wouldn't clear on view — timezone fix (2026-07-13):** the "mark read" write
+  used `Date.now()` (client UTC) compared against server-derived `strtotime()` timestamps, so under
+  any DB/PHP timezone offset the stored times read as *future* and the count never dropped to 0. Now
+  marks read up to `max(notifTimes)` — the newest notification already known — which is timezone-
+  agnostic and always clears, while a genuinely newer log later re-shows the badge.
+- **Notifications are now clickable → jump to their module (2026-07-13):** each row in the bell
+  drawer resolves to a module window and, when it does, becomes clickable (hover chevron affordance,
+  `goToNotif()` closes the drawer and `pushView`s the module). Routing is by `uploads.item_id`
+  (LEFT JOINed onto the log via `upload_id`; proposal 11–16 → `module_proposal.php`, final 21–27 →
+  `module_final.php`, stats 30–37 → `module_statistics.php`, plag 4/40 → `module_plagiarism.php`),
+  falling back to title keywords for rows without an upload (e.g. Payment Acknowledged → stats).
+  Rows with no resolvable module stay static (default cursor, no chevron).
+- **Notifications deep-link to the exact requirement card (2026-07-14):** `goToNotif()` now appends
+  `?item=NN` (the log's `uploads.item_id`) to the module URL. Each module
+  (`module_proposal/final/statistics/plagiarism.php`) gained `id="req-item-{item_id}"` on its wallet
+  cards plus a small on-load handler that reads `?item=`, resets any status filter to "All", scrolls
+  the card into view (`scrollIntoView` center), and flashes a purple highlight ring
+  (`.deeplink-flash`, ~2.8s, presentation-only). Graceful fallbacks: notifications without an item id
+  just open the module top; in Statistics, cards are server-filtered by workflow step, so a target
+  outside the current step isn't in the DOM and the jump no-ops (module opens normally). No workflow,
+  POST, SQL-write, or field changes — purely scroll + highlight.
+- **"See All" / "View More" pills go text-only on mobile (2026-07-13):** added a
+  `@media (max-width: 768px)` override for `.btn-see-all` in `dashboards/student.php` — the violet
+  glow fill and hover fill are dropped so only the violet label shows on phones (desktop keeps the
+  filled pill).
 - **Statistics module: centered wrapping card grid on web + Step 2 RDC download relocated
   (2026-07-13):** on `dashboards/module_statistics.php`, the wallet requirement cards on web used the
   shared `dashboard-cards.css` horizontal scroller (fixed-width row + prev/next `<>` nav) inherited

@@ -969,7 +969,7 @@ foreach ([31,32,33,34,35] as $did) {
 
                     $card_index++;
                 ?>
-                    <div class="item-card <?= $card_status ?> <?= $is_locked ? 'locked' : '' ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
+                    <div class="item-card <?= $card_status ?> <?= $is_locked ? 'locked' : '' ?>" id="req-item-<?= $item['item_id'] ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
                         <div class="card-inner-bg">
                             <div class="card-header">
                                 <div class="status-icon-box num-indicator"><?= str_pad($card_index, 2, '0', STR_PAD_LEFT) ?></div>
@@ -1247,5 +1247,37 @@ foreach ([31,32,33,34,35] as $did) {
     <script>window.CSRF_TOKEN = '<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>';</script>
     <script src="../assets/js/dashboard-cards.js"></script>
 
+    <!-- Deep-link: scroll to + highlight a specific requirement when opened from a notification.
+         Statistics filters cards by workflow step server-side, so a target outside the current step
+         won't be in the DOM — the jump then no-ops and the module simply opens at the top. -->
+    <style>
+        @keyframes deeplinkPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(124, 58, 237, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+        }
+        .item-card.deeplink-flash {
+            animation: deeplinkPulse 1.3s ease-out 2;
+            outline: 2px solid rgba(124, 58, 237, 0.9);
+            outline-offset: 3px;
+        }
+    </style>
+    <script>
+        (function () {
+            var itemId = new URLSearchParams(window.location.search).get('item');
+            if (!itemId) return;
+            function jump() {
+                var allTab = document.querySelector('.status-filter-tab[data-filter="all"]');
+                if (allTab && !allTab.classList.contains('active')) allTab.click();
+                var el = document.getElementById('req-item-' + itemId);
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                el.classList.add('deeplink-flash');
+                setTimeout(function () { el.classList.remove('deeplink-flash'); }, 2800);
+            }
+            if (document.readyState === 'complete') setTimeout(jump, 450);
+            else window.addEventListener('load', function () { setTimeout(jump, 450); });
+        })();
+    </script>
 </body>
 </html>

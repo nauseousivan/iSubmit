@@ -304,6 +304,12 @@ $recent_activities = $act_stmt->fetchAll();
 $cal_stmt = $pdo->query("SELECT title, description, event_date FROM calendar_events ORDER BY event_date ASC");
 $calendar_events = $cal_stmt->fetchAll();
 
+// Notification bell badge: epoch timestamps of the review-outcome logs shown in the drawer.
+// JS compares these against a per-browser "last read" marker to render the unread count.
+$notif_ts_stmt = $pdo->prepare("SELECT created_at FROM activity_logs WHERE user_id = ? AND status_type IN ('success','warning') ORDER BY created_at DESC LIMIT 50");
+$notif_ts_stmt->execute([$user_id]);
+$notif_times = array_map(fn($r) => strtotime($r['created_at']), $notif_ts_stmt->fetchAll(PDO::FETCH_ASSOC));
+
 $overall_complete = ($proposal_progress === 100 && $final_progress === 100 && $stats_progress === 100 && $plag_progress === 100);
 
 // RANK LOGIC
@@ -989,15 +995,36 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             stroke-width: 2px;
         }
 
-        .notification-ping {
+        /* Unread notification counter (replaces the old static ping dot) */
+        .notif-count-badge {
             position: absolute;
-            top: 2px;
-            right: 2px;
-            width: 8px;
-            height: 8px;
+            top: -3px;
+            right: -3px;
+            min-width: 17px;
+            height: 17px;
+            padding: 0 4px;
             background-color: var(--color-revision);
-            border-radius: 50%;
+            color: #ffffff;
+            border-radius: 999px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            font-weight: 800;
+            line-height: 1;
+            display: none;
+            align-items: center;
+            justify-content: center;
             border: 2px solid var(--bg-card);
+            box-shadow: 0 2px 6px rgba(239, 68, 68, 0.45);
+            animation: notifBadgePop 0.3s var(--spring);
+        }
+
+        .notif-count-badge.show {
+            display: flex;
+        }
+
+        @keyframes notifBadgePop {
+            0% { transform: scale(0); }
+            100% { transform: scale(1); }
         }
 
         /* MILESTONE HORIZONTAL BENTO CARDS */
@@ -1457,6 +1484,23 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             color: #ffffff;
             transform: translateY(-1.5px);
             box-shadow: 0 4px 12px -2px var(--active-glow);
+        }
+
+        /* Mobile: drop the violet pill fill — keep the label as plain violet text */
+        @media (max-width: 768px) {
+            .btn-see-all {
+                background-color: transparent;
+                border-color: transparent;
+                padding-left: 2px;
+                padding-right: 2px;
+            }
+            .btn-see-all:hover,
+            .btn-see-all:active {
+                background-color: transparent;
+                color: var(--active-accent);
+                transform: none;
+                box-shadow: none;
+            }
         }
 
         /* Caps the activity card's height so a group with many uploads doesn't push the whole
@@ -2121,9 +2165,36 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             background: var(--color-revision);
         }
 
-        .notif-compact-row:hover {
+        .notif-compact-row.is-clickable {
+            padding-right: 32px;
+        }
+
+        .notif-compact-row.is-clickable:hover {
             transform: translateY(-2px);
             box-shadow: var(--shadow-sm);
+        }
+
+        /* Non-clickable notifications (no resolvable module) stay static */
+        .notif-compact-row:not(.is-clickable) {
+            cursor: default;
+        }
+
+        .notif-go-arrow {
+            position: absolute;
+            right: 12px;
+            top: 50%;
+            transform: translateY(-50%);
+            width: 16px;
+            height: 16px;
+            color: var(--text-muted);
+            opacity: 0.35;
+            transition: opacity 0.2s var(--smooth), right 0.2s var(--smooth);
+        }
+
+        .notif-compact-row.is-clickable:hover .notif-go-arrow {
+            opacity: 1;
+            right: 10px;
+            color: var(--active-accent);
         }
 
         .notif-title-row {
@@ -2954,7 +3025,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     <div id="weatherWidget"></div>
 
                     <a href="javascript:void(0)" class="head-action-btn head-action-btn-notif" onclick="toggleNotifDrawer()" title="View Notifications">
-                        <div class="notification-ping"></div>
+                        <span class="notif-count-badge" id="notifCountBadge"></span>
                         <i data-lucide="bell-ring"></i>
                     </a>
 
@@ -3252,6 +3323,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     <div class="section-card">
                         <div class="section-title-wrapper">
                             <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i>Availability & events</h3>
+                            <a href="javascript:void(0)" onclick="pushView('zoom-calendar', 'calendar_all.php')" class="btn-see-all">View More</a>
                         </div>
 
                         <div class="mini-calendar-wrapper">
@@ -3336,6 +3408,13 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             <iframe id="frame-chat" class="overlay-iframe-container" scrolling="no"></iframe>
         </div>
 
+        <div class="fullscreen-zoom-overlay" id="zoom-calendar">
+            <div class="nav-back-wrapper">
+                <button class="btn-vector-left-back" onclick="history.back()"><i data-lucide="arrow-left"></i></button>
+            </div>
+            <iframe id="frame-calendar" class="overlay-iframe-container"></iframe>
+        </div>
+
         <!-- SIDEBAR FULLSCREEN ZOOM OVERLAYS -->
         <div class="fullscreen-zoom-overlay" id="zoom-profile">
             <div class="nav-back-wrapper">
@@ -3368,12 +3447,50 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         </div>
         <div class="notif-list-scroll">
             <?php
-            // Re-fetch activities for drawer
-            $all_act_stmt = $pdo->prepare("SELECT * FROM activity_logs WHERE user_id = ? AND status_type IN ('success', 'warning') ORDER BY created_at DESC LIMIT 15");
+            // Drawer notifications = review-outcome logs, LEFT JOINed to uploads so each row can
+            // deep-link to the module it belongs to.
+            $all_act_stmt = $pdo->prepare(
+                "SELECT a.title, a.description, a.status_type, a.created_at, u.item_id
+                 FROM activity_logs a
+                 LEFT JOIN uploads u ON a.upload_id = u.upload_id
+                 WHERE a.user_id = ? AND a.status_type IN ('success', 'warning')
+                 ORDER BY a.created_at DESC LIMIT 15"
+            );
             $all_act_stmt->execute([$user_id]);
             $drawer_acts = $all_act_stmt->fetchAll();
-            foreach ($drawer_acts as $act): ?>
-                <div class="notif-compact-row <?= $act['status_type'] ?>">
+
+            // Which module window a notification opens. item_id is authoritative (proposal 11–16,
+            // final 21–27, stats 30–37, plag 4/40); fall back to title keywords; null = not clickable.
+            $notif_module_targets = [
+                'proposal' => ['zoom-proposal', 'module_proposal.php'],
+                'final'    => ['zoom-final', 'module_final.php'],
+                'stats'    => ['zoom-stats', 'module_statistics.php'],
+                'plag'     => ['zoom-plag', 'module_plagiarism.php'],
+            ];
+            $notif_module_for = function ($item_id, $title) {
+                if ($item_id !== null) {
+                    $id = (int) $item_id;
+                    if ($id === 4 || $id === 40) return 'plag';
+                    if ($id >= 11 && $id <= 16) return 'proposal';
+                    if ($id >= 21 && $id <= 27) return 'final';
+                    if ($id >= 30 && $id <= 37) return 'stats';
+                }
+                $t = strtolower($title);
+                if (strpos($t, 'plagiar') !== false || strpos($t, 'turnitin') !== false) return 'plag';
+                if (strpos($t, 'statist') !== false || strpos($t, 'payment') !== false || strpos($t, 'registered') !== false
+                    || strpos($t, 'rdc') !== false || strpos($t, 'coded data') !== false || strpos($t, 'treatment') !== false) return 'stats';
+                if (strpos($t, 'form no. 008') !== false || strpos($t, 'form 008') !== false || strpos($t, 'capsule') !== false
+                    || strpos($t, 'endorsement') !== false || strpos($t, 'adviser') !== false || strpos($t, 'proposal') !== false) return 'proposal';
+                if (strpos($t, 'manuscript') !== false || strpos($t, 'final') !== false) return 'final';
+                return null;
+            };
+
+            foreach ($drawer_acts as $act):
+                $mod = $notif_module_for($act['item_id'] ?? null, $act['title']);
+                $target = $mod ? $notif_module_targets[$mod] : null;
+                $item_arg = ($target && isset($act['item_id']) && $act['item_id'] !== null) ? ', ' . (int) $act['item_id'] : '';
+            ?>
+                <div class="notif-compact-row <?= $act['status_type'] ?><?= $target ? ' is-clickable' : '' ?>"<?= $target ? ' onclick="goToNotif(\'' . $target[0] . '\', \'' . $target[1] . '\'' . $item_arg . ')"' : '' ?>>
                     <div class="notif-info">
                         <div class="notif-title-row">
                             <h5><?= htmlspecialchars($act['title']) ?></h5>
@@ -3388,6 +3505,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                         <p><?= htmlspecialchars($act['description']) ?></p>
                         <span class="time-stamp"><i data-lucide="clock" style="width:10px; height:10px; margin-right: 4px;"></i><?= date('M d, Y • h:i A', strtotime($act['created_at'])) ?></span>
                     </div>
+                    <?php if ($target): ?><i data-lucide="chevron-right" class="notif-go-arrow"></i><?php endif; ?>
                 </div>
             <?php endforeach; ?>
         </div>
@@ -3909,12 +4027,54 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             setInterval(updateRelativeTimestamps, 30000);
         });
 
+        // ── Notification unread counter ──────────────────────────────────────
+        // notifTimes = epoch timestamps of review-outcome logs (the drawer's content).
+        // A per-browser "last read" marker decides how many are still unread.
+        const notifTimes = <?= json_encode(array_values($notif_times)) ?> || [];
+        const NOTIF_READ_KEY = 'rd-notif-lastread-<?= (int) $user_id ?>';
+
+        function refreshNotifBadge() {
+            const badge = document.getElementById('notifCountBadge');
+            if (!badge) return;
+            const lastRead = parseInt(localStorage.getItem(NOTIF_READ_KEY) || '0', 10);
+            const unread = notifTimes.filter(t => t > lastRead).length;
+            if (unread > 0) {
+                badge.textContent = unread > 9 ? '9+' : String(unread);
+                badge.classList.add('show');
+            } else {
+                badge.textContent = '';
+                badge.classList.remove('show');
+            }
+        }
+
         function toggleNotifDrawer() {
             const drawer = document.getElementById('notifDrawer');
             const overlay = document.getElementById('notifOverlay');
             const isOpen = drawer.classList.contains('active');
             drawer.classList.toggle('active');
             overlay.style.display = isOpen ? 'none' : 'block';
+
+            // Opening the drawer = the user has seen the notifications → clear the count.
+            // Mark read up to the NEWEST notification we already know about (not the client clock):
+            // notifTimes come from the server, so comparing them to Date.now() breaks under a
+            // DB/PHP timezone offset. Using the max known timestamp is timezone-agnostic and always
+            // drives the unread count to 0, while a genuinely newer notification later re-shows it.
+            if (!isOpen) {
+                const newest = notifTimes.length ? Math.max(...notifTimes) : Math.floor(Date.now() / 1000);
+                localStorage.setItem(NOTIF_READ_KEY, String(newest));
+                refreshNotifBadge();
+            }
+        }
+
+        refreshNotifBadge();
+
+        // Click a notification → close the drawer and open the module it belongs to.
+        // When an item id is known, deep-link to that requirement card (module reads ?item=NN).
+        function goToNotif(panelId, file, itemId) {
+            const drawer = document.getElementById('notifDrawer');
+            if (drawer && drawer.classList.contains('active')) toggleNotifDrawer();
+            if (itemId) file += (file.indexOf('?') > -1 ? '&' : '?') + 'item=' + encodeURIComponent(itemId);
+            pushView(panelId, file);
         }
 
         // Handle avatar dropdown

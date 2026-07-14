@@ -806,7 +806,7 @@ $message_type = $_GET['type'] ?? '';
                 $accept_attr = 'image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx,.xls,.xlsx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
                 $is_cascaded = in_array($item['item_id'], [13, 15, 16]);
             ?>
-                <div class="item-card <?= $status_class ?> <?= $is_cascaded ? 'cascaded-item' : '' ?>">
+                <div class="item-card <?= $status_class ?> <?= $is_cascaded ? 'cascaded-item' : '' ?>" id="req-item-<?= $item['item_id'] ?>">
                     <div class="card-header">
                         <div class="status-badge <?= $status_class ?>"><?= $status_icon ?></div>
                         <div style="flex: 1;">
@@ -1083,6 +1083,36 @@ $message_type = $_GET['type'] ?? '';
     </script>
     <script>
         lucide.createIcons();
+    </script>
+    <!-- Deep-link: scroll to + highlight a specific requirement when opened from a notification -->
+    <style>
+        @keyframes deeplinkPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(124, 58, 237, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+        }
+        .item-card.deeplink-flash {
+            animation: deeplinkPulse 1.3s ease-out 2;
+            outline: 2px solid rgba(124, 58, 237, 0.9);
+            outline-offset: 3px;
+        }
+    </style>
+    <script>
+        (function () {
+            var itemId = new URLSearchParams(window.location.search).get('item');
+            if (!itemId) return;
+            function jump() {
+                var allTab = document.querySelector('.status-filter-tab[data-filter="all"]');
+                if (allTab && !allTab.classList.contains('active')) allTab.click();
+                var el = document.getElementById('req-item-' + itemId);
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                el.classList.add('deeplink-flash');
+                setTimeout(function () { el.classList.remove('deeplink-flash'); }, 2800);
+            }
+            if (document.readyState === 'complete') setTimeout(jump, 450);
+            else window.addEventListener('load', function () { setTimeout(jump, 450); });
+        })();
     </script>
 </body>
 

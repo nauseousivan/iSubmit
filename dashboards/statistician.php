@@ -207,65 +207,77 @@ $recent_activities = $pdo->query("
 <body>
     <div class="app-dashboard-frame">
         <nav class="app-dock-navigation" aria-label="Primary navigation">
+            <div class="dock-brand"><i data-lucide="graduation-cap" style="width:22px;height:22px;color:var(--accent);"></i><span class="dock-brand-name">iSubmit</span></div>
             <ul class="dock-menu-list">
+                <li class="nav-section-label">Overview</li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn active" data-view="home" onclick="showMasterDashboard(this)"><i data-lucide="house"></i></button>
-                    <span class="dock-tooltip">Dashboard</span>
+                    <button class="dock-btn nav-item-btn active" data-view="home" onclick="showMasterDashboard(this)"><i data-lucide="house"></i><span class="dock-label">Dashboard</span></button>
                 </li>
-                <li class="dock-divider" aria-hidden="true"></li>
+
+                <li class="nav-section-label">Statistics</li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Statistics Clearance" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=checklist', this)">
-                        <i data-lucide="sigma"></i>
+                    <button class="dock-btn nav-item-btn" data-win-title="Clearance" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=checklist', this)">
+                        <i data-lucide="sigma"></i><span class="dock-label">Clearance</span>
                         <?= $stats_checklist_pending > 0 ? '<span class="dock-badge">' . $stats_checklist_pending . '</span>' : '' ?>
                     </button>
-                    <span class="dock-tooltip">Statistics Clearance</span>
                 </li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Payment Verification" data-win-icon="receipt" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=payments', this)">
-                        <i data-lucide="receipt"></i>
+                    <button class="dock-btn nav-item-btn" data-win-title="Payment" data-win-icon="receipt" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=payments', this)">
+                        <i data-lucide="receipt"></i><span class="dock-label">Payment</span>
                         <?= $stats_payment_pending > 0 ? '<span class="dock-badge">' . $stats_payment_pending . '</span>' : '' ?>
                     </button>
-                    <span class="dock-tooltip">Payment Verification</span>
+                </li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Payment History" data-win-icon="history" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=history', this)"><i data-lucide="history"></i><span class="dock-label">History</span></button>
                 </li>
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Release Results" data-win-icon="send" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=release', this)">
-                        <i data-lucide="send"></i>
+                        <i data-lucide="send"></i><span class="dock-label">Release</span>
                         <?= $stats_release_pending > 0 ? '<span class="dock-badge">' . $stats_release_pending . '</span>' : '' ?>
                     </button>
-                    <span class="dock-tooltip">Release Results</span>
                 </li>
+
+                <li class="nav-section-label">Plagiarism</li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Verify" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag', this)">
-                        <i data-lucide="shield-check"></i>
+                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Review" data-win-icon="shield-alert" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=review', this)">
+                        <i data-lucide="shield-alert"></i><span class="dock-label">Review</span>
                         <?= $plag_pending_count > 0 ? '<span class="dock-badge">' . $plag_pending_count . '</span>' : '' ?>
                     </button>
-                    <span class="dock-tooltip">Plagiarism Verify</span>
                 </li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i></button>
-                    <span class="dock-tooltip">Messages</span>
+                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Cleared" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=cleared', this)"><i data-lucide="shield-check"></i><span class="dock-label">Cleared</span></button>
+                </li>
+
+                <li class="nav-section-label">Workspace</li>
+                <li class="dock-item">
+                    <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i><span class="dock-label">Messages</span></button>
                 </li>
                 <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Analytics" data-win-icon="bar-chart-3" onclick="openOverlay('analytics.php', this)"><i data-lucide="bar-chart-3"></i></button>
-                    <span class="dock-tooltip">Analytics</span>
+                    <button class="dock-btn nav-item-btn" data-win-title="Analytics" data-win-icon="bar-chart-3" onclick="openOverlay('analytics.php', this)"><i data-lucide="bar-chart-3"></i><span class="dock-label">Analytics</span></button>
                 </li>
-                <li class="dock-divider" aria-hidden="true"></li>
-                <li class="dock-item">
-                    <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">
-                        <div class="dock-avatar-ring"><img src="<?= htmlspecialchars($current_pfp) ?>" class="dock-avatar-img" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';"></div>
-                    </button>
-                    <div class="dock-dropdown" id="dockAvatarMenu" onclick="event.stopPropagation()">
-                        <div class="dock-dropdown-head">
-                            <div class="dock-dropdown-name"><?= htmlspecialchars($currentUser['username']) ?></div>
-                            <div class="dock-dropdown-role">Statistician</div>
-                        </div>
-                        <a onclick="showSettingsDashboard(document.getElementById('settings-nav-btn')); toggleDockMenu('dockAvatarMenu')"><i data-lucide="settings-2"></i> Panel Settings</a>
-                        <a href="../auth/logout.php" class="danger"><i data-lucide="log-out"></i> Log out</a>
+
+                <li class="nav-account">
+                    <div class="nav-section-label">Account</div>
+                    <div class="dock-item">
+                        <button class="dock-btn nav-item-btn" onclick="showSettingsDashboard(this)"><i data-lucide="settings-2"></i><span class="dock-label">Settings</span></button>
                     </div>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn dock-logout" onclick="window.location.href='../auth/logout.php'"><i data-lucide="log-out"></i></button>
-                    <span class="dock-tooltip">Log out</span>
+                    <div class="dock-item">
+                        <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">
+                            <div class="dock-avatar-ring"><img src="<?= htmlspecialchars($current_pfp) ?>" class="dock-avatar-img" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';"></div>
+                            <span class="dock-avatar-name"><?= htmlspecialchars($currentUser['username']) ?></span>
+                        </button>
+                        <div class="dock-dropdown" id="dockAvatarMenu" onclick="event.stopPropagation()">
+                            <div class="dock-dropdown-head">
+                                <div class="dock-dropdown-name"><?= htmlspecialchars($currentUser['username']) ?></div>
+                                <div class="dock-dropdown-role">Statistician</div>
+                            </div>
+                            <a onclick="showSettingsDashboard(document.getElementById('settings-nav-btn')); toggleDockMenu('dockAvatarMenu')"><i data-lucide="settings-2"></i> Panel Settings</a>
+                            <a href="../auth/logout.php" class="danger"><i data-lucide="log-out"></i> Log out</a>
+                        </div>
+                    </div>
+                    <div class="dock-item">
+                        <button class="dock-btn dock-logout" onclick="window.location.href='../auth/logout.php'"><i data-lucide="log-out"></i><span class="dock-label">Log out</span></button>
+                    </div>
                 </li>
             </ul>
         </nav>

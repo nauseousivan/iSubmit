@@ -109,11 +109,13 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+:root { --nav-w: 194px; }
+
 .app-dashboard-frame {
     width: 100vw;
     height: 100vh;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;          /* left rail + content */
     position: relative;
     overflow: hidden;
     background: var(--canvas);
@@ -121,8 +123,9 @@ body {
 
 .main-workspace-content {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
-    padding: 38px 38px 132px;   /* bottom room for the dock */
+    padding: 34px 38px 56px;      /* dock is gone — no bottom reserve */
     position: relative;
     z-index: 5;
     background: var(--canvas);
@@ -133,78 +136,80 @@ body {
    3. macOS DOCK
    ------------------------------------------------------------------------- */
 .app-dock-navigation {
-    position: fixed;
-    bottom: 22px;
-    left: 50%;
-    transform: translateX(-50%);
-    height: 66px;
-    background: var(--dock-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
-    backdrop-filter: blur(24px) saturate(170%);
-    border: 1px solid var(--line);
-    border-radius: 22px;
-    box-shadow: var(--shadow-dock);
+    width: var(--nav-w);
+    flex-shrink: 0;
+    height: 100vh;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
     display: flex;
-    align-items: center;
-    padding: 8px 14px;
-    gap: 6px;
+    flex-direction: column;
+    padding: 16px 12px 14px;
+    gap: 1px;
+    overflow-y: auto;
+    overflow-x: hidden;
     z-index: 600;
 }
-.dock-menu-list { list-style: none; display: flex; align-items: center; gap: 6px; }
-.dock-item { position: relative; display: flex; }
+.app-dock-navigation::-webkit-scrollbar { width: 0; }
+.dock-brand { display: flex; align-items: center; gap: 10px; padding: 4px 10px 12px; }
+.dock-brand-logo { width: 30px; height: 30px; border-radius: 9px; object-fit: cover; flex-shrink: 0; }
+.dock-brand-name { font-size: 14px; font-weight: 800; color: var(--ink); letter-spacing: -.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.dock-menu-list { list-style: none; display: flex; flex-direction: column; align-items: stretch; gap: 1px; width: 100%; flex: 1 1 auto; }
+.dock-item { position: relative; display: flex; width: 100%; }
+.nav-account { margin-top: auto; display: flex; flex-direction: column; gap: 1px; padding-top: 6px; }
+.nav-account .nav-section-label { padding-top: 8px; }
+
+.nav-section-label {
+    font-size: 9.5px; font-weight: 800; letter-spacing: .09em; text-transform: uppercase;
+    color: var(--muted); padding: 13px 12px 5px; opacity: .72;
+}
+
 .dock-btn {
     background: transparent;
     border: none;
-    width: 46px; height: 46px;
-    border-radius: 14px;
+    width: 100%; height: 39px;
+    border-radius: 10px;
     cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted);
+    display: flex; align-items: center; justify-content: flex-start; gap: 12px;
+    padding: 0 12px;
+    color: var(--ink-soft);
+    font-family: var(--font-ui); font-size: 13.5px; font-weight: 650;
     position: relative;
-    transition: transform .25s var(--spring), background .2s, color .2s;
+    transition: background .16s, color .16s;
+    text-align: left;
 }
-.dock-btn i, .dock-btn svg { width: 23px; height: 23px; }
-.dock-btn:hover { color: var(--ink); background: var(--surface-2); transform: scale(1.14) translateY(-4px); }
-.dock-btn.active { color: var(--accent); background: var(--accent-weak); }
+.dock-btn i, .dock-btn svg { width: 19px; height: 19px; flex-shrink: 0; }
+.dock-btn .dock-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.dock-btn:hover { color: var(--ink); background: var(--surface-2); }
+.dock-btn.active { color: var(--accent); background: var(--accent-weak); font-weight: 750; }
 .dock-btn.dock-logout { color: var(--muted); }
-.dock-btn.dock-logout:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); transform: scale(1.14) translateY(-4px); }
+.dock-btn.dock-logout:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 .dock-badge {
-    position: absolute; top: 1px; right: 1px;
+    position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
     min-width: 18px; height: 18px; padding: 0 5px;
     background: var(--danger); color: #fff;
     font-size: 10px; font-weight: 800; line-height: 1;
     border-radius: var(--r-pill);
     display: flex; align-items: center; justify-content: center;
-    border: 2px solid var(--surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
 }
-.dock-tooltip {
-    position: absolute; left: 50%; top: -40px;
-    transform: translateX(-50%) translateY(8px);
-    background: var(--ink); color: var(--surface);
-    padding: 6px 11px; border-radius: 8px;
-    font-size: 11px; font-weight: 700; letter-spacing: .3px; white-space: nowrap;
-    opacity: 0; pointer-events: none;
-    box-shadow: var(--shadow-2);
-    transition: opacity .2s var(--ease), transform .2s var(--ease);
-}
-.dock-item:hover .dock-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
-.dock-divider { width: 1px; height: 28px; background: var(--line); margin: 0 4px; flex-shrink: 0; }
+.dock-tooltip { display: none; }
+.dock-divider { width: auto; height: 1px; background: var(--line); margin: 8px 8px; flex-shrink: 0; }
 
-.dock-avatar-btn { background: none; border: none; padding: 0; cursor: pointer; position: relative; display: flex; }
-.dock-avatar-ring { width: 46px; height: 46px; border-radius: 50%; padding: 2px; border: 2px solid var(--accent); transition: transform .3s var(--spring); }
-.dock-avatar-btn:hover .dock-avatar-ring { transform: scale(1.1); }
+.dock-avatar-btn { background: none; border: none; padding: 7px 12px; cursor: pointer; position: relative; display: flex; align-items: center; gap: 11px; width: 100%; border-radius: 10px; }
+.dock-avatar-btn:hover { background: var(--surface-2); }
+.dock-avatar-ring { width: 30px; height: 30px; border-radius: 50%; padding: 2px; border: 2px solid var(--accent); flex-shrink: 0; }
 .dock-avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--surface-2); }
+.dock-avatar-name { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Avatar dropdown */
+/* Avatar dropdown — opens upward from the bottom account row */
 .dock-dropdown {
-    position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%) translateY(8px) scale(.96);
+    position: absolute; bottom: 48px; left: 8px; right: 8px; transform: translateY(8px) scale(.98);
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-    box-shadow: var(--shadow-3); padding: 6px; min-width: 190px;
+    box-shadow: var(--shadow-3); padding: 6px;
     opacity: 0; pointer-events: none; transition: opacity .2s var(--ease), transform .2s var(--ease); z-index: 620;
 }
-.dock-dropdown.open { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0) scale(1); }
+.dock-dropdown.open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 .dock-dropdown-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .dock-dropdown-name { font-size: 13px; font-weight: 700; color: var(--ink); }
 .dock-dropdown-role { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-top: 1px; }
@@ -214,51 +219,40 @@ body {
 .dock-dropdown a.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 
 /* ----------------------------------------------------------------------------
-   4. MAC WINDOWS (module overlays w/ traffic lights)
+   4. MODULE WINDOWS (full-view, chrome-free — open right of the side rail)
    ------------------------------------------------------------------------- */
-.window-layer { position: fixed; inset: 0; z-index: 400; pointer-events: none; }
+.window-layer { position: fixed; inset: 0 0 0 var(--nav-w); z-index: 400; pointer-events: none; }
 .app-window {
     position: absolute;
-    inset: 18px 18px 104px 18px;
+    inset: 0;
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    box-shadow: var(--shadow-3);
     display: none;
     flex-direction: column;
     overflow: hidden;
     pointer-events: auto;
     opacity: 0;
-    transform: scale(.985) translateY(10px);
-    transition: opacity .3s var(--ease), transform .3s var(--ease);
+    transition: opacity .22s var(--ease);
 }
 .app-window.active { display: flex; }
-.app-window.shown { opacity: 1; transform: none; }
-.app-window.expanded { inset: 0; border-radius: 0; border: none; }
+.app-window.shown { opacity: 1; }
+.app-window.expanded { inset: 0; }
 .app-window.minimized { display: none; }
 
 .window-titlebar {
-    height: 46px; flex-shrink: 0;
-    display: flex; align-items: center; gap: 12px;
-    padding: 0 14px;
-    background: var(--surface-2);
+    height: 44px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 16px;
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
     user-select: none;
 }
-.traffic-lights { display: flex; gap: 8px; align-items: center; }
-.traffic-light {
-    width: 12px; height: 12px; border-radius: 50%;
-    border: none; padding: 0; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; color: transparent; line-height: 1;
-    transition: filter .15s;
+.window-close {
+    margin-left: auto; width: 30px; height: 30px; border: none; background: transparent;
+    color: var(--muted); border-radius: 8px; cursor: pointer; font-size: 21px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s;
 }
-.traffic-lights:hover .traffic-light { color: rgba(0, 0, 0, .55); }
-.traffic-light:hover { filter: brightness(.94); }
-.traffic-light.red { background: #ff5f56; }
-.traffic-light.yellow { background: #ffbd2e; }
-.traffic-light.green { background: #27c93f; }
-.window-title { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; color: var(--ink-soft); margin: 0 auto 0 6px; }
+.window-close:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.window-title { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 750; color: var(--ink); }
 .window-title i { width: 16px; height: 16px; color: var(--accent); }
 .window-frame { flex: 1; border: none; width: 100%; background: var(--surface); }
 
@@ -508,9 +502,20 @@ body.admin-module { padding: 28px 28px 32px; background: var(--canvas); min-heig
     .preview-frame { flex: none; height: 42vh; }
     .preview-sidebar { flex: 1; min-width: 0; border-left: none; border-top: 1px solid var(--line); }
 }
+/* Collapse the side rail to an icon-only strip on narrow screens */
+@media (max-width: 860px) {
+    .app-dashboard-frame { --nav-w: 58px; }
+    .app-dock-navigation { padding: 14px 8px; }
+    .dock-btn { justify-content: center; padding: 0; gap: 0; }
+    .dock-btn .dock-label,
+    .nav-section-label,
+    .dock-avatar-name,
+    .dock-brand-name { display: none; }
+    .dock-avatar-btn { justify-content: center; padding: 7px 0; gap: 0; }
+    .dock-badge { top: 3px; right: 3px; transform: none; }
+    .dock-dropdown { left: auto; right: -6px; min-width: 190px; width: 190px; }
+}
 @media (max-width: 760px) {
-    .main-workspace-content { padding: 20px 20px 120px; }
+    .main-workspace-content { padding: 20px 20px 40px; }
     table { min-width: 100%; }
-    .app-window { inset: 10px 10px 96px 10px; }
-    .app-dock-navigation { max-width: calc(100vw - 20px); overflow-x: auto; }
 }

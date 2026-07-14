@@ -25,6 +25,24 @@ $phase_map = [
 $current_phase = $phase_map[$phase] ?? $phase_map['proposal'];
 $item_list = implode(',', $current_phase['items']);
 
+// Payment decision audit trail (statistician accept/reject). Self-healing create so the table
+// exists on any environment restored from the .sql dumps (no migration runner in this project).
+if ($phase === 'stats') {
+    $pdo->exec("CREATE TABLE IF NOT EXISTS payment_logs (
+        log_id INT AUTO_INCREMENT PRIMARY KEY,
+        form_id INT NOT NULL,
+        student_id INT NOT NULL,
+        actor_id INT NOT NULL,
+        action VARCHAR(20) NOT NULL,
+        control_no VARCHAR(60) DEFAULT NULL,
+        item_id INT DEFAULT NULL,
+        remarks TEXT DEFAULT NULL,
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        INDEX idx_form (form_id),
+        INDEX idx_created (created_at)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4");
+}
+
 // Statistician nav split: statistician.php now links here with a `view` param so its
 // Statistics Clearance / Payment Verification / Release Results tabs each show only their
 // own section. Coordinator/Director keep linking with no `view` param (defaults to 'all'),
@@ -32,9 +50,17 @@ $item_list = implode(',', $current_phase['items']);
 $stats_view = 'all';
 if ($phase === 'stats') {
     $stats_view = $_GET['view'] ?? 'all';
-    if (!in_array($stats_view, ['all', 'checklist', 'payments', 'release'], true)) {
+    if (!in_array($stats_view, ['all', 'checklist', 'payments', 'release', 'history'], true)) {
         $stats_view = 'all';
     }
+}
+
+// Plagiarism sub-nav split (mirrors the Statistics one): 'review' = manuscripts still needing a
+// decision (default), 'cleared' = already-approved manuscripts + their Turnitin reports.
+$plag_view = 'review';
+if ($phase === 'plag') {
+    $plag_view = $_GET['view'] ?? 'review';
+    if (!in_array($plag_view, ['review', 'cleared'], true)) $plag_view = 'review';
 }
 
 // Define Form No. 008 Assessment Rubric Structure Natively
@@ -207,6 +233,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
                     // Rejected payment document: send the group back to Phase 2 so the
                     // upload cards unlock and they can submit a corrected file.
                     $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 2: Form Download' WHERE form_id = ? AND status = 'Phase 4: Payment Verification'")->execute([$form_id]);
+
+                    // Audit trail: who rejected which payment document, and why.
+                    $pdo->prepare("INSERT INTO payment_logs (form_id, student_id, actor_id, action, item_id, remarks, created_at) VALUES (?, ?, ?, 'rejected', ?, ?, CURRENT_TIMESTAMP)")
+                        ->execute([$form_id, $student_user_id, $_SESSION['user_id'], $target_item_id, $remarks]);
                 }
             }
 
@@ -335,6 +365,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
             // Notify student
             $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Payment Acknowledged (Registered)', ?, 'success', CURRENT_TIMESTAMP)");
             $log_stmt->execute([$student_id, "Your statistical treatment payment has been acknowledged. Your Control Number is: $full_control_no. You may now upload the remaining deliverables in Phase 6."]);
+
+            // Audit trail: who registered this payment, when, and under what control number.
+            $pdo->prepare("INSERT INTO payment_logs (form_id, student_id, actor_id, action, control_no, created_at) VALUES (?, ?, ?, 'accepted', ?, CURRENT_TIMESTAMP)")
+                ->execute([$form_id, $student_id, $_SESSION['user_id'], $full_control_no]);
 
             $message = "Payment acknowledged and Registered successfully! Generated Control No: $full_control_no";
         } else {
@@ -587,6 +621,56 @@ foreach ($uploads_history as $itemId => $students) {
     }
 }
 
+// GROUP-INBOX: pivot the latest-per-item rows into per-group profiles so the admin can review one
+// group's whole checklist in one card. Presentation-only; reuses the same upload rows the requirement
+// tables use. Applies to Proposal, Final, and the Stats checklist (never the payment docs 36/37, which
+// live in the Pending Payments queue; and not the Stats payments/release sub-views).
+$use_group_inbox = ($phase === 'proposal' || $phase === 'final'
+    || ($phase === 'stats' && in_array($stats_view, ['all', 'checklist'], true)));
+$group_inbox_items = $current_phase['items'];
+if ($phase === 'stats') {
+    $group_inbox_items = array_values(array_diff($group_inbox_items, [36, 37]));
+}
+
+$submissions_by_group = [];
+if ($use_group_inbox) {
+    foreach ($group_inbox_items as $p_item_id) {
+        foreach ($uploads_by_item[$p_item_id] ?? [] as $sub) {
+            $sid = $sub['student_user_id'];
+            if (!isset($submissions_by_group[$sid])) {
+                $submissions_by_group[$sid] = [
+                    'meta' => [
+                        'user_id' => $sid,
+                        'research_group_name' => $sub['research_group_name'],
+                        'username' => $sub['username'],
+                        'department' => $sub['department'],
+                        'program' => $sub['program'],
+                        'profile_pic' => $sub['profile_pic'] ?? '',
+                        'email' => $sub['email'] ?? '',
+                    ],
+                    'items' => [],
+                    'action_count' => 0,
+                    'file_count' => 0,
+                ];
+            }
+            $submissions_by_group[$sid]['items'][$p_item_id] = $sub;
+            $submissions_by_group[$sid]['file_count']++;
+            // Same actionable logic as the requirement tables: Coordinator/Statistician act on
+            // Pending, Director acts on Under Review. Cascaded items (13/15/16) aren't actioned here.
+            if (!in_array($p_item_id, [13, 15, 16], true)) {
+                $vs = $sub['verification_status'];
+                if ($role === 'Research Director' && $vs === 'Under Review') $submissions_by_group[$sid]['action_count']++;
+                elseif ($role !== 'Research Director' && $vs === 'Pending') $submissions_by_group[$sid]['action_count']++;
+            }
+        }
+    }
+    // Action-needed groups first, then most files.
+    uasort($submissions_by_group, function ($a, $b) {
+        if ($a['action_count'] !== $b['action_count']) return $b['action_count'] <=> $a['action_count'];
+        return $b['file_count'] <=> $a['file_count'];
+    });
+}
+
 // Fetch all student groups for the Interactive SELECTOR feature (leaders only, where leader_id is NULL)
 // We also apply the same department, program, and search filters so that the sidebar is in sync with the search filters!
 $group_selector_clauses = $where_clauses;
@@ -652,14 +736,16 @@ function highlightSearchTerm($text, $term)
 
 $pending_payments = [];
 $release_queue = [];
+$payment_history = [];
 if ($phase === 'stats') {
     // Registration queue: groups with payment docs uploaded (Phase 4) plus groups still in
     // Phase 2 — the latter covers receipts presented physically at the Research Office.
-    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program
+    // First-come, first-served queue: oldest submission sits at the front (#1).
+    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program, u.email, u.profile_pic
                              FROM form_stat_treatment f
                              JOIN users u ON f.user_id = u.user_id
                              WHERE f.status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')
-                             ORDER BY FIELD(f.status, 'Phase 4: Payment Verification', 'Phase 2: Form Download'), f.date_submitted DESC");
+                             ORDER BY f.date_submitted ASC");
     $pending_payments = $stmt_pay->fetchAll(PDO::FETCH_ASSOC);
 
     // Attach the latest payment-document uploads (36 = validated form, 37 = receipt) per group.
@@ -682,6 +768,16 @@ if ($phase === 'stats') {
                                   FROM form_stat_treatment f
                                   JOIN users u ON f.user_id = u.user_id
                                   WHERE f.status = 'Phase 7: Statistical Treatment' ORDER BY f.date_submitted DESC")->fetchAll(PDO::FETCH_ASSOC);
+
+    // Payment decision history (accept/reject audit trail, most recent first).
+    $payment_history = $pdo->query("
+        SELECT pl.action, pl.control_no, pl.item_id, pl.remarks, pl.created_at,
+               u.research_group_name, actor.username AS actor_name
+        FROM payment_logs pl
+        LEFT JOIN users u ON pl.student_id = u.user_id
+        LEFT JOIN users actor ON pl.actor_id = actor.user_id
+        ORDER BY pl.created_at DESC LIMIT 30
+    ")->fetchAll(PDO::FETCH_ASSOC);
 }
 
 // Plagiarism Review & Clearance: single-stage decision queue. Lists every group with a manuscript
@@ -693,7 +789,7 @@ $plag_reports_history = []; // [user_id => [report rows...]], DESC by uploaded_a
 $plag_awaiting_count = 0;
 if ($phase === 'plag') {
     $plag_manuscripts = $pdo->query("
-        SELECT u.user_id, u.username, u.research_group_name, u.department, u.program,
+        SELECT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic,
                up.upload_id AS latest_upload_id, up.file_path AS manuscript_path,
                up.original_filename AS manuscript_filename, up.verification_status,
                pc.formatted_control_no
@@ -731,6 +827,165 @@ if ($phase === 'plag') {
     <script src="../assets/js/portal.js"></script>
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        /* ── Payment Verification: first-come-first-served queue cards ───────────── */
+        .pay-queue { display: flex; flex-direction: column; gap: 12px; }
+
+        .pay-card {
+            display: flex;
+            background: var(--bg-white, #fff);
+            border: 1.5px solid var(--border-line);
+            border-radius: 16px;
+            overflow: hidden;
+            transition: box-shadow .2s ease, transform .2s ease;
+        }
+        .pay-card:hover { box-shadow: 0 12px 28px -14px rgba(15, 23, 42, .22); transform: translateY(-1px); }
+        .pay-card.is-ready { border-left: 4px solid var(--warning); }
+        .pay-card.is-waiting { border-left: 4px solid var(--border-line); }
+
+        /* Ticket stub (queue number) */
+        .pay-ticket {
+            flex-shrink: 0;
+            width: 66px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            background: linear-gradient(160deg, rgba(245, 158, 11, .12), rgba(245, 158, 11, .02));
+            border-right: 1.5px dashed var(--border-line);
+        }
+        .pay-card.is-waiting .pay-ticket { background: linear-gradient(160deg, rgba(100, 116, 139, .10), rgba(100, 116, 139, .02)); }
+        .pay-ticket-label { font-size: 8px; font-weight: 800; letter-spacing: .14em; color: var(--text-muted); }
+        .pay-ticket-no { font-family: 'JetBrains Mono', monospace; font-size: 25px; font-weight: 800; color: var(--warning); line-height: 1; }
+        .pay-card.is-waiting .pay-ticket-no { color: #64748b; }
+        .pay-wait { font-size: 8px; font-weight: 700; color: var(--text-muted); text-align: center; line-height: 1.1; margin-top: 2px; }
+
+        .pay-main { flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+        .pay-identity { display: flex; align-items: center; gap: 12px; }
+        .pay-avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-line); flex-shrink: 0; background: #f3f4f6; }
+        .pay-id-text { flex: 1; min-width: 0; }
+        .pay-group { font-size: 14px; font-weight: 750; color: var(--mcnp-teal); margin: 0; line-height: 1.25; }
+        .pay-sub { font-size: 11.5px; color: var(--text-muted); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .pay-email { font-size: 11px; color: var(--text-muted); display: inline-flex; align-items: center; gap: 4px; margin-top: 3px; }
+        .pay-email i { width: 11px; height: 11px; flex-shrink: 0; }
+        .pay-status-chip { flex-shrink: 0; font-size: 10px; font-weight: 700; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+        .pay-status-chip.ready { background: rgba(245, 158, 11, .14); color: #b45309; }
+        .pay-status-chip.waiting { background: rgba(100, 116, 139, .12); color: #64748b; }
+
+        .pay-docs-label { display: block; font-size: 9.5px; font-weight: 750; text-transform: uppercase; letter-spacing: .08em; color: var(--text-muted); margin-bottom: 7px; }
+        .pay-docs-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .pay-doc-chip {
+            display: inline-flex; align-items: center; gap: 7px;
+            padding: 7px 11px; border: 1.5px solid var(--border-line); border-radius: 10px;
+            background: transparent; cursor: pointer; font-size: 12px; font-weight: 600;
+            color: inherit; font-family: inherit; transition: all .18s ease;
+        }
+        .pay-doc-chip:hover { border-color: var(--mcnp-teal); background: rgba(20, 184, 166, .06); }
+        .pay-doc-chip i { width: 13px; height: 13px; }
+        .pay-doc-missing { font-size: 11.5px; color: #9ca3af; display: inline-flex; align-items: center; gap: 5px; }
+        .pay-doc-missing i { width: 12px; height: 12px; }
+
+        .pay-register { display: flex; gap: 8px; align-items: center; }
+        .pay-register input[type="text"] {
+            flex: 1; min-width: 0; padding: 9px 12px; border: 1.5px solid var(--border-line);
+            border-radius: var(--control-radius, 10px); font-size: 13px; background: transparent; color: inherit;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .pay-register input[type="text"]:focus { outline: none; border-color: var(--warning); }
+        .pay-register .btn-update { white-space: nowrap; flex-shrink: 0; }
+        .pay-readonly-note { display: inline-flex; align-items: center; gap: 6px; font-size: 11.5px; font-weight: 600; color: var(--text-muted); background: #f8fafc; border: 1px dashed var(--border-line); border-radius: 8px; padding: 8px 12px; }
+
+        @media (max-width: 640px) {
+            .pay-register { flex-wrap: wrap; }
+            .pay-register .btn-update { width: 100%; }
+        }
+
+        /* Payment decision history (accept/reject audit trail) */
+        .pay-hist-list { display: flex; flex-direction: column; gap: 8px; }
+        .pay-hist-row { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border: 1.5px solid var(--border-line); border-radius: 12px; background: var(--bg-white, #fff); }
+        .pay-hist-badge { flex-shrink: 0; display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 750; padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+        .pay-hist-badge i { width: 12px; height: 12px; }
+        .pay-hist-badge.ok { background: rgba(16, 185, 129, .14); color: #059669; }
+        .pay-hist-badge.no { background: rgba(239, 68, 68, .13); color: #dc2626; }
+        .pay-hist-body { flex: 1; min-width: 0; }
+        .pay-hist-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13px; font-weight: 650; }
+        .pay-hist-ctrl { font-family: 'JetBrains Mono', monospace; font-size: 11px; font-weight: 700; background: rgba(16, 185, 129, .10); color: #059669; padding: 1px 8px; border-radius: 8px; }
+        .pay-hist-doc { font-size: 11px; font-weight: 600; background: rgba(239, 68, 68, .08); color: #dc2626; padding: 1px 8px; border-radius: 8px; }
+        .pay-hist-remarks { font-size: 12px; color: var(--text-muted); font-style: italic; margin-top: 3px; line-height: 1.4; }
+        .pay-hist-meta { font-size: 11px; color: var(--text-muted); margin-top: 4px; }
+
+        /* ── Group Inbox (Proposal): one profile card, requirement mini-cards inside ───────── */
+        .view-toggle { display: inline-flex; gap: 4px; background: #f2eee6; border: 1.5px solid var(--border-line); border-radius: 10px; padding: 3px; margin-bottom: 20px; }
+        .view-toggle-btn {
+            display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border: none;
+            background: transparent; border-radius: 7px; font-family: var(--ui-sans); font-size: 12.5px;
+            font-weight: 700; color: var(--text-muted); cursor: pointer; transition: all .18s ease;
+        }
+        .view-toggle-btn.active { background: var(--bg-white, #fff); color: var(--mcnp-teal); box-shadow: 0 1px 4px rgba(15,23,42,.10); }
+
+        .grp-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-line); background: #f3f4f6; flex-shrink: 0; }
+        .grp-name { font-size: 15px; font-weight: 800; color: var(--mcnp-teal); font-family: 'Cinzel', serif; line-height: 1.2; }
+        .grp-sub { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
+        .grp-file-badge { background: #eef1f5 !important; color: #64748b !important; }
+
+        .grp-req-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; padding: 4px; }
+        .grp-req-card {
+            display: flex; flex-direction: column; gap: 8px; padding: 14px;
+            border: 1.5px solid var(--border-line); border-left: 4px solid var(--border-line);
+            border-radius: 12px; background: var(--bg-white, #fff); transition: box-shadow .2s ease, transform .2s ease;
+        }
+        .grp-req-card:hover { box-shadow: 0 8px 20px -8px rgba(15,23,42,.16); transform: translateY(-1px); }
+        .grp-req-card.pending  { border-left-color: var(--warning); }
+        .grp-req-card.review   { border-left-color: var(--warning); }
+        .grp-req-card.approved { border-left-color: var(--success); }
+        .grp-req-card.revision { border-left-color: var(--danger); }
+        .grp-req-card.cascaded { border-left-color: var(--info); background: #f8fafc; }
+
+        .grp-req-top { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; }
+        .grp-req-name { font-size: 13px; font-weight: 750; color: var(--text-dark, #1f2937); line-height: 1.3; }
+        .grp-req-score { font-size: 11px; font-weight: 700; color: var(--warning); }
+        .grp-req-file {
+            display: inline-flex; align-items: center; gap: 6px; padding: 6px 9px; border: 1.5px solid var(--border-line);
+            border-radius: 8px; background: transparent; cursor: pointer; font-size: 11.5px; font-weight: 600;
+            color: var(--info); font-family: inherit; max-width: 100%; transition: all .18s ease;
+        }
+        .grp-req-file:hover { border-color: var(--info); background: rgba(59,130,246,.06); }
+        .grp-req-fname { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .grp-req-date { font-size: 10px; color: #9ca3af; }
+        .grp-req-cascade-note { display: inline-flex; align-items: center; gap: 5px; font-size: 10.5px; font-weight: 600; color: var(--info); }
+        .grp-req-review { width: 100%; justify-content: center; margin-top: 2px; }
+
+        @media (max-width: 560px) { .grp-req-grid { grid-template-columns: 1fr; } }
+
+        /* ── Plagiarism review: profile cards (matches the group-inbox look) ───────────────── */
+        .plag-queue { display: flex; flex-direction: column; gap: 12px; }
+        .plag-card { border: 1.5px solid var(--border-line); border-left: 4px solid var(--border-line); border-radius: 14px; background: var(--bg-white, #fff); overflow: hidden; }
+        .plag-card.pending { border-left-color: var(--warning); }
+        .plag-card.revision { border-left-color: var(--danger); }
+        .plag-card.approved { border-left-color: var(--success); }
+        .plag-card-head { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--border-line); }
+        .plag-head-id { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+        .plag-ctrl { font-family: 'JetBrains Mono', monospace; font-weight: 700; color: var(--mcnp-teal); }
+        .plag-card-body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
+        .plag-docs { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+        .plag-doc-link { display: inline-flex; align-items: center; gap: 6px; padding: 7px 11px; border: 1.5px solid var(--border-line); border-radius: 9px; font-size: 12px; font-weight: 600; color: var(--info); text-decoration: none; transition: all .18s ease; }
+        .plag-doc-link:hover { border-color: var(--info); background: rgba(59,130,246,.06); }
+        .plag-doc-link i { width: 13px; height: 13px; }
+        .plag-doc-link.report { color: var(--success); }
+        .plag-doc-link.report:hover { border-color: var(--success); background: rgba(16,185,129,.06); }
+        .plag-report-date { color: var(--text-muted); font-weight: 500; }
+        .plag-report-remark { width: 100%; font-size: 11px; color: #64748b; font-style: italic; }
+        .plag-noreport { display: inline-flex; align-items: center; gap: 5px; font-size: 11.5px; color: #9ca3af; }
+        .plag-decision { background: #faf8f4; border: 1px solid var(--border-line); border-radius: 10px; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
+        .plag-decision-label { display: inline-flex; align-items: center; gap: 6px; font-size: 10.5px; font-weight: 750; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); }
+        .plag-form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+        .plag-form input[type="file"] { flex: 1 1 170px; font-size: 12px; min-width: 0; }
+        .plag-form input[type="text"] { flex: 2 1 200px; font-size: 12px; padding: 8px 10px; border: 1.5px solid var(--border-line); border-radius: 8px; background: transparent; color: inherit; min-width: 0; }
+        .plag-form .btn-update { flex-shrink: 0; white-space: nowrap; }
+        @media (max-width: 640px) { .plag-form { flex-direction: column; align-items: stretch; } .plag-form .btn-update { width: 100%; } }
+    </style>
 </head>
 
 <body class="admin-module">
@@ -852,7 +1107,7 @@ if ($phase === 'plag') {
 
             <!-- Status Filter Tabs (meaningless on the isolated Payment/Release tabs, which are
                  self-contained workflows the tabs don't filter) -->
-            <?php if (!in_array($stats_view, ['payments', 'release'], true)): ?>
+            <?php if ($phase !== 'plag' && !in_array($stats_view, ['payments', 'release', 'history'], true)): ?>
             <div class="status-tabs-container" style="display: flex; gap: 8px; margin-bottom: 24px; border-bottom: 1px solid var(--border-line); padding-bottom: 14px; flex-wrap: wrap;">
                 <button type="button" class="status-filter-tab active" data-filter="action" onclick="filterByStatus('action')">
                     <i data-lucide="inbox" style="width: 14px; height: 14px;"></i> Action Needed
@@ -869,7 +1124,20 @@ if ($phase === 'plag') {
             </div>
             <?php endif; ?>
 
-            <?php if ($phase === 'stats' && in_array($stats_view, ['all', 'payments'], true) && count($pending_payments) > 0): ?>
+            <?php if ($use_group_inbox): ?>
+            <!-- View toggle: group inbox (default) vs the original per-requirement layout. Purely
+                 presentation; flips which container is visible. Nothing is removed. -->
+            <div class="view-toggle">
+                <button type="button" class="view-toggle-btn active" data-view="group" onclick="setReviewView('group', this)">
+                    <i data-lucide="users" style="width:14px;height:14px;"></i> By group
+                </button>
+                <button type="button" class="view-toggle-btn" data-view="requirement" onclick="setReviewView('requirement', this)">
+                    <i data-lucide="list-checks" style="width:14px;height:14px;"></i> By requirement
+                </button>
+            </div>
+            <?php endif; ?>
+
+            <?php if ($phase === 'stats' && $stats_view === 'payments' && count($pending_payments) > 0): ?>
                 <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid var(--warning);">
                     <div class="req-header" onclick="toggleReq('payment', this)">
                         <div class="req-title" style="color: var(--warning);">
@@ -882,79 +1150,131 @@ if ($phase === 'plag') {
                         </div>
                     </div>
                     <div class="req-body" id="body-payment">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 22%;">Research Group</th>
-                                    <th style="width: 22%;">Payment Documents</th>
-                                    <th style="width: 18%;">Status</th>
-                                    <th style="width: 38%;">Register (Official Control No.)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($pending_payments as $pay):
-                                    $has_docs = ($pay['status'] === 'Phase 4: Payment Verification');
-                                    $doc_labels = [36 => 'Validated Form', 37 => 'Official Receipt'];
-                                ?>
-                                    <tr>
-                                        <td>
-                                            <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= htmlspecialchars($pay['research_group_name']) ?></strong><br>
-                                            <span style="color: #6b7280; font-size: 11px;"><?= htmlspecialchars($pay['department']) ?></span>
-                                        </td>
-                                        <td>
-                                            <?php if (!empty($pay['payment_docs'])): ?>
-                                                <?php foreach ($doc_labels as $doc_id => $doc_label): ?>
-                                                    <?php if (isset($pay['payment_docs'][$doc_id])):
-                                                        // Build the object the evaluation modal expects so the
-                                                        // statistician can view the scan and Approve/Reject-with-remarks
-                                                        // right here (rejecting sends the group back to Phase 2).
-                                                        $pdoc = $pay['payment_docs'][$doc_id];
-                                                        $modal_obj = [
-                                                            'upload_id' => $pdoc['upload_id'],
-                                                            'student_user_id' => $pay['user_id'],
-                                                            'research_group_name' => $pay['research_group_name'],
-                                                            'file_path' => $pdoc['file_path'],
-                                                            'original_filename' => $pdoc['original_filename'],
-                                                            'verification_status' => $pdoc['verification_status'],
-                                                            'remarks' => $pdoc['remarks'],
-                                                            'form_008_data' => null,
-                                                        ];
-                                                        $dpill = strtolower($pdoc['verification_status']) === 'revision requested' ? 'revision'
-                                                               : (strtolower($pdoc['verification_status']) === 'approved' ? 'approved' : 'review');
-                                                    ?>
-                                                        <button type="button" onclick='openDocumentModal(<?= htmlspecialchars(json_encode($modal_obj), ENT_QUOTES) ?>, "<?= htmlspecialchars($doc_label, ENT_QUOTES) ?>", <?= $doc_id ?>)' class="file-link" style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                                                            <i data-lucide="eye" style="width:13px; height:13px;"></i> <?= $doc_label ?>
-                                                            <span class="status-pill <?= $dpill ?>" style="font-size:8px; padding:1px 6px;"><?= htmlspecialchars($pdoc['verification_status']) ?></span>
-                                                        </button>
-                                                    <?php else: ?>
-                                                        <span style="display:block; font-size:11.5px; color:#9ca3af; margin-bottom:4px;"><?= $doc_label ?>: not uploaded</span>
-                                                    <?php endif; ?>
-                                                <?php endforeach; ?>
-                                            <?php else: ?>
-                                                <span style="font-size:11.5px; color:#9ca3af;">None uploaded (physical receipt)</span>
+                        <div class="pay-queue">
+                            <?php foreach ($pending_payments as $qi => $pay):
+                                $has_docs = ($pay['status'] === 'Phase 4: Payment Verification');
+                                $doc_labels = [36 => 'Validated Form', 37 => 'Official Receipt'];
+                                $pay_pfp = !empty($pay['profile_pic']) ? $pay['profile_pic'] : "https://api.dicebear.com/9.x/avataaars/svg?seed=" . urlencode($pay['username']);
+                                $pay_email = $pay['email'] ?: ($pay['contact_email'] ?? '');
+                                $wait_days = max(0, floor((time() - strtotime($pay['date_submitted'])) / 86400));
+                            ?>
+                                <div class="pay-card <?= $has_docs ? 'is-ready' : 'is-waiting' ?>">
+                                    <div class="pay-ticket">
+                                        <span class="pay-ticket-label">QUEUE</span>
+                                        <span class="pay-ticket-no"><?= str_pad($qi + 1, 2, '0', STR_PAD_LEFT) ?></span>
+                                        <span class="pay-wait"><?= $wait_days == 0 ? 'today' : $wait_days . 'd wait' ?></span>
+                                    </div>
+                                    <div class="pay-main">
+                                        <div class="pay-identity">
+                                            <img src="<?= htmlspecialchars($pay_pfp) ?>" class="pay-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($pay['username']) ?>';">
+                                            <div class="pay-id-text">
+                                                <h4 class="pay-group"><?= htmlspecialchars($pay['research_group_name']) ?></h4>
+                                                <div class="pay-sub"><?= htmlspecialchars($pay['username']) ?> &middot; <?= htmlspecialchars($pay['program'] ?: $pay['department']) ?></div>
+                                                <?php if ($pay_email): ?><div class="pay-email"><i data-lucide="mail"></i><?= htmlspecialchars($pay_email) ?></div><?php endif; ?>
+                                            </div>
+                                            <span class="pay-status-chip <?= $has_docs ? 'ready' : 'waiting' ?>"><?= $has_docs ? 'Receipt uploaded' : 'Physical / awaiting' ?></span>
+                                        </div>
+
+                                        <div>
+                                            <span class="pay-docs-label">Payment documents</span>
+                                            <div class="pay-docs-row">
+                                                <?php if (!empty($pay['payment_docs'])): ?>
+                                                    <?php foreach ($doc_labels as $doc_id => $doc_label): ?>
+                                                        <?php if (isset($pay['payment_docs'][$doc_id])):
+                                                            // Build the object the evaluation modal expects so the
+                                                            // statistician can view the scan and Approve/Reject-with-remarks
+                                                            // right here (rejecting sends the group back to Phase 2).
+                                                            $pdoc = $pay['payment_docs'][$doc_id];
+                                                            $modal_obj = [
+                                                                'upload_id' => $pdoc['upload_id'],
+                                                                'student_user_id' => $pay['user_id'],
+                                                                'research_group_name' => $pay['research_group_name'],
+                                                                'file_path' => $pdoc['file_path'],
+                                                                'original_filename' => $pdoc['original_filename'],
+                                                                'verification_status' => $pdoc['verification_status'],
+                                                                'remarks' => $pdoc['remarks'],
+                                                                'form_008_data' => null,
+                                                            ];
+                                                            $dpill = strtolower($pdoc['verification_status']) === 'revision requested' ? 'revision'
+                                                                   : (strtolower($pdoc['verification_status']) === 'approved' ? 'approved' : 'review');
+                                                        ?>
+                                                            <button type="button" onclick='openDocumentModal(<?= htmlspecialchars(json_encode($modal_obj), ENT_QUOTES) ?>, "<?= htmlspecialchars($doc_label, ENT_QUOTES) ?>", <?= $doc_id ?>)' class="pay-doc-chip">
+                                                                <i data-lucide="eye"></i> <?= $doc_label ?>
+                                                                <span class="status-pill <?= $dpill ?>" style="font-size:8px; padding:1px 6px;"><?= htmlspecialchars($pdoc['verification_status']) ?></span>
+                                                            </button>
+                                                        <?php else: ?>
+                                                            <span class="pay-doc-missing"><i data-lucide="file-x"></i><?= $doc_label ?>: not uploaded</span>
+                                                        <?php endif; ?>
+                                                    <?php endforeach; ?>
+                                                <?php else: ?>
+                                                    <span class="pay-doc-missing"><i data-lucide="hand-coins"></i>None uploaded — physical receipt at Research Office</span>
+                                                <?php endif; ?>
+                                            </div>
+                                        </div>
+
+                                        <?php if ($role === 'Statistician'): ?>
+                                        <form method="POST" class="pay-register">
+                                            <input type="hidden" name="action_type" value="acknowledge_payment">
+                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                                            <input type="hidden" name="form_id" value="<?= $pay['form_id'] ?>">
+                                            <input type="hidden" name="student_id" value="<?= $pay['user_id'] ?>">
+                                            <input type="text" name="control_no" placeholder="Sequence No. (e.g. 015)" required>
+                                            <button type="submit" class="btn-update" style="background: var(--warning);"><i data-lucide="badge-check" style="width:14px;height:14px;"></i> Register &amp; Unlock</button>
+                                        </form>
+                                        <?php else: ?>
+                                        <div class="pay-readonly-note"><i data-lucide="lock" style="width:12px;height:12px;"></i> Registration is handled by the Statistician.</div>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                    </div>
+                </div>
+            <?php endif; ?>
+
+            <?php if ($phase === 'stats' && $stats_view === 'history' && count($payment_history) > 0): ?>
+                <div class="req-card" style="margin-bottom: 25px;">
+                    <div class="req-header" onclick="toggleReq('payhist', this)">
+                        <div class="req-title">
+                            <i data-lucide="history" style="width: 20px; height: 20px;"></i>
+                            Payment Decision History
+                        </div>
+                        <div class="req-meta">
+                            <span class="badge" style="background: var(--text-muted);"><?= count($payment_history) ?> logged</span>
+                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px;"></i>
+                        </div>
+                    </div>
+                    <div class="req-body" id="body-payhist">
+                        <div class="pay-hist-list">
+                            <?php foreach ($payment_history as $h):
+                                $accepted = ($h['action'] === 'accepted');
+                                $doc_names = [36 => 'Validated Form', 37 => 'Official Receipt'];
+                            ?>
+                                <div class="pay-hist-row">
+                                    <span class="pay-hist-badge <?= $accepted ? 'ok' : 'no' ?>">
+                                        <i data-lucide="<?= $accepted ? 'badge-check' : 'x-circle' ?>"></i>
+                                        <?= $accepted ? 'Accepted' : 'Rejected' ?>
+                                    </span>
+                                    <div class="pay-hist-body">
+                                        <div class="pay-hist-top">
+                                            <span><?= htmlspecialchars($h['research_group_name'] ?? 'Unknown group') ?></span>
+                                            <?php if ($accepted && !empty($h['control_no'])): ?>
+                                                <span class="pay-hist-ctrl"><?= htmlspecialchars($h['control_no']) ?></span>
+                                            <?php elseif (!$accepted && isset($doc_names[$h['item_id']])): ?>
+                                                <span class="pay-hist-doc"><?= $doc_names[$h['item_id']] ?></span>
                                             <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <?php if ($has_docs): ?>
-                                                <span class="status-pill review">Receipt Uploaded — Verify</span>
-                                            <?php else: ?>
-                                                <span class="status-pill pending">Awaiting Docs / Physical Receipt</span>
-                                            <?php endif; ?>
-                                        </td>
-                                        <td>
-                                            <form method="POST" class="action-form">
-                                                <input type="hidden" name="action_type" value="acknowledge_payment">
-                                                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-                                                <input type="hidden" name="form_id" value="<?= $pay['form_id'] ?>">
-                                                <input type="hidden" name="student_id" value="<?= $pay['user_id'] ?>">
-                                                <input type="text" name="control_no" placeholder="Sequence Number (e.g. 015)" required style="flex:1;">
-                                                <button type="submit" class="btn-update" style="background: var(--warning);">Register & Unlock</button>
-                                            </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                                        </div>
+                                        <?php if (!empty($h['remarks'])): ?>
+                                            <div class="pay-hist-remarks">&ldquo;<?= htmlspecialchars($h['remarks']) ?>&rdquo;</div>
+                                        <?php endif; ?>
+                                        <div class="pay-hist-meta">
+                                            by <strong><?= htmlspecialchars($h['actor_name'] ?? 'Statistician') ?></strong>
+                                            &middot; <?= date('M j, Y • h:i A', strtotime($h['created_at'])) ?>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
                     </div>
                 </div>
             <?php endif; ?>
@@ -1008,106 +1328,219 @@ if ($phase === 'plag') {
                 </div>
             <?php endif; ?>
 
-            <?php if ($phase === 'plag' && count($plag_manuscripts) > 0): ?>
-                <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid var(--success);">
+            <?php if ($phase === 'plag'):
+                $plag_visible = array_values(array_filter($plag_manuscripts, function ($m) use ($plag_view) {
+                    $approved = ($m['verification_status'] === 'Approved');
+                    return $plag_view === 'cleared' ? $approved : !$approved;
+                }));
+                $plag_is_cleared = ($plag_view === 'cleared');
+                $plag_accent = $plag_is_cleared ? 'var(--success)' : 'var(--warning)';
+            ?>
+                <div class="req-card" style="margin-bottom: 25px; border-left: 5px solid <?= $plag_accent ?>;">
                     <div class="req-header" onclick="toggleReq('plagreview', this)">
-                        <div class="req-title" style="color: var(--success);">
-                            <i data-lucide="shield-check" style="width: 20px; height: 20px; color: var(--success);"></i>
-                            Plagiarism Review &amp; Clearance
+                        <div class="req-title" style="color: <?= $plag_accent ?>;">
+                            <i data-lucide="<?= $plag_is_cleared ? 'shield-check' : 'shield-alert' ?>" style="width: 20px; height: 20px; color: <?= $plag_accent ?>;"></i>
+                            <?= $plag_is_cleared ? 'Plagiarism &mdash; Cleared' : 'Plagiarism &mdash; To Review' ?>
                         </div>
                         <div class="req-meta">
-                            <span class="badge animate-pulse" style="background: var(--danger); <?= $plag_awaiting_count > 0 ? '' : 'display:none;' ?>"><?= $plag_awaiting_count ?> Action Needed</span>
-                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px; color: var(--success);"></i>
+                            <span class="badge" style="background: <?= $plag_accent ?>;"><?= count($plag_visible) ?><?= $plag_is_cleared ? ' cleared' : ' to review' ?></span>
+                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px; color: <?= $plag_accent ?>;"></i>
                         </div>
                     </div>
-                    <div class="req-body" id="body-plagreview">
-                        <table>
-                            <thead>
-                                <tr>
-                                    <th style="width: 22%;">Research Group</th>
-                                    <th style="width: 20%;">Manuscript</th>
-                                    <th style="width: 58%;">Decision (Turnitin report required)</th>
-                                </tr>
-                            </thead>
-                            <tbody>
-                                <?php foreach ($plag_manuscripts as $m):
-                                    $group_reports = $plag_reports_history[$m['user_id']] ?? [];
-                                    $latest_report = $group_reports[0] ?? null;
-                                    $is_approved = ($m['verification_status'] === 'Approved');
-                                ?>
-                                    <tr>
-                                        <td>
-                                            <strong style="color: var(--mcnp-teal); font-size: 14px;"><?= htmlspecialchars($m['research_group_name']) ?></strong><br>
-                                            <span style="color: #6b7280; font-size: 11px;"><?= htmlspecialchars($m['department']) ?></span><br>
-                                            <strong style="font-size: 11.5px; font-family: 'JetBrains Mono', monospace; color:var(--mcnp-teal);"><?= htmlspecialchars($m['formatted_control_no'] ?: 'N/A') ?></strong>
-                                        </td>
-                                        <td>
-                                            <a href="<?= htmlspecialchars($m['manuscript_path']) ?>" target="_blank" class="file-link" style="display:flex; align-items:center; gap:6px; margin-bottom:6px;">
-                                                <i data-lucide="file-text" style="width:13px; height:13px;"></i> Manuscript
+                    <div class="req-body active" id="body-plagreview">
+                        <?php if (empty($plag_visible)): ?>
+                            <div class="empty-state" style="padding:40px; color:var(--text-muted);">
+                                <i data-lucide="<?= $plag_is_cleared ? 'inbox' : 'party-popper' ?>" style="width:32px;height:32px;color:#9ca3af;margin-bottom:8px;"></i><br>
+                                <?= $plag_is_cleared ? 'No cleared manuscripts yet.' : 'Nothing waiting for review &mdash; all caught up!' ?>
+                            </div>
+                        <?php else: ?>
+                        <div class="plag-queue">
+                            <?php foreach ($plag_visible as $m):
+                                $group_reports = $plag_reports_history[$m['user_id']] ?? [];
+                                $latest_report = $group_reports[0] ?? null;
+                                $is_approved = ($m['verification_status'] === 'Approved');
+                                $m_pill = $is_approved ? 'approved' : ($m['verification_status'] === 'Revision Requested' ? 'revision' : 'pending');
+                                $m_pfp = !empty($m['profile_pic']) ? $m['profile_pic'] : 'https://api.dicebear.com/9.x/bottts/svg?seed=' . urlencode($m['username']);
+                            ?>
+                                <div class="plag-card <?= $m_pill ?>">
+                                    <div class="plag-card-head">
+                                        <img src="<?= htmlspecialchars($m_pfp) ?>" class="grp-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/bottts/svg?seed=<?= urlencode($m['username']) ?>';">
+                                        <div class="plag-head-id">
+                                            <span class="grp-name"><?= htmlspecialchars($m['research_group_name']) ?></span>
+                                            <span class="grp-sub"><?= htmlspecialchars($m['program'] ?: $m['department']) ?><?php if (!empty($m['formatted_control_no'])): ?> &middot; <span class="plag-ctrl"><?= htmlspecialchars($m['formatted_control_no']) ?></span><?php endif; ?></span>
+                                        </div>
+                                        <span class="status-pill <?= $m_pill ?>"><?= htmlspecialchars($m['verification_status']) ?></span>
+                                    </div>
+                                    <div class="plag-card-body">
+                                        <div class="plag-docs">
+                                            <a href="<?= htmlspecialchars($m['manuscript_path']) ?>" target="_blank" class="plag-doc-link">
+                                                <i data-lucide="file-text"></i> Manuscript
                                             </a>
-                                            <span class="status-pill <?= $is_approved ? 'approved' : ($m['verification_status'] === 'Revision Requested' ? 'revision' : 'pending') ?>" style="font-size:9px;"><?= htmlspecialchars($m['verification_status']) ?></span>
                                             <?php if ($latest_report): ?>
-                                                <div style="margin-top:8px;">
-                                                    <a href="<?= htmlspecialchars($latest_report['file_path']) ?>" target="_blank" class="file-link" style="display:flex; align-items:center; gap:6px; font-size:11.5px;">
-                                                        <i data-lucide="file-check" style="width:12px; height:12px;"></i> Latest Report (<?= date('M d, Y', strtotime($latest_report['uploaded_at'])) ?>)
-                                                    </a>
-                                                    <?php if (!empty($latest_report['remarks'])): ?>
-                                                        <div style="font-size:10.5px; color:#64748b; font-style:italic; margin-top:2px;">"<?= htmlspecialchars($latest_report['remarks']) ?>"</div>
-                                                    <?php endif; ?>
-                                                    <?php if (count($group_reports) > 1): ?>
-                                                        <button type="button" class="history-toggle-btn" onclick="toggleHistory('plagrep-<?= $m['user_id'] ?>', this)" style="background: #f1ebd9; border: none; padding: 3px 7px; border-radius: 6px; font-size: 10px; font-weight: 600; color: var(--mcnp-teal); cursor: pointer; display: inline-flex; align-items: center; gap: 4px; margin-top:4px;">
-                                                            <i data-lucide="history" style="width: 11px; height: 11px;"></i> Report History (<?= count($group_reports) - 1 ?>)
-                                                        </button>
-                                                        <div id="plagrep-<?= $m['user_id'] ?>" class="history-content-box" style="display: none; margin-top: 6px; padding: 8px; background: #faf8f5; border: 1px solid var(--border-line); border-radius: 8px; font-size: 11px; max-height: 140px; overflow-y: auto;">
-                                                            <?php for ($i = 1; $i < count($group_reports); $i++): $pr = $group_reports[$i]; ?>
-                                                                <div style="padding-bottom:6px; margin-bottom:6px; border-bottom:1px dashed #e3dec9;">
-                                                                    <a href="<?= htmlspecialchars($pr['file_path']) ?>" target="_blank" style="font-weight:700; font-size:11px; color:var(--info);"><?= htmlspecialchars($pr['original_filename']) ?></a>
-                                                                    <div style="font-size:9.5px; color:#9ca3af;"><?= date('M d, Y h:i A', strtotime($pr['uploaded_at'])) ?> — <?= htmlspecialchars($pr['verification_status']) ?></div>
-                                                                    <?php if (!empty($pr['remarks'])): ?><div style="font-size:10px; font-style:italic; color:#64748b;">"<?= htmlspecialchars($pr['remarks']) ?>"</div><?php endif; ?>
-                                                                </div>
-                                                            <?php endfor; ?>
-                                                        </div>
-                                                    <?php endif; ?>
-                                                </div>
+                                                <a href="<?= htmlspecialchars($latest_report['file_path']) ?>" target="_blank" class="plag-doc-link report">
+                                                    <i data-lucide="file-check"></i> Turnitin Report <span class="plag-report-date">(<?= date('M d, Y', strtotime($latest_report['uploaded_at'])) ?>)</span>
+                                                </a>
+                                                <?php if (count($group_reports) > 1): ?>
+                                                    <button type="button" class="history-toggle-btn" onclick="toggleHistory('plagrep-<?= $m['user_id'] ?>', this)" style="background:#f1ebd9;border:none;padding:4px 8px;border-radius:6px;font-size:10.5px;font-weight:600;color:var(--mcnp-teal);cursor:pointer;display:inline-flex;align-items:center;gap:4px;">
+                                                        <i data-lucide="history" style="width:11px;height:11px;"></i> Report History (<?= count($group_reports) - 1 ?>)
+                                                    </button>
+                                                    <div id="plagrep-<?= $m['user_id'] ?>" class="history-content-box" style="display:none;width:100%;margin-top:4px;padding:8px;background:#faf8f5;border:1px solid var(--border-line);border-radius:8px;font-size:11px;max-height:140px;overflow-y:auto;">
+                                                        <?php for ($i = 1; $i < count($group_reports); $i++): $pr = $group_reports[$i]; ?>
+                                                            <div style="padding-bottom:6px;margin-bottom:6px;border-bottom:1px dashed #e3dec9;">
+                                                                <a href="<?= htmlspecialchars($pr['file_path']) ?>" target="_blank" style="font-weight:700;font-size:11px;color:var(--info);"><?= htmlspecialchars($pr['original_filename']) ?></a>
+                                                                <div style="font-size:9.5px;color:#9ca3af;"><?= date('M d, Y h:i A', strtotime($pr['uploaded_at'])) ?> &mdash; <?= htmlspecialchars($pr['verification_status']) ?></div>
+                                                                <?php if (!empty($pr['remarks'])): ?><div style="font-size:10px;font-style:italic;color:#64748b;">"<?= htmlspecialchars($pr['remarks']) ?>"</div><?php endif; ?>
+                                                            </div>
+                                                        <?php endfor; ?>
+                                                    </div>
+                                                <?php endif; ?>
+                                                <?php if (!empty($latest_report['remarks'])): ?>
+                                                    <div class="plag-report-remark">"<?= htmlspecialchars($latest_report['remarks']) ?>"</div>
+                                                <?php endif; ?>
+                                            <?php else: ?>
+                                                <span class="plag-noreport"><i data-lucide="file-x" style="width:12px;height:12px;"></i> No Turnitin report uploaded yet</span>
                                             <?php endif; ?>
-                                        </td>
-                                        <td>
+                                        </div>
+
+                                        <div class="plag-decision">
+                                            <div class="plag-decision-label"><i data-lucide="gavel" style="width:12px;height:12px;"></i> Decision &mdash; upload the Turnitin report to record it</div>
                                             <?php if (!$is_approved): ?>
-                                                <form method="POST" enctype="multipart/form-data" class="action-form" style="margin-bottom:8px;">
+                                                <form method="POST" enctype="multipart/form-data" class="action-form plag-form">
                                                     <input type="hidden" name="action_type" value="plag_accept">
                                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                                     <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
-                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
-                                                    <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required>
+                                                    <input type="text" name="notes" placeholder="Note for the student (optional)...">
                                                     <button type="submit" class="btn-update" style="background: var(--success);">Accept Submission</button>
                                                 </form>
                                             <?php else: ?>
-                                                <form method="POST" enctype="multipart/form-data" class="action-form" style="margin-bottom:8px;">
+                                                <form method="POST" enctype="multipart/form-data" class="action-form plag-form">
                                                     <input type="hidden" name="action_type" value="plag_replace">
                                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                                     <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
-                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
-                                                    <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                    <input type="file" name="report_file" accept=".pdf,.doc,.docx" required>
+                                                    <input type="text" name="notes" placeholder="Note for the student (optional)...">
                                                     <button type="submit" class="btn-update" style="background:#ffffff; color:var(--mcnp-teal); border:1.5px solid var(--border-line);" title="Corrects an already-uploaded report — does not change the Approved status">Replace Report</button>
                                                 </form>
                                             <?php endif; ?>
-                                            <form method="POST" enctype="multipart/form-data" class="action-form" onsubmit="return confirm('Send this group back to Revision Requested? They will need to re-upload.');">
+                                            <form method="POST" enctype="multipart/form-data" class="action-form plag-form" onsubmit="return confirm('Send this group back to Revision Requested? They will need to re-upload.');">
                                                 <input type="hidden" name="action_type" value="plag_revise">
                                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                                 <input type="hidden" name="student_id" value="<?= $m['user_id'] ?>">
-                                                <input type="file" name="report_file" accept=".pdf,.doc,.docx" required style="flex:1; font-size: 12px;">
-                                                <input type="text" name="notes" placeholder="Note for the student (optional)..." style="flex:1; font-size: 12px;">
+                                                <input type="file" name="report_file" accept=".pdf,.doc,.docx" required>
+                                                <input type="text" name="notes" placeholder="Note for the student (optional)...">
                                                 <button type="submit" class="btn-update" style="background: var(--warning);">Request Revision</button>
                                             </form>
-                                        </td>
-                                    </tr>
-                                <?php endforeach; ?>
-                            </tbody>
-                        </table>
+                                        </div>
+                                    </div>
+                                </div>
+                            <?php endforeach; ?>
+                        </div>
+                        <?php endif; ?>
                     </div>
                 </div>
             <?php endif; ?>
 
+            <?php
+            // ── GROUP INBOX ──────────────────────────────────────────────────────────────
+            // Default view: one profile card per group, that group's requirement mini-cards inside.
+            // The original per-requirement view is kept below in #viewByRequirement (toggle).
+            if ($use_group_inbox):
+                $prop_names = [];
+                foreach ($checklist_items as $ci) $prop_names[$ci['item_id']] = $ci['item_name'];
+            ?>
+            <div id="viewByGroup">
+                <?php if (empty($submissions_by_group)): ?>
+                    <div class="req-card"><div class="empty-state" style="padding:40px;">
+                        <i data-lucide="folder-open" style="width:32px;height:32px;color:#9ca3af;margin-bottom:6px;"></i><br>
+                        No student groups have uploaded these requirements yet.
+                    </div></div>
+                <?php else: foreach ($submissions_by_group as $sid => $grp):
+                    $meta = $grp['meta'];
+                    $g_pfp = $meta['profile_pic'] ?: 'https://api.dicebear.com/9.x/bottts/svg?seed=' . urlencode($meta['username']);
+                ?>
+                    <div class="req-card grp-card" data-group="<?= $sid ?>" style="margin-bottom:16px;">
+                        <div class="req-header" onclick="toggleReq('grp-<?= $sid ?>', this)">
+                            <div class="req-title" style="display:flex;align-items:center;gap:12px;">
+                                <img src="<?= htmlspecialchars($g_pfp) ?>" class="grp-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/bottts/svg?seed=<?= urlencode($meta['username']) ?>';">
+                                <span style="display:flex;flex-direction:column;gap:2px;">
+                                    <span class="grp-name"><?= highlightSearchTerm($meta['research_group_name'], $search_query) ?></span>
+                                    <span class="grp-sub"><?= highlightSearchTerm($meta['username'], $search_query) ?> &middot; <?= htmlspecialchars($meta['program'] ?: $meta['department']) ?></span>
+                                </span>
+                            </div>
+                            <div class="req-meta">
+                                <span class="badge animate-pulse grp-action-badge" id="grp-action-<?= $sid ?>" style="background:var(--danger);<?= $grp['action_count'] > 0 ? '' : 'display:none;' ?>"><?= $grp['action_count'] ?> to review</span>
+                                <span class="badge grp-file-badge"><?= $grp['file_count'] ?> files</span>
+                                <i data-lucide="chevron-down" class="chevron" style="width:20px;height:20px;color:var(--mcnp-teal);"></i>
+                            </div>
+                        </div>
+                        <div class="req-body" id="body-grp-<?= $sid ?>">
+                            <div class="grp-req-grid">
+                                <?php foreach ($group_inbox_items as $p_item_id):
+                                    if (!isset($grp['items'][$p_item_id])) continue;
+                                    $sub = $grp['items'][$p_item_id];
+                                    $ci_name = $prop_names[$p_item_id] ?? ('Requirement ' . $p_item_id);
+                                    $is_cascaded = in_array($p_item_id, [13, 15, 16], true);
+                                    $pill_class = 'pending';
+                                    if ($sub['verification_status'] === 'Approved') $pill_class = 'approved';
+                                    elseif ($sub['verification_status'] === 'Under Review') $pill_class = 'review';
+                                    elseif ($sub['verification_status'] === 'Revision Requested') $pill_class = 'revision';
+                                    $g_hist = $uploads_history[$p_item_id][$sid] ?? [];
+                                ?>
+                                    <div class="grp-req-card <?= $pill_class ?><?= $is_cascaded ? ' cascaded' : '' ?>" data-status="<?= htmlspecialchars(strtolower($sub['verification_status'])) ?>" data-group="<?= $sid ?>">
+                                        <div class="grp-req-top">
+                                            <span class="grp-req-name"><?= htmlspecialchars($ci_name) ?></span>
+                                            <span class="status-pill <?= $pill_class ?>"><?= htmlspecialchars($sub['verification_status']) ?></span>
+                                        </div>
+                                        <?php if ($p_item_id == 14 && !empty($sub['form_008_decision'])): ?>
+                                            <div class="grp-req-score">Score: <?= $sub['form_008_score'] ?>/22 (<?= htmlspecialchars($sub['form_008_decision']) ?>)</div>
+                                        <?php endif; ?>
+                                        <button type="button" class="grp-req-file" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub), ENT_QUOTES) ?>, '<?= htmlspecialchars($ci_name, ENT_QUOTES) ?>', <?= $p_item_id ?>)" title="<?= htmlspecialchars($sub['original_filename']) ?>">
+                                            <i data-lucide="file-text" style="width:13px;height:13px;flex-shrink:0;"></i>
+                                            <span class="grp-req-fname"><?= htmlspecialchars($sub['original_filename'] ?: 'Document') ?></span>
+                                        </button>
+                                        <div class="grp-req-date"><?= date('M d, Y h:i A', strtotime($sub['uploaded_at'])) ?></div>
+                                        <?php if (count($g_hist) > 1): ?>
+                                            <button type="button" class="history-toggle-btn" onclick="toggleHistory('ghist-<?= $p_item_id ?>-<?= $sid ?>', this)" style="background:#f1ebd9;border:none;padding:4px 8px;border-radius:6px;font-size:10.5px;font-weight:600;color:var(--mcnp-teal);cursor:pointer;display:inline-flex;align-items:center;gap:4px;margin-top:6px;">
+                                                <i data-lucide="history" style="width:12px;height:12px;"></i> Show History (<?= count($g_hist) - 1 ?>)
+                                            </button>
+                                            <div id="ghist-<?= $p_item_id ?>-<?= $sid ?>" class="history-content-box" style="display:none;margin-top:6px;padding:8px;background:#faf8f5;border:1px solid var(--border-line);border-radius:8px;font-size:11px;max-height:150px;overflow-y:auto;">
+                                                <?php for ($i = 1; $i < count($g_hist); $i++):
+                                                    $prev = $g_hist[$i];
+                                                    $p_pill = 'pending';
+                                                    if ($prev['verification_status'] === 'Approved') $p_pill = 'approved';
+                                                    elseif ($prev['verification_status'] === 'Under Review') $p_pill = 'review';
+                                                    elseif ($prev['verification_status'] === 'Revision Requested') $p_pill = 'revision';
+                                                ?>
+                                                    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding-bottom:6px;margin-bottom:6px;border-bottom:1px dashed #e3dec9;">
+                                                        <div style="flex:1;min-width:0;">
+                                                            <button type="button" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($prev), ENT_QUOTES) ?>, '<?= htmlspecialchars($ci_name, ENT_QUOTES) ?>', <?= $p_item_id ?>)" class="file-link" style="background:none;border:none;cursor:pointer;font-weight:700;font-size:11px;padding:0;text-align:left;color:var(--info);">
+                                                                <i data-lucide="file" style="width:11px;height:11px;vertical-align:middle;margin-right:3px;"></i><?= htmlspecialchars($prev['original_filename']) ?>
+                                                            </button>
+                                                            <div style="font-size:9.5px;color:#9ca3af;margin-top:2px;"><?= date('M d, Y h:i A', strtotime($prev['uploaded_at'])) ?></div>
+                                                        </div>
+                                                        <span class="status-pill <?= $p_pill ?>" style="font-size:8px;padding:2px 6px;white-space:nowrap;"><?= htmlspecialchars($prev['verification_status']) ?></span>
+                                                    </div>
+                                                <?php endfor; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                        <?php if ($is_cascaded): ?>
+                                            <div class="grp-req-cascade-note"><i data-lucide="info" style="width:11px;height:11px;"></i> Auto-cleared via Capsule Proposal</div>
+                                        <?php else: ?>
+                                            <button type="button" class="btn-evaluate grp-req-review" onclick="openDocumentModal(<?= htmlspecialchars(json_encode($sub), ENT_QUOTES) ?>, '<?= htmlspecialchars($ci_name, ENT_QUOTES) ?>', <?= $p_item_id ?>)">
+                                                <i data-lucide="eye" style="width:14px;height:14px;"></i> Review
+                                            </button>
+                                        <?php endif; ?>
+                                    </div>
+                                <?php endforeach; ?>
+                            </div>
+                        </div>
+                    </div>
+                <?php endforeach; endif; ?>
+            </div>
+            <?php endif; ?>
+
+            <div id="viewByRequirement"<?= $use_group_inbox ? ' style="display:none;"' : '' ?>>
             <?php foreach ($checklist_items as $item):
                 $item_id = $item['item_id'];
                 // Payment documents (36 Validated Form / 37 Official Receipt) are reviewed entirely
@@ -1116,7 +1549,11 @@ if ($phase === 'plag') {
                 if ($phase === 'stats' && in_array($item_id, [36, 37])) continue;
                 // Statistician's isolated Payment Verification / Release Results tabs show only
                 // their own section; skip the generic checklist cards there.
-                if ($phase === 'stats' && in_array($stats_view, ['payments', 'release'], true)) continue;
+                if ($phase === 'stats' && in_array($stats_view, ['payments', 'release', 'history'], true)) continue;
+                // Plagiarism manuscript (item 4) is reviewed entirely inside the dedicated Plagiarism
+                // Review & Clearance section below — skip the redundant generic "Research Manuscript"
+                // card so the plag decision lives in exactly one place.
+                if ($phase === 'plag') continue;
                 $submissions = $uploads_by_item[$item_id] ?? [];
 
                 $pending_count = 0;
@@ -1262,6 +1699,7 @@ if ($phase === 'plag') {
                     </div>
                 </div>
             <?php endforeach; ?>
+            </div><!-- /#viewByRequirement -->
 
         </section>
     </div>
@@ -1419,6 +1857,20 @@ if ($phase === 'plag') {
         const groupProgressData = <?= json_encode($group_progress) ?>;
         let activeGroupId = null; // null means "all"
         let activeStatusFilter = 'action'; // 'action' (Pending+Under Review), 'revision', 'approved', 'all'
+        // Proposal only: 'group' = new group-inbox (default), 'requirement' = original per-requirement view.
+        let currentView = document.getElementById('viewByGroup') ? 'group' : 'requirement';
+
+        // Toggle between the group inbox and the original requirement layout (both stay in the DOM).
+        function setReviewView(view, btn) {
+            currentView = view;
+            document.querySelectorAll('.view-toggle-btn').forEach(b => b.classList.toggle('active', b === btn));
+            const groupWrap = document.getElementById('viewByGroup');
+            const reqWrap = document.getElementById('viewByRequirement');
+            if (groupWrap) groupWrap.style.display = (view === 'group') ? '' : 'none';
+            if (reqWrap) reqWrap.style.display = (view === 'requirement') ? '' : 'none';
+            filterTableRows();
+            lucide.createIcons();
+        }
 
         // Sidebar search filtering function. The 7 most-recent groups show by default (server
         // sorts by recency); typing a query reveals matches from the full list regardless of that cutoff.
@@ -1487,6 +1939,20 @@ if ($phase === 'plag') {
                 };
                 document.getElementById('cardProgressText').textContent = progressInfo.pct + '% (' + progressInfo.approved + '/' + progressInfo.total + ' Approved)';
                 document.getElementById('cardProgressBar').style.width = progressInfo.pct + '%';
+            }
+
+            // Group inbox: auto-expand the picked group's profile card so its requirements are visible.
+            if (currentView === 'group' && data !== null) {
+                document.querySelectorAll('#viewByGroup .grp-card').forEach(card => {
+                    const isSel = String(card.getAttribute('data-group')) === String(data.user_id);
+                    const body = card.querySelector('.req-body');
+                    const header = card.querySelector('.req-header');
+                    const chevron = header ? header.querySelector('.chevron') : null;
+                    if (!body || !header) return;
+                    body.classList.toggle('active', isSel);
+                    header.classList.toggle('active', isSel);
+                    if (chevron) chevron.style.transform = isSel ? 'rotate(180deg)' : 'rotate(0deg)';
+                });
             }
 
             filterTableRows();
@@ -1594,6 +2060,49 @@ if ($phase === 'plag') {
                             label = 'In Approved Archive'; count = statusCounts.approved;
                         }
                         totalBadge.textContent = count + ' ' + label;
+                    }
+                }
+            });
+
+            // GROUP INBOX view (proposal): filter requirement mini-cards by status, hide profiles with
+            // nothing to show under the current filter or non-selected in the sidebar, and refresh the
+            // per-group "N to review" badge. Mirrors the table logic above on the .grp-card DOM.
+            document.querySelectorAll('#viewByGroup .grp-card').forEach(card => {
+                const gid = card.getAttribute('data-group');
+                let visibleTotal = 0;
+                let visibleActionable = 0;
+
+                card.querySelectorAll('.grp-req-card').forEach(mc => {
+                    const st = (mc.dataset.status || '').trim().toLowerCase();
+                    let statusMatches = true;
+                    if (activeStatusFilter !== 'all') {
+                        if (activeStatusFilter === 'action' || activeStatusFilter === 'pending') {
+                            statusMatches = (st === 'pending' || st === 'under review');
+                        } else if (activeStatusFilter === 'approved') {
+                            statusMatches = (st === 'approved');
+                        } else if (activeStatusFilter === 'revision') {
+                            statusMatches = (st === 'revision requested' || st === 'revision needed');
+                        }
+                    }
+                    if (statusMatches) {
+                        mc.style.display = '';
+                        visibleTotal++;
+                        if (st === 'pending' || st === 'under review') visibleActionable++;
+                    } else {
+                        mc.style.display = 'none';
+                    }
+                });
+
+                const groupMatches = (activeGroupId === null) || (String(activeGroupId) === String(gid));
+                card.style.display = (groupMatches && visibleTotal > 0) ? '' : 'none';
+
+                const gb = document.getElementById('grp-action-' + gid);
+                if (gb) {
+                    if (visibleActionable > 0) {
+                        gb.textContent = visibleActionable + ' to review';
+                        gb.style.display = '';
+                    } else {
+                        gb.style.display = 'none';
                     }
                 }
             });

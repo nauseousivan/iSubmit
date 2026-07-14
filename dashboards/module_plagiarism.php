@@ -214,7 +214,7 @@ $step_completed_3 = ($card_status === 'approved');
     </div>
 
     <div class="items-grid">
-        <div class="item-card <?= $card_status ?>" onclick="expandWalletCard(this, event)" style="z-index: 1;">
+        <div class="item-card <?= $card_status ?>" id="req-item-<?= $checklist_item['item_id'] ?>" onclick="expandWalletCard(this, event)" style="z-index: 1;">
             <div class="card-inner-bg">
                 <div class="card-header">
                     <div class="status-icon-box num-indicator">01</div>
@@ -521,5 +521,35 @@ $step_completed_3 = ($card_status === 'approved');
         });
     </script>
     <script src="../assets/js/dashboard-cards.js"></script>
+    <!-- Deep-link: scroll to + highlight a specific requirement when opened from a notification -->
+    <style>
+        @keyframes deeplinkPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(124, 58, 237, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+        }
+        .item-card.deeplink-flash {
+            animation: deeplinkPulse 1.3s ease-out 2;
+            outline: 2px solid rgba(124, 58, 237, 0.9);
+            outline-offset: 3px;
+        }
+    </style>
+    <script>
+        (function () {
+            var itemId = new URLSearchParams(window.location.search).get('item');
+            if (!itemId) return;
+            function jump() {
+                var allTab = document.querySelector('.status-filter-tab[data-filter="all"]');
+                if (allTab && !allTab.classList.contains('active')) allTab.click();
+                var el = document.getElementById('req-item-' + itemId);
+                if (!el) return;
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                el.classList.add('deeplink-flash');
+                setTimeout(function () { el.classList.remove('deeplink-flash'); }, 2800);
+            }
+            if (document.readyState === 'complete') setTimeout(jump, 450);
+            else window.addEventListener('load', function () { setTimeout(jump, 450); });
+        })();
+    </script>
 </body>
 </html>

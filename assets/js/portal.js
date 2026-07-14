@@ -118,17 +118,9 @@
             el.id = 'win_' + (++seq);
             el.setAttribute('data-key', key);
             var safe = String(key).replace(/'/g, "\\'");
-            el.innerHTML =
-                '<div class="window-titlebar">' +
-                    '<div class="traffic-lights">' +
-                        '<button class="traffic-light red" title="Close" onclick="PortalWindows.close(\'' + safe + '\')">&times;</button>' +
-                        '<button class="traffic-light yellow" title="Minimize" onclick="PortalWindows.minimize(\'' + safe + '\')">&minus;</button>' +
-                        '<button class="traffic-light green" title="Expand" onclick="PortalWindows.expand(\'' + safe + '\')">+</button>' +
-                    '</div>' +
-                    '<div class="window-title"><i data-lucide="' + (icon || 'app-window') + '"></i><span></span></div>' +
-                '</div>' +
-                '<iframe class="window-frame"></iframe>';
-            el.querySelector('.window-title span').textContent = title || 'Module';
+            // No window chrome — the module fills the whole area right of the side rail.
+            // Navigation back to the dashboard is via the sidebar (which collapses open windows).
+            el.innerHTML = '<iframe class="window-frame"></iframe>';
             layer().appendChild(el);
             var w = { el: el, iframe: el.querySelector('iframe'), dockBtn: null, _loaded: false };
             wins[key] = w;

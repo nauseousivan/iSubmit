@@ -244,7 +244,7 @@ $message_type = $_GET['type'] ?? '';
                 $filter_bucket = 'needs-you';
             }
         ?>
-            <div class="item-card <?= $status_class ?>" data-filter="<?= $filter_bucket ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
+            <div class="item-card <?= $status_class ?>" id="req-item-<?= $item['item_id'] ?>" data-filter="<?= $filter_bucket ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
                 <div class="card-inner-bg">
 
 
@@ -550,6 +550,37 @@ $message_type = $_GET['type'] ?? '';
     <script src="../assets/js/dashboard-cards.js"></script>
     <?php include 'components/form008_modal.php'; ?>
 
+    <!-- Deep-link: scroll to + highlight a specific requirement when opened from a notification -->
+    <style>
+        @keyframes deeplinkPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(124, 58, 237, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+        }
+        .item-card.deeplink-flash {
+            animation: deeplinkPulse 1.3s ease-out 2;
+            outline: 2px solid rgba(124, 58, 237, 0.9);
+            outline-offset: 3px;
+        }
+    </style>
+    <script>
+        (function () {
+            var itemId = new URLSearchParams(window.location.search).get('item');
+            if (!itemId) return;
+            function jump() {
+                // Proposal has status filter tabs — reset to "All" so the target card isn't filtered out.
+                var allTab = document.querySelector('.status-filter-tab[data-filter="all"]');
+                if (allTab && !allTab.classList.contains('active')) allTab.click();
+                var el = document.getElementById('req-item-' + itemId);
+                if (!el) return; // card not in the DOM (e.g. a step not currently shown) — leave module as-is
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                el.classList.add('deeplink-flash');
+                setTimeout(function () { el.classList.remove('deeplink-flash'); }, 2800);
+            }
+            if (document.readyState === 'complete') setTimeout(jump, 450);
+            else window.addEventListener('load', function () { setTimeout(jump, 450); });
+        })();
+    </script>
 </body>
 
 </html>

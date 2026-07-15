@@ -5,6 +5,18 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Student Plagiarism module: centered lone card, extracted Turnitin report, right-sized tracker
+  (2026-07-15):** `dashboards/module_plagiarism.php` now mirrors its sister
+  `dashboards/module_statistics.php` framing. Presentation-only: (1) wrapped the page in
+  `.page-wrapper { max-width: 960px; margin: 0 auto }` so the 3-step tracker no longer stretches
+  edge-to-edge (the "too large" look); (2) added Statistics' `@media (min-width:769px)` items-grid
+  override (`flex-wrap` + `justify-content:center`, `.item-card` fixed at 288px) so the single
+  requirement card sits centered instead of filling the row; (3) pulled the Turnitin
+  clearance/similarity report (`$latest_report` / `.report-ready-card`) **out of** the requirement
+  card body and surfaced it right below the tracker, **above** the manuscript card (result-first),
+  centered at `margin: 16px auto 0; max-width: 480px` — so it's visible on mobile without tapping the
+  card open; (4) added the small-screen step-label
+  shrink Statistics has (`@media (max-width:600px)`). No workflow/POST/SQL/JS-contract changes.
 - **Admin navigation: bottom dock → compact left side-nav; modules go full-view (2026-07-14):** all
   three staff shells (`dashboards/coordinator.php`, `director.php`, `statistician.php`) moved from the
   bottom macOS dock to a **~194px vertical left rail** (`assets/css/portal.css`: `.app-dashboard-frame`

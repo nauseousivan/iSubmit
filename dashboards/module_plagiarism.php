@@ -104,7 +104,7 @@ $step_completed_3 = ($card_status === 'approved');
         .report-ready-card {
             background: linear-gradient(135deg, #ecfdf5, #d1fae5);
             border: 1.5px solid rgba(5, 150, 105, 0.2);
-            border-radius: 16px; padding: 18px; margin-top: 16px;
+            border-radius: 16px; padding: 18px; margin: 16px auto 0; max-width: 480px;
         }
         .report-ready-card h5 { font-size: 13px; font-weight: 800; color: #065f46; margin-bottom: 6px; }
         .report-ready-card p { font-size: 12.5px; color: #047857; margin-bottom: 10px; }
@@ -168,9 +168,26 @@ $step_completed_3 = ($card_status === 'approved');
         @keyframes pulseGlow { 0%, 100% { box-shadow:0 0 0 0 rgba(5,150,105,0.4); } 50% { box-shadow:0 0 0 8px rgba(5,150,105,0); } }
         .step-label { font-size:11px; font-weight:700; color:#9ca3af; text-align:center; text-transform:uppercase; letter-spacing:0.4px; max-width:100px; line-height:1.3; }
         .step-item.completed .step-label, .step-item.active .step-label { color:var(--mcnp-teal); }
+
+        /* Centered, width-capped column — sister layout to module_statistics.php's page-wrapper. */
+        .page-wrapper { max-width: 960px; margin: 0 auto; }
+
+        /* Center the lone requirement card instead of letting the shared grid stretch it full width
+           (mirrors module_statistics.php's ≥769px items-grid override). */
+        @media (min-width: 769px) {
+            .items-grid { display: flex; flex-wrap: wrap; justify-content: center; overflow-x: visible; gap: 16px; margin-top: 24px; }
+            .items-grid .item-card { flex: 0 0 288px; width: 288px; min-width: 0; max-width: 288px; }
+        }
+
+        /* Small-screen tracker parity with Statistics — keep the two-word labels from wrapping. */
+        @media (max-width: 600px) {
+            .step-label { font-size: 9px; max-width: 70px; }
+            .step-circle { width: 34px; height: 34px; font-size: 12px; }
+        }
     </style>
 </head>
 <body>
+  <div class="page-wrapper">
     <?php if ($plag_control_no): ?>
         <div class="hero-header">
             <div class="control-no-chip" style="margin-bottom:0;">🔖 <?= htmlspecialchars($plag_control_no) ?></div>
@@ -208,6 +225,30 @@ $step_completed_3 = ($card_status === 'approved');
             </div>
         <?php endforeach; ?>
     </div>
+
+    <?php if ($latest_report):
+        $report_is_approved = ($latest_report['verification_status'] === 'Approved');
+    ?>
+        <!-- Turnitin similarity / clearance report — pulled OUT of the requirement card and surfaced
+             right below the tracker (result-first), so it's always visible without tapping the card. -->
+        <div class="report-ready-card" style="<?= $report_is_approved ? '' : 'background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: rgba(217,119,6,0.25);' ?>">
+            <h5 style="<?= $report_is_approved ? '' : 'color:#92400e;' ?>"><?= $report_is_approved ? '🎉 Institutional Approval Secured!' : '📋 Turnitin Report Attached' ?></h5>
+            <p style="<?= $report_is_approved ? '' : 'color:#92400e;' ?>"><?= $report_is_approved ? 'Your official plagiarism clearance report is ready.' : 'The Research Office attached a Turnitin similarity report with your revision request.' ?></p>
+            <?php if (!empty($latest_report['remarks'])): ?>
+                <p style="font-style:italic; <?= $report_is_approved ? '' : 'color:#92400e;' ?>">Note from the Research Office: "<?= htmlspecialchars($latest_report['remarks']) ?>"</p>
+            <?php endif; ?>
+            <div style="display:flex; gap:8px; flex-wrap:wrap;">
+                <button type="button" class="btn btn-primary" onclick="openDownloadModal('<?= htmlspecialchars($latest_report['file_path']) ?>', 'Turnitin_Similarity_Report'); event.stopPropagation();">
+                    <i data-lucide="download" style="width:16px;height:16px;"></i> Download Report
+                </button>
+                <?php if (count($report_history) > 1): ?>
+                    <button type="button" class="btn-history" onclick="openHistoryPanel(40); event.stopPropagation();">
+                        <i data-lucide="clock" style="width:13px;height:13px;"></i> Report History
+                    </button>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php endif; ?>
 
     <div class="mobile-stack-hint">
         <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap the card to manage
@@ -285,32 +326,11 @@ $step_completed_3 = ($card_status === 'approved');
                         </button>
                     <?php endif; ?>
 
-                    <?php if ($latest_report):
-                        $report_is_approved = ($latest_report['verification_status'] === 'Approved');
-                    ?>
-                        <div class="report-ready-card" style="<?= $report_is_approved ? '' : 'background: linear-gradient(135deg, #fffbeb, #fef3c7); border-color: rgba(217,119,6,0.25);' ?>">
-                            <h5 style="<?= $report_is_approved ? '' : 'color:#92400e;' ?>"><?= $report_is_approved ? '🎉 Institutional Approval Secured!' : '📋 Turnitin Report Attached' ?></h5>
-                            <p style="<?= $report_is_approved ? '' : 'color:#92400e;' ?>"><?= $report_is_approved ? 'Your official plagiarism clearance report is ready.' : 'The Research Office attached a Turnitin similarity report with your revision request.' ?></p>
-                            <?php if (!empty($latest_report['remarks'])): ?>
-                                <p style="font-style:italic; <?= $report_is_approved ? '' : 'color:#92400e;' ?>">Note from the Research Office: "<?= htmlspecialchars($latest_report['remarks']) ?>"</p>
-                            <?php endif; ?>
-                            <div style="display:flex; gap:8px; flex-wrap:wrap;">
-                                <button type="button" class="btn btn-primary" onclick="openDownloadModal('<?= htmlspecialchars($latest_report['file_path']) ?>', 'Turnitin_Similarity_Report'); event.stopPropagation();">
-                                    <i data-lucide="download" style="width:16px;height:16px;"></i> Download Report
-                                </button>
-                                <?php if (count($report_history) > 1): ?>
-                                    <button type="button" class="btn-history" onclick="openHistoryPanel(40); event.stopPropagation();">
-                                        <i data-lucide="clock" style="width:13px;height:13px;"></i> Report History
-                                    </button>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                    <?php endif; ?>
-
                 </div>
             </div>
         </div>
     </div>
+  </div><!-- /.page-wrapper -->
 
     <!-- Download Preview Modal (shared behaviour with Module Proposal / Statistics) -->
     <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal(false)">

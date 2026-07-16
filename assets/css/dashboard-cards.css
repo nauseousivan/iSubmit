@@ -587,6 +587,10 @@
                 color: #0f172a;
                 text-transform: uppercase;
                 letter-spacing: 0.02em;
+                line-height: 1.3;
+                /* Reserve two lines so 1-line and 2-line titles give an equal-height
+                   header — keeps step lists and action buttons aligned across cards. */
+                min-height: 2.6em;
             }
 
             .card-meta {
@@ -594,6 +598,9 @@
                 font-size: 13px;
                 color: #64748b;
                 line-height: 1.5;
+                /* Reserve two lines so 1-line and 2-line descriptions give an equal-height
+                   header — keeps the step lists and action buttons aligned across cards. */
+                min-height: 3em;
             }
 
             .card-body {
@@ -705,6 +712,17 @@
             flex-shrink: 0;
         }
         .btn-history:active { opacity: 0.7; }
+
+        /* ---- HOW-TO STEP LIST ----
+           Reserve a fixed height (4 rows) so the Download/Upload buttons line up
+           across cards regardless of whether a card has 3 or 4 steps. Shorter step
+           lists center vertically within the reserved space. */
+        .card-steps {
+            min-height: 168px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
 
         /* ---- UPLOAD OR DIVIDER ---- */
         .upload-divider {

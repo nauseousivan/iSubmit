@@ -5,6 +5,33 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Changed
+- **Student Final Defense module: full UI parity with Proposal (2026-07-16):**
+  `dashboards/module_final.php` was rewritten from its old standalone design (inline `<style>`,
+  Cambria serif, plain grid) to reuse the shared Apple-Wallet card system
+  (`assets/css/dashboard-cards.css` + `assets/js/dashboard-cards.js`), mirroring
+  `dashboards/module_proposal.php`. It now has: pure-white wallet cards, the **All / Needs you /
+  Cleared** pill filter, per-card read-only **History** panel (reviewed versions only), the
+  download-preview modal, Pending-only delete guard (`deleteUpload(id,'final')`), the web
+  horizontal card scroller, and the mobile bottom-sheet. Dropped the dead copy-pasted Proposal
+  cascade (items 13/15/16) and Form 008 logic — Final (items **21–27**) has neither. Per-card
+  downloads: 21→`endorsement.pdf`, 22→`mom.pdf`, 23/24→`placeholder.pdf` (real forms TBD),
+  25/26/27 upload-only; the cleared banner downloads `final_done_card.png`. Wired `#zoom-final`
+  into the three `@media(max-width:768px)` bottom-sheet blocks and the drag-handle JS array in
+  `dashboards/student.php` (it was the only module missing from it). Added a root `placeholder.pdf`.
+  Presentation-only: no `upload_handler.php`/SQL/field-name/`verification_status`/CSRF-contract
+  changes (`module_context` stays `final`).
+- **Requirement-card action buttons now align across cards (2026-07-16):** the "Download Form" /
+  "Upload File" buttons used to sit at different heights because cards had different numbers of
+  how-to steps (3 vs 4) and different title/description line counts. Fixed in the shared
+  `assets/css/dashboard-cards.css` (affects **both** Final and Proposal, and any module using these
+  cards): the step list is now `.card-steps` with a fixed `min-height` (reserves 4 rows; shorter
+  lists center vertically), and the desktop `.card-title` / `.card-meta` reserve two lines each
+  (`min-height`) so headers are equal height. Also reworded Final's **Minutes of the Proposal
+  Defense** card steps to match the real workflow: download the form → adviser processes the
+  minutes → adviser sends it back to the student → student uploads it here for admin review (it's a
+  file the adviser prepares and returns, so no signing/capture-photo step). Also gave the three
+  upload-only cards (Manuscript, Sample Datagathering Tool, General Statistical Tables) short
+  prepare-and-upload step lists so every requirement card reads consistently.
 - **Student Plagiarism module: centered lone card, extracted Turnitin report, right-sized tracker
   (2026-07-15):** `dashboards/module_plagiarism.php` now mirrors its sister
   `dashboards/module_statistics.php` framing. Presentation-only: (1) wrapped the page in

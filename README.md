@@ -1,16 +1,19 @@
 <p align="center">
-  <img src="assets/images/mascott_party.svg" alt="Quill the iSubmit mascot, throwing confetti" width="200">
+  <a href="assets/images/mascott_party.png">
+    <img src="assets/images/mascott_party.png" alt="Quill — the iSubmit mascot" width="240">
+  </a>
 </p>
 
-<h1 align="center">💜 iSubmit — Research Digitalization Platform 💜</h1>
+<h1 align="center">💜 iSubmit 💜</h1>
 
 <p align="center">
   <b>hi, i'm <i>Quill</i>!</b> 🪶✨ your bubbly little research buddy~<br>
-  i help students & faculty turn messy paper submissions into <b>soft, sparkly, digital magic.</b> 🔮🫐
+  i turn messy paper submissions into <b>soft, sparkly, digital magic.</b> 🔮🫐<br>
+  <sub>🟣 made with love for <b>ISAP</b> & <b>MCNP</b> 🟣</sub>
 </p>
 
 <p align="center">
-  🟣 built with love for <b>ISAP</b> & <b>MCNP</b> 🟣
+  Upload your research 📤 · get it reviewed 👀 · earn that <b>approved</b> stamp 🌟 · <b>that's it.</b> 💜
 </p>
 
 ---
@@ -23,8 +26,8 @@ iSubmit is a cozy-but-powerful platform that handles the **whole life** of an ac
 
 ## 🔮 the sparkly features
 
-- **🪶 Quill, your little guardian** — our interactive SVG mascot watches your cursor, shyly covers his eyes when you type your password, and waves hi when you arrive. so cute i could cry. 🥹
-- **🎀 role-based comfy rooms** — dedicated dreamy interfaces for **Students, Coordinators, Directors & Statisticians**. everyone gets their own space~
+- **🪶 Quill, your little guardian** — our interactive mascot watches your cursor, shyly covers his eyes when you type your password, and waves hi when you arrive. so cute i could cry. 🥹
+- **🎀 role-based comfy rooms** — dreamy dedicated interfaces for **Students, Coordinators, Directors & Statisticians**. everyone gets their own space~
 - **🫐 messaging that feels like a hug (v2.0)** — a Slack-meets-iMessage chat, all Vanilla JS & AJAX, no heavy frameworks weighing it down:
   - **🌌 sneaky-smart routing** — students message staff by *title* (Coordinator, Statistician) without needing their real identity. mysterious~ 🕵️‍♀️
   - **💜 tappy emoji reactions** — double-tap or hover any message to react (❤️ 👍 😂 …), saved to the DB instantly.
@@ -79,7 +82,7 @@ wanna go deeper? Quill left notes for you inside the `docs/` folder~ 🪶💜
 ---
 
 <p align="center">
-  <img src="assets/images/mascot.svg" alt="Quill in a graduation cap" width="90"><br>
+  <img src="assets/images/mascot.png" alt="Quill in a graduation cap" width="110"><br>
   <i>made with 💜 (and a little confetti 🎊) for the students & faculty of ISAP & MCNP.</i><br>
   <b>go be brilliant~ 🌟🟣</b>
 </p>

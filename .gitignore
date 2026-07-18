@@ -6,6 +6,9 @@ storage/*
 images/uploads/*
 !images/uploads/.gitkeep
 
+# Local DB/file backups (contain student personal data — never push)
+backups/
+
 # Environment variables and config containing passwords
 .env
 .env.local

@@ -1,51 +1,85 @@
-# iSubmit - Research Digitalization Platform
+<p align="center">
+  <img src="assets/images/mascott_party.svg" alt="Quill the iSubmit mascot, throwing confetti" width="200">
+</p>
 
-iSubmit is a comprehensive, modern Research Digitalization Platform built for the International School of Asia & the Pacific (ISAP) and Medical Colleges of Northern Philippines (MCNP). It handles the complete lifecycle of academic research submissions, consultations, and approvals.
+<h1 align="center">💜 iSubmit — Research Digitalization Platform 💜</h1>
 
-## 🚀 Features
+<p align="center">
+  <b>hi, i'm <i>Quill</i>!</b> 🪶✨ your bubbly little research buddy~<br>
+  i help students & faculty turn messy paper submissions into <b>soft, sparkly, digital magic.</b> 🔮🫐
+</p>
 
-- **Dynamic Authentication:** Beautiful, responsive authentication flows featuring "Quill", our interactive SVG mascot who watches your cursor, covers his eyes during password entry, and waves to greet you!
-- **Role-Based Access:** Dedicated interfaces for Students, Coordinators, and Statisticians.
-- **Integrated Communication Module (v2.0):** A completely redesigned, app-like messaging system inspired by Slack and iMessage. Features include:
-  - **Dynamic Context Routing:** Students securely message staff using title-based routing (Research Coordinator, Statistician) without knowing the staff's actual identity.
-  - **Interactive Emoji Reactions:** Double-tap or hover over any message to react with emojis (❤️, 👍, 😂, etc.), saving instantly to the database.
-  - **Smart State Management:** Responsive sidebar with categorized pinned groups and active chat streams, built entirely in Vanilla JS and AJAX without heavy frameworks.
-- **Smart Theming:** Automatically switches branding and colors based on institutional email (`@isap.edu.ph` vs `@mcnp.edu.ph`).
-- **Research Lifecycle Management:** Track document submissions, handle iterations/revisions, and maintain a seamless consultation log with your advisers.
-- **OTP Verification & Security:** Built-in email verification and secure password recovery mechanisms.
+<p align="center">
+  🟣 built with love for <b>ISAP</b> & <b>MCNP</b> 🟣
+</p>
 
-## 🛠️ Technology Stack
+---
 
-- **Frontend:** HTML5, CSS3 (Custom Variables, Flexbox/Grid), Vanilla JavaScript (No heavy frameworks!)
-- **Backend:** PHP 8.2+ (PDO for Database Interactions)
-- **Database:** MySQL / MariaDB (`digital_research`)
-- **Assets:** Lucide Icons, Google Fonts (Poppins & Plus Jakarta Sans)
-- **Dependencies:** Composer, PHPMailer, smalot/pdfparser
+## 🪻 what even is this? (a tiny intro)
 
-## 📁 Directory Structure
+iSubmit is a cozy-but-powerful platform that handles the **whole life** of an academic research submission — uploading, consulting, revising, and getting that final *approved* stamp. 🌟 No more lost files, no more scary email chains. Just you, Quill, and a smooth glowy workflow. 👾💜
+
+---
+
+## 🔮 the sparkly features
+
+- **🪶 Quill, your little guardian** — our interactive SVG mascot watches your cursor, shyly covers his eyes when you type your password, and waves hi when you arrive. so cute i could cry. 🥹
+- **🎀 role-based comfy rooms** — dedicated dreamy interfaces for **Students, Coordinators, Directors & Statisticians**. everyone gets their own space~
+- **🫐 messaging that feels like a hug (v2.0)** — a Slack-meets-iMessage chat, all Vanilla JS & AJAX, no heavy frameworks weighing it down:
+  - **🌌 sneaky-smart routing** — students message staff by *title* (Coordinator, Statistician) without needing their real identity. mysterious~ 🕵️‍♀️
+  - **💜 tappy emoji reactions** — double-tap or hover any message to react (❤️ 👍 😂 …), saved to the DB instantly.
+  - **🟣 smart little sidebar** — pinned groups + live chat streams, all tidy and responsive.
+- **🌙 mood theming** — branding & colors auto-switch by school email (`@isap.edu.ph` 🟣 vs `@mcnp.edu.ph` 💜).
+- **📂 research lifecycle magic** — track submissions, handle revisions, and keep a comfy consultation log with your advisers.
+- **🔐 OTP & security cuddles** — email verification + secure password recovery so nothing sketchy sneaks in.
+
+---
+
+## 🧸 the tech behind the sparkle
+
+| ✨ layer | 💜 made of |
+|---|---|
+| 🎨 **frontend** | HTML5, CSS3 (custom vars, Flexbox/Grid), Vanilla JS *(no chunky frameworks!)* |
+| ⚙️ **backend** | PHP 8.2+ with PDO |
+| 🫐 **database** | MySQL / MariaDB (`digital_research`) |
+| 🪄 **assets** | Lucide Icons, Google Fonts (Poppins & Plus Jakarta Sans) |
+| 📦 **deps** | Composer, PHPMailer, smalot/pdfparser |
+
+---
+
+## 🗂️ where the magic lives
 
 ```
 /
-├── assets/         # CSS, JS, Images, and Mascot SVGs
-├── auth/           # Login, Registration, OTP, and Password Recovery
-├── config/         # Database (db.php) and Mail (mail.php) Configurations
-├── dashboards/     # Specific portals based on user roles (Student, Statistician, etc.)
-├── scratch/        # Temporary playground files
-├── uploads/        # User-uploaded research documents (PDFs, Docx, Xlsx)
-├── storage/        # Historical files
-└── vendor/         # Composer dependencies
+├── 🎨 assets/       # CSS, JS, Images & Quill's SVG wardrobe
+├── 🔐 auth/         # Login, Register, OTP & Password Recovery
+├── ⚙️ config/       # Database (db.php) & Mail (mail.php)
+├── 🏠 dashboards/   # Role-based portals (Student, Director, Statistician…)
+├── 🧪 scratch/      # Temporary playground files
+├── 📤 uploads/      # User-uploaded research docs (PDF, Docx, Xlsx)
+├── 📦 storage/      # Historical files
+└── 🧩 vendor/       # Composer dependencies
 ```
 
-## 📖 Documentation Directory
-For an in-depth understanding of the platform, refer to the following documentation files inside the `docs/` folder:
-- [INSTALLATION.md](docs/INSTALLATION.md): Setup instructions for local development.
-- [SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md): Frontend/Backend architectural overview.
-- [DATABASE_DOCUMENTATION.md](docs/DATABASE_DOCUMENTATION.md): Schema, constraints, and tables.
-- [SECURITY.md](docs/SECURITY.md): Authentication and vulnerability management.
-- [DEPLOYMENT.md](docs/DEPLOYMENT.md): Guide for deploying to a production server.
-- [CONTRIBUTING.md](docs/CONTRIBUTING.md): Guidelines for developers.
-- [CHANGELOG.md](docs/CHANGELOG.md): History of updates.
-- [TODO.md](docs/TODO.md) / [ROADMAP.md](docs/ROADMAP.md): Upcoming features and tasks.
+---
+
+## 📖 the little library (docs)
+
+wanna go deeper? Quill left notes for you inside the `docs/` folder~ 🪶💜
+
+- 🛠️ [INSTALLATION.md](docs/INSTALLATION.md) — set up your own cozy local copy
+- 🏛️ [SYSTEM_ARCHITECTURE.md](docs/SYSTEM_ARCHITECTURE.md) — how the front & back fit together
+- 🫐 [DATABASE_DOCUMENTATION.md](docs/DATABASE_DOCUMENTATION.md) — schema, constraints & tables
+- 🔐 [SECURITY.md](docs/SECURITY.md) — auth & keeping the baddies out
+- 🚀 [DEPLOYMENT.md](docs/DEPLOYMENT.md) — sending iSubmit to the big scary internet
+- 🤝 [CONTRIBUTING.md](docs/CONTRIBUTING.md) — join the sparkle
+- 📝 [CHANGELOG.md](docs/CHANGELOG.md) — every glow-up we've had
+- 🌈 [TODO.md](docs/TODO.md) / [ROADMAP.md](docs/ROADMAP.md) — dreams still to come
 
 ---
-*Built with ❤️ for the students and faculty of ISAP and MCNP.*
+
+<p align="center">
+  <img src="assets/images/mascot.svg" alt="Quill in a graduation cap" width="90"><br>
+  <i>made with 💜 (and a little confetti 🎊) for the students & faculty of ISAP & MCNP.</i><br>
+  <b>go be brilliant~ 🌟🟣</b>
+</p>

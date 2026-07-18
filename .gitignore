@@ -9,6 +9,9 @@ images/uploads/*
 # Local DB/file backups (contain student personal data — never push)
 backups/
 
+# Full DB dump with real user logins/emails/password hashes — never push
+/digital_research.sql
+
 # Environment variables and config containing passwords
 .env
 .env.local

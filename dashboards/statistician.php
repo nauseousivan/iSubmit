@@ -218,13 +218,13 @@ $recent_activities = $pdo->query("
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Clearance" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=checklist', this)">
                         <i data-lucide="sigma"></i><span class="dock-label">Clearance</span>
-                        <?= $stats_checklist_pending > 0 ? '<span class="dock-badge">' . $stats_checklist_pending . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgeChecklist" style="<?= $stats_checklist_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_checklist_pending ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Payment" data-win-icon="receipt" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=payments', this)">
                         <i data-lucide="receipt"></i><span class="dock-label">Payment</span>
-                        <?= $stats_payment_pending > 0 ? '<span class="dock-badge">' . $stats_payment_pending . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgePayment" style="<?= $stats_payment_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_payment_pending ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
@@ -233,7 +233,7 @@ $recent_activities = $pdo->query("
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Release Results" data-win-icon="send" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=release', this)">
                         <i data-lucide="send"></i><span class="dock-label">Release</span>
-                        <?= $stats_release_pending > 0 ? '<span class="dock-badge">' . $stats_release_pending . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgeRelease" style="<?= $stats_release_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_release_pending ?></span>
                     </button>
                 </li>
 
@@ -241,7 +241,7 @@ $recent_activities = $pdo->query("
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Review" data-win-icon="shield-alert" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=review', this)">
                         <i data-lucide="shield-alert"></i><span class="dock-label">Review</span>
-                        <?= $plag_pending_count > 0 ? '<span class="dock-badge">' . $plag_pending_count . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgePlag" style="<?= $plag_pending_count > 0 ? '' : 'display:none;' ?>"><?= (int) $plag_pending_count ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
@@ -412,6 +412,25 @@ $recent_activities = $pdo->query("
         }
         setInterval(updateClock, 1000);
         updateClock();
+
+        // Keep the review-queue dock badges live without a manual page refresh — they're only
+        // rendered once at page load otherwise, so counts go stale as items move through review
+        // module windows (opened in iframes, which don't touch this parent shell's PHP output).
+        function refreshNavBadges() {
+            fetch('nav_badge_counts.php').then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
+                if (!data) return;
+                var map = { checklist: 'navBadgeChecklist', payment: 'navBadgePayment', release: 'navBadgeRelease', plag: 'navBadgePlag' };
+                Object.keys(map).forEach(function (key) {
+                    var el = document.getElementById(map[key]);
+                    if (!el) return;
+                    var count = data[key] || 0;
+                    el.textContent = count;
+                    el.style.display = count > 0 ? '' : 'none';
+                });
+            }).catch(function () {});
+        }
+        setInterval(refreshNavBadges, 20000);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshNavBadges(); });
 
         // Complete workspace-switcher layout handlers
         function hideAllDashboards() {

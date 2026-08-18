@@ -20,7 +20,7 @@ if ($group_user_id <= 0) {
 }
 
 // Must be a real student-leader group (same population as the Explorer/sidebar).
-$stmt = $pdo->prepare("SELECT user_id, username, research_group_name, department, program, profile_pic, email, research_title, created_at
+$stmt = $pdo->prepare("SELECT user_id, username, student_number, research_group_name, department, program, profile_pic, email, research_title, created_at
                         FROM users WHERE user_id = ? AND role = 'Student' AND leader_id IS NULL");
 $stmt->execute([$group_user_id]);
 $group = $stmt->fetch();

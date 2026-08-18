@@ -18,11 +18,38 @@ $stmt_leader_check->execute([$user_id]);
 $leader_id_for_current_user = $stmt_leader_check->fetchColumn();
 $effective_user_id = $leader_id_for_current_user ?? $user_id;
 
-// Standard POST Form Handler
+$name = "";
+$group = "";
+$student_number = "";
+$student_number_error = "";
+
+// Validate the School ID number up front, so a bad value rejects the whole save instead of
+// leaving the profile half-written (or moving uploaded files for a save that won't land).
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['username']);
     $group = trim($_POST['group_name'] ?? '');
-    
+    $student_number = trim($_POST['student_number'] ?? '');
+
+    // Blank stays allowed — accounts predating this field have none yet — but it must be
+    // stored as NULL: two rows holding '' would collide on the uniq_student_number index.
+    if (isset($_POST['student_number']) && $student_number !== '') {
+        if (!preg_match('/^\d{4}-\d{4,6}$/', $student_number)) {
+            $student_number_error = "School ID Number must look like 2023-10078.";
+        } else {
+            $stmt_sn = $pdo->prepare("SELECT user_id FROM users WHERE student_number = ? AND user_id != ?");
+            $stmt_sn->execute([$student_number, $user_id]);
+            if ($stmt_sn->fetch()) {
+                $student_number_error = "That School ID Number is already registered to another account.";
+            }
+        }
+    }
+}
+
+// Standard POST Form Handler
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && $student_number_error !== '') {
+    $message = $student_number_error;
+    $message_type = "error";
+} elseif ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $upload_dir = '../uploads/profiles/';
     if (!is_dir($upload_dir)) mkdir($upload_dir, 0777, true);
 
@@ -69,6 +96,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     // leader's row so it can't drift between a leader and its members.
     if ($success) {
         $pdo->prepare("UPDATE users SET research_group_name = ? WHERE user_id = ?")->execute([$group, $effective_user_id]);
+    }
+
+    // The School ID number is the opposite: strictly personal, so it always goes to the
+    // caller's own row ($user_id), never the leader's.
+    if ($success && isset($_POST['student_number'])) {
+        $pdo->prepare("UPDATE users SET student_number = ? WHERE user_id = ?")->execute([$student_number ?: null, $user_id]);
     }
 
     if ($success) {
@@ -398,15 +431,24 @@ else { $rank_title = "Warrior"; $rank_dot = "#94a3b8"; }
                     <input type="email" class="minimal-input" value="<?= htmlspecialchars($user['email']) ?>" disabled>
                 </div>
 
-                <div class="field-group full">
-                    <label>Institution / Department</label>
-                    <input type="text" class="minimal-input" value="<?= htmlspecialchars($user['department'] ?? 'Unassigned') ?>" disabled>
-                </div>
-
                 <?php if ($user['role'] === 'Student'): ?>
+                    <div class="field-group">
+                        <label>School ID Number</label>
+                        <input type="text" class="minimal-input" name="student_number" value="<?= htmlspecialchars($user['student_number'] ?? '') ?>" placeholder="e.g. 2023-10078" inputmode="numeric" maxlength="11" pattern="\d{4}-\d{4,6}" title="Format: year-serial, e.g. 2023-10078" oninput="formatStudentNumber(this)">
+                    </div>
+
+                    <div class="field-group">
+                        <label>Institution / Department</label>
+                        <input type="text" class="minimal-input" value="<?= htmlspecialchars($user['department'] ?? 'Unassigned') ?>" disabled>
+                    </div>
                     <div class="field-group full">
                         <label>Research Group Name</label>
                         <input type="text" class="minimal-input" name="group_name" value="<?= htmlspecialchars($user['research_group_name'] ?? '') ?>">
+                    </div>
+                <?php else: ?>
+                    <div class="field-group full">
+                        <label>Institution / Department</label>
+                        <input type="text" class="minimal-input" value="<?= htmlspecialchars($user['department'] ?? 'Unassigned') ?>" disabled>
                     </div>
                 <?php endif; ?>
             </div>
@@ -450,6 +492,12 @@ else { $rank_title = "Warrior"; $rank_dot = "#94a3b8"; }
             t.style.background = (type === 'error') ? '#ef4444' : '#1e293b';
             t.classList.add('show');
             setTimeout(() => t.classList.remove('show'), 3000);
+        }
+
+        // Same auto-hyphen behaviour as registration Step 3: type digits, get 2023-10078.
+        function formatStudentNumber(input) {
+            const digits = input.value.replace(/\D/g, '').slice(0, 10);
+            input.value = digits.length > 4 ? digits.slice(0, 4) + '-' + digits.slice(4) : digits;
         }
 
         // Simple local preview before saving

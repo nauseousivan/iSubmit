@@ -305,11 +305,21 @@ if ($me['leader_id'] === null) {
             align-items: center;
         }
 
-        .member-details p { 
-            font-size: 13.5px; 
-            color: var(--text-muted); 
+        .member-details p {
+            font-size: 13.5px;
+            color: var(--text-muted);
         }
-        
+
+        /* School ID number — quieter than the email it sits under */
+        .member-school-id {
+            font-size: 12px;
+            font-weight: 600;
+            color: var(--text-muted);
+            opacity: 0.85;
+            letter-spacing: 0.02em;
+            margin-top: 2px;
+        }
+
         /* ROLE BADGES */
         .role-badge { 
             font-size: 10px; 
@@ -460,6 +470,9 @@ if ($me['leader_id'] === null) {
                                 <span class="role-badge leader">Group Leader</span>
                             </h4>
                             <p><?= htmlspecialchars($leader_user['email']) ?></p>
+                            <?php if (!empty($leader_user['student_number'])): ?>
+                                <div class="member-school-id">ID <?= htmlspecialchars($leader_user['student_number']) ?></div>
+                            <?php endif; ?>
                         </div>
                     </div>
                 </div>
@@ -477,6 +490,9 @@ if ($me['leader_id'] === null) {
                                         <span class="role-badge">Member</span>
                                     </h4>
                                     <p><?= htmlspecialchars($member['email']) ?></p>
+                                    <?php if (!empty($member['student_number'])): ?>
+                                        <div class="member-school-id">ID <?= htmlspecialchars($member['student_number']) ?></div>
+                                    <?php endif; ?>
                                 </div>
                             </div>
                             <?php if ($me['leader_id'] === null): ?>

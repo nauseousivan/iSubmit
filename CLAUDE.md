@@ -38,6 +38,12 @@ School research submission + approval portal. Students upload research documents
   Revise/Replace decision, giving the report full version history same as any other document).
   Plagiarism control numbers (`PLAG-{SCHOOL}-{COURSE}-{SEQ}`) live in their own `plagiarism_checks`
   table (one row per group), not on `uploads`. Statistician progress lives in `form_stat_treatment.status` (`Phase 1..7`).
+- `users.student_number` = the student's **School ID Number** (UI label), format `YYYY-NNNNN`
+  (regex `/^\d{4}-\d{4,6}$/`), `VARCHAR(20) NULL UNIQUE`. Required at registration (Step 3),
+  editable in `profile.php`. **Personal — never inherited from the leader** the way
+  `research_group_name`/`department`/`program` are, and always written to the caller's own row.
+  Writers must normalise `''` → `NULL` or two blank saves collide on `uniq_student_number`.
+  Not named `school_id`: `department` already holds the school (MCNP vs. ISAP).
 - A "research group" = a `users` row with `role='Student'`, non-empty `research_group_name`, `leader_id IS NULL` (~52). `approvals` has ≤1 workflow row per group — **don't** source group lists from `approvals` (incomplete); use the leader-group query.
 - Theme key: `localStorage['rd-portal-theme']` = `theme-light` | `theme-dark`.
 - **Watch for dead vs. live reference code**: this codebase sometimes has two implementations of the
@@ -49,7 +55,9 @@ School research submission + approval portal. Students upload research documents
 ## Rules
 - **Presentation changes must not touch** workflow logic, POST handlers, SQL writes, form field
   names, or the review JS contract: `openDocumentModal`, `runForm008Tally`/`runForm011Tally`,
-  AI pre-score, and the `csrf_token` field. `verification_status` values are fixed strings.
+  and the `csrf_token` field. `verification_status` values are fixed strings. (AI Pre-Score was
+  removed 2026-07-10 — it shipped a hardcoded OpenAI key in `ai_prescore_handler.php`; that key
+  is still in git history from the initial commit and needs rotating on OpenAI's side.)
 - Keep class `nav-item-btn` on staff nav/dock buttons — `_master_overview.php` selects it cross-file.
 - Files are UTF-8 and start with `<?php`; **never write a BOM** (breaks `header()` redirects). For
   large in-place edits use the Edit tool or a PHP-CLI regex (raw bytes) — **not** PowerShell

@@ -54,6 +54,62 @@ if ($phase === 'stats') {
         $stats_view = 'all';
     }
 }
+// The History tab is a POS-style audit log across every group, not a group-scoped review queue —
+// the group sidebar and the search/department/program filter bar don't apply to it (they don't
+// touch the payment_logs query at all), so both are hidden on this view.
+$is_history_view = ($phase === 'stats' && $stats_view === 'history');
+
+// Payment History filters (month/year) + CSV export. Parsed here — before any HTML output — so the
+// export branch can send download headers. Shared with the display query further down so the
+// exported file always matches exactly what's on screen.
+$hist_month = 0;
+$hist_year = 0;
+if ($phase === 'stats' && $stats_view === 'history') {
+    $hist_month = (int) ($_GET['hist_month'] ?? 0);
+    if ($hist_month < 1 || $hist_month > 12) $hist_month = 0;
+    $hist_year = (int) ($_GET['hist_year'] ?? 0);
+    if ($hist_year < 2000 || $hist_year > 2100) $hist_year = 0;
+}
+$hist_where = '';
+$hist_params = [];
+if ($hist_month) { $hist_where .= ' AND MONTH(pl.created_at) = ?'; $hist_params[] = $hist_month; }
+if ($hist_year) { $hist_where .= ' AND YEAR(pl.created_at) = ?'; $hist_params[] = $hist_year; }
+
+if ($phase === 'stats' && $stats_view === 'history' && ($_GET['export'] ?? '') === 'csv') {
+    $export_stmt = $pdo->prepare("
+        SELECT pl.action, pl.control_no, pl.item_id, pl.remarks, pl.created_at,
+               u.research_group_name, actor.username AS actor_name
+        FROM payment_logs pl
+        LEFT JOIN users u ON pl.student_id = u.user_id
+        LEFT JOIN users actor ON pl.actor_id = actor.user_id
+        WHERE 1=1 $hist_where
+        ORDER BY pl.created_at DESC
+    ");
+    $export_stmt->execute($hist_params);
+    $export_rows = $export_stmt->fetchAll(PDO::FETCH_ASSOC);
+    $export_doc_names = [36 => 'Validated Form', 37 => 'Official Receipt'];
+
+    header('Content-Type: text/csv; charset=utf-8');
+    $fname = 'payment_history' . ($hist_year ? '_' . $hist_year : '') . ($hist_month ? '_' . str_pad($hist_month, 2, '0', STR_PAD_LEFT) : '') . '.csv';
+    header('Content-Disposition: attachment; filename="' . $fname . '"');
+    $out = fopen('php://output', 'w');
+    fputcsv($out, ['Date', 'Time', 'Decision', 'Research Group', 'Control No.', 'Document', 'Remarks', 'Decided By']);
+    foreach ($export_rows as $r) {
+        $ts = strtotime($r['created_at']);
+        fputcsv($out, [
+            date('Y-m-d', $ts),
+            date('h:i A', $ts),
+            $r['action'] === 'accepted' ? 'Accepted' : 'Rejected',
+            $r['research_group_name'] ?? 'Unknown group',
+            $r['control_no'] ?? '',
+            $export_doc_names[$r['item_id']] ?? '',
+            $r['remarks'] ?? '',
+            $r['actor_name'] ?? 'Statistician',
+        ]);
+    }
+    fclose($out);
+    exit;
+}
 
 // Plagiarism sub-nav split (mirrors the Statistics one): 'review' = manuscripts still needing a
 // decision (default), 'cleared' = already-approved manuscripts + their Turnitin reports.
@@ -559,8 +615,9 @@ if ($selected_program) {
     $params[] = $selected_program;
 }
 if ($search_query) {
-    $where_clauses[] = "(u.username LIKE ? OR u.research_group_name LIKE ? OR u.department LIKE ? OR u.program LIKE ?)";
+    $where_clauses[] = "(u.username LIKE ? OR u.research_group_name LIKE ? OR u.department LIKE ? OR u.program LIKE ? OR u.student_number LIKE ?)";
     $wildcard = "%" . $search_query . "%";
+    $params[] = $wildcard;
     $params[] = $wildcard;
     $params[] = $wildcard;
     $params[] = $wildcard;
@@ -584,7 +641,7 @@ $plag_select_sql = ($phase === 'plag') ? ", pc.formatted_control_no AS plag_cont
 $uploads_query = "
     SELECT up.upload_id, up.item_id, up.file_path, up.original_filename, up.verification_status, up.remarks, up.uploaded_at,
            up.form_008_data, up.form_008_score, up.form_008_decision, u.department, u.program,
-           u.email, u.username, u.research_group_name, u.user_id as student_user_id, u.profile_pic
+           u.email, u.username, u.student_number, u.research_group_name, u.user_id as student_user_id, u.profile_pic
            $plag_select_sql
     FROM uploads up
     JOIN users u ON up.user_id = u.user_id
@@ -647,6 +704,7 @@ if ($use_group_inbox) {
                         'program' => $sub['program'],
                         'profile_pic' => $sub['profile_pic'] ?? '',
                         'email' => $sub['email'] ?? '',
+                        'student_number' => $sub['student_number'] ?? '',
                     ],
                     'items' => [],
                     'action_count' => 0,
@@ -685,7 +743,7 @@ $group_selector_where_sql = "WHERE " . implode(' AND ', $group_selector_clauses)
 // staff signoffs, so it's a more complete "last touched" signal than uploads alone). This list
 // is system-wide, not phase-scoped, so the recency source is too.
 $group_selector_query = "
-    SELECT DISTINCT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
+    SELECT DISTINCT u.user_id, u.username, u.student_number, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
            la.last_activity
     FROM users u
     LEFT JOIN (
@@ -741,7 +799,7 @@ if ($phase === 'stats') {
     // Registration queue: groups with payment docs uploaded (Phase 4) plus groups still in
     // Phase 2 — the latter covers receipts presented physically at the Research Office.
     // First-come, first-served queue: oldest submission sits at the front (#1).
-    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.research_group_name, u.department, u.program, u.email, u.profile_pic
+    $stmt_pay = $pdo->query("SELECT f.*, u.username, u.student_number, u.research_group_name, u.department, u.program, u.email, u.profile_pic
                              FROM form_stat_treatment f
                              JOIN users u ON f.user_id = u.user_id
                              WHERE f.status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')
@@ -769,15 +827,52 @@ if ($phase === 'stats') {
                                   JOIN users u ON f.user_id = u.user_id
                                   WHERE f.status = 'Phase 7: Statistical Treatment' ORDER BY f.date_submitted DESC")->fetchAll(PDO::FETCH_ASSOC);
 
-    // Payment decision history (accept/reject audit trail, most recent first).
-    $payment_history = $pdo->query("
+    // Payment decision history (accept/reject audit trail, most recent first) — filtered by
+    // $hist_where/$hist_params (month/year, parsed near the top alongside the CSV export branch)
+    // and paginated so the log stays fast as it grows.
+    $hist_page = max(1, (int) ($_GET['hist_page'] ?? 1));
+    $hist_per_page = 25;
+    $hist_count_stmt = $pdo->prepare("SELECT COUNT(*) FROM payment_logs pl WHERE 1=1 $hist_where");
+    $hist_count_stmt->execute($hist_params);
+    $hist_total_rows = (int) $hist_count_stmt->fetchColumn();
+    $hist_total_pages = max(1, (int) ceil($hist_total_rows / $hist_per_page));
+    $hist_page = min($hist_page, $hist_total_pages);
+    $hist_offset = ($hist_page - 1) * $hist_per_page;
+
+    $hist_stmt = $pdo->prepare("
         SELECT pl.action, pl.control_no, pl.item_id, pl.remarks, pl.created_at,
                u.research_group_name, actor.username AS actor_name
         FROM payment_logs pl
         LEFT JOIN users u ON pl.student_id = u.user_id
         LEFT JOIN users actor ON pl.actor_id = actor.user_id
-        ORDER BY pl.created_at DESC LIMIT 30
-    ")->fetchAll(PDO::FETCH_ASSOC);
+        WHERE 1=1 $hist_where
+        ORDER BY pl.created_at DESC
+        LIMIT $hist_per_page OFFSET $hist_offset
+    ");
+    $hist_stmt->execute($hist_params);
+    $payment_history = $hist_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    // POS-style summary widgets — same filter as the log above, so the numbers always match what's
+    // visible on screen (no separate/inconsistent "all-time" source of truth).
+    $hist_stats_stmt = $pdo->prepare("
+        SELECT
+            COUNT(*) AS total,
+            SUM(CASE WHEN pl.action = 'accepted' THEN 1 ELSE 0 END) AS accepted,
+            SUM(CASE WHEN pl.action = 'rejected' THEN 1 ELSE 0 END) AS rejected,
+            SUM(CASE WHEN DATE(pl.created_at) = CURDATE() THEN 1 ELSE 0 END) AS today
+        FROM payment_logs pl
+        WHERE 1=1 $hist_where
+    ");
+    $hist_stats_stmt->execute($hist_params);
+    $hist_stats = $hist_stats_stmt->fetch(PDO::FETCH_ASSOC);
+    $hist_stats['accepted'] = (int) ($hist_stats['accepted'] ?? 0);
+    $hist_stats['rejected'] = (int) ($hist_stats['rejected'] ?? 0);
+    $hist_stats['total'] = (int) ($hist_stats['total'] ?? 0);
+    $hist_stats['today'] = (int) ($hist_stats['today'] ?? 0);
+    $hist_stats['accept_rate'] = $hist_stats['total'] > 0 ? round($hist_stats['accepted'] / $hist_stats['total'] * 100) : 0;
+
+    // Years that actually have logged decisions, for the year filter dropdown.
+    $hist_years = $pdo->query("SELECT DISTINCT YEAR(created_at) AS y FROM payment_logs ORDER BY y DESC")->fetchAll(PDO::FETCH_COLUMN);
 }
 
 // Plagiarism Review & Clearance: single-stage decision queue. Lists every group with a manuscript
@@ -789,7 +884,7 @@ $plag_reports_history = []; // [user_id => [report rows...]], DESC by uploaded_a
 $plag_awaiting_count = 0;
 if ($phase === 'plag') {
     $plag_manuscripts = $pdo->query("
-        SELECT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic,
+        SELECT u.user_id, u.username, u.student_number, u.research_group_name, u.department, u.program, u.profile_pic,
                up.upload_id AS latest_upload_id, up.file_path AS manuscript_path,
                up.original_filename AS manuscript_filename, up.verification_status,
                pc.formatted_control_no
@@ -928,6 +1023,16 @@ if ($phase === 'plag') {
         .grp-avatar { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; border: 2px solid var(--border-line); background: #f3f4f6; flex-shrink: 0; }
         .grp-name { font-size: 15px; font-weight: 800; color: var(--mcnp-teal); font-family: 'Cinzel', serif; line-height: 1.2; }
         .grp-sub { font-size: 11.5px; color: var(--text-muted); font-weight: 600; }
+
+        /* School ID number chip — reused on every card that identifies a group's leader.
+           Fixed-width content (2023-10078), so it never needs to wrap or truncate. */
+        .school-id-chip {
+            display: inline-flex; align-items: center; gap: 4px;
+            font-size: 10.5px; font-weight: 700; letter-spacing: 0.02em;
+            padding: 2px 7px; border-radius: 20px; white-space: nowrap;
+            background: rgba(100, 116, 139, .12); color: var(--text-muted);
+        }
+        .school-id-chip i { width: 11px; height: 11px; flex-shrink: 0; }
         .grp-file-badge { background: #eef1f5 !important; color: #64748b !important; }
 
         .grp-req-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 12px; padding: 4px; }
@@ -1004,7 +1109,9 @@ if ($phase === 'plag') {
         </div>
     <?php endif; ?>
 
-    <!-- Filter Bar -->
+    <!-- Filter Bar (not shown on the History log — it filters the group review queue, which
+         the payment-decision log isn't; History has its own month/year filter instead) -->
+    <?php if (!$is_history_view): ?>
     <div class="filter-bar">
         <form method="GET" action="">
             <input type="hidden" name="phase" value="<?= htmlspecialchars($phase) ?>">
@@ -1033,11 +1140,13 @@ if ($phase === 'plag') {
             <a href="admin_module_dynamic.php?phase=<?= htmlspecialchars($phase) ?>" class="btn-clear flex items-center justify-center gap-1">Reset Query</a>
         </form>
     </div>
+    <?php endif; ?>
 
     <!-- MAIN EXQUISITE GRID -->
-    <div class="workspace-grid">
+    <div class="workspace-grid<?= $is_history_view ? ' full-width' : '' ?>">
 
-        <!-- SIDEBAR: Interactive Selector Directory -->
+        <!-- SIDEBAR: Interactive Selector Directory (hidden on the History log — see note above) -->
+        <?php if (!$is_history_view): ?>
         <aside class="group-sidebar">
             <h3 class="sidebar-title">Select Student Group</h3>
 
@@ -1064,11 +1173,11 @@ if ($phase === 'plag') {
                         $sidebar_gi++;
                         $sidebar_extra = $sidebar_gi > 7;
                     ?>
-                        <div class="group-select-item" <?= $sidebar_extra ? 'data-extra="1" style="display:none;"' : '' ?> onclick="selectStudentGroup(<?= htmlspecialchars(json_encode($g)) ?>)" id="sidebar-g-<?= $g['user_id'] ?>" data-group-name="<?= htmlspecialchars(strtolower($g['research_group_name'])) ?>" data-student-name="<?= htmlspecialchars(strtolower($g['username'])) ?>" data-program-name="<?= htmlspecialchars(strtolower($g['program'])) ?>">
+                        <div class="group-select-item" <?= $sidebar_extra ? 'data-extra="1" style="display:none;"' : '' ?> onclick="selectStudentGroup(<?= htmlspecialchars(json_encode($g)) ?>)" id="sidebar-g-<?= $g['user_id'] ?>" data-group-name="<?= htmlspecialchars(strtolower($g['research_group_name'])) ?>" data-student-name="<?= htmlspecialchars(strtolower($g['username'])) ?>" data-program-name="<?= htmlspecialchars(strtolower($g['program'])) ?>" data-school-id="<?= htmlspecialchars(strtolower($g['student_number'] ?? '')) ?>">
                             <img src="<?= htmlspecialchars($pfp) ?>" class="mini-avatar">
                             <div style="overflow:hidden;">
                                 <h4 class="mini-group-name"><?= htmlspecialchars($g['research_group_name']) ?></h4>
-                                <p class="mini-group-lead">Leader: <?= htmlspecialchars($g['username']) ?></p>
+                                <p class="mini-group-lead">Leader: <?= htmlspecialchars($g['username']) ?><?= !empty($g['student_number']) ? ' &middot; ' . htmlspecialchars($g['student_number']) : '' ?></p>
                             </div>
                         </div>
                     <?php endforeach; ?>
@@ -1080,6 +1189,7 @@ if ($phase === 'plag') {
                 <?php endif; ?>
             </div>
         </aside>
+        <?php endif; ?>
 
         <!-- RIGHT PANEL: Action items & Active workspace -->
         <section class="main-content-panel">
@@ -1093,6 +1203,7 @@ if ($phase === 'plag') {
                         <p id="cardLeader" style="font-size:12.5px; color:#4b5563; margin:0 0 2px 0; font-weight:600;">Leader:</p>
                         <p id="cardEmail" style="font-size:11.5px; color:#6b7280; margin:0 0 2px 0; font-family:'JetBrains Mono', monospace;"></p>
                         <p id="cardDetails" style="font-size:11px; color:#9ca3af; margin:0;"></p>
+                        <p id="cardSchoolIdWrap" style="margin:5px 0 0 0; display:none;"><span class="school-id-chip"><i data-lucide="id-card"></i><span id="cardSchoolId"></span></span></p>
                     </div>
 
                     <div style="text-align:right; min-width: 140px;">
@@ -1171,6 +1282,7 @@ if ($phase === 'plag') {
                                                 <h4 class="pay-group"><?= htmlspecialchars($pay['research_group_name']) ?></h4>
                                                 <div class="pay-sub"><?= htmlspecialchars($pay['username']) ?> &middot; <?= htmlspecialchars($pay['program'] ?: $pay['department']) ?></div>
                                                 <?php if ($pay_email): ?><div class="pay-email"><i data-lucide="mail"></i><?= htmlspecialchars($pay_email) ?></div><?php endif; ?>
+                                                <?php if (!empty($pay['student_number'])): ?><div style="margin-top:4px;"><span class="school-id-chip"><i data-lucide="id-card"></i><?= htmlspecialchars($pay['student_number']) ?></span></div><?php endif; ?>
                                             </div>
                                             <span class="pay-status-chip <?= $has_docs ? 'ready' : 'waiting' ?>"><?= $has_docs ? 'Receipt uploaded' : 'Physical / awaiting' ?></span>
                                         </div>
@@ -1232,51 +1344,108 @@ if ($phase === 'plag') {
                 </div>
             <?php endif; ?>
 
-            <?php if ($phase === 'stats' && $stats_view === 'history' && count($payment_history) > 0): ?>
-                <div class="req-card" style="margin-bottom: 25px;">
-                    <div class="req-header" onclick="toggleReq('payhist', this)">
-                        <div class="req-title">
-                            <i data-lucide="history" style="width: 20px; height: 20px;"></i>
-                            Payment Decision History
-                        </div>
-                        <div class="req-meta">
-                            <span class="badge" style="background: var(--text-muted);"><?= count($payment_history) ?> logged</span>
-                            <i data-lucide="chevron-down" class="chevron" style="width: 20px; height: 20px;"></i>
-                        </div>
+            <?php if ($is_history_view): ?>
+                <!-- POS-style summary widgets — reflect whatever month/year filter is active below,
+                     so these numbers always match exactly what's in the log beneath them. -->
+                <div class="dashboard-grid" style="margin-bottom: 18px;">
+                    <div class="stat-card">
+                        <div class="stat-value"><?= $hist_stats['total'] ?></div>
+                        <div class="stat-label">Logged Decisions</div>
                     </div>
-                    <div class="req-body" id="body-payhist">
-                        <div class="pay-hist-list">
-                            <?php foreach ($payment_history as $h):
-                                $accepted = ($h['action'] === 'accepted');
-                                $doc_names = [36 => 'Validated Form', 37 => 'Official Receipt'];
-                            ?>
-                                <div class="pay-hist-row">
-                                    <span class="pay-hist-badge <?= $accepted ? 'ok' : 'no' ?>">
-                                        <i data-lucide="<?= $accepted ? 'badge-check' : 'x-circle' ?>"></i>
-                                        <?= $accepted ? 'Accepted' : 'Rejected' ?>
-                                    </span>
-                                    <div class="pay-hist-body">
-                                        <div class="pay-hist-top">
-                                            <span><?= htmlspecialchars($h['research_group_name'] ?? 'Unknown group') ?></span>
-                                            <?php if ($accepted && !empty($h['control_no'])): ?>
-                                                <span class="pay-hist-ctrl"><?= htmlspecialchars($h['control_no']) ?></span>
-                                            <?php elseif (!$accepted && isset($doc_names[$h['item_id']])): ?>
-                                                <span class="pay-hist-doc"><?= $doc_names[$h['item_id']] ?></span>
-                                            <?php endif; ?>
-                                        </div>
-                                        <?php if (!empty($h['remarks'])): ?>
-                                            <div class="pay-hist-remarks">&ldquo;<?= htmlspecialchars($h['remarks']) ?>&rdquo;</div>
-                                        <?php endif; ?>
-                                        <div class="pay-hist-meta">
-                                            by <strong><?= htmlspecialchars($h['actor_name'] ?? 'Statistician') ?></strong>
-                                            &middot; <?= date('M j, Y • h:i A', strtotime($h['created_at'])) ?>
-                                        </div>
-                                    </div>
-                                </div>
-                            <?php endforeach; ?>
-                        </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: var(--success);"><?= $hist_stats['accepted'] ?></div>
+                        <div class="stat-label">Accepted</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" style="color: var(--danger);"><?= $hist_stats['rejected'] ?></div>
+                        <div class="stat-label">Rejected</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value"><?= $hist_stats['accept_rate'] ?>%</div>
+                        <div class="stat-label">Accept Rate</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value"><?= $hist_stats['today'] ?></div>
+                        <div class="stat-label">Decided Today</div>
                     </div>
                 </div>
+
+                <!-- Month/Year filter + Export -->
+                <div class="filter-bar" style="margin-bottom: 18px;">
+                    <form method="GET" action="" style="display: flex; gap: 10px; flex-wrap: wrap; align-items: center; width: 100%;">
+                        <input type="hidden" name="phase" value="stats">
+                        <input type="hidden" name="view" value="history">
+                        <select name="hist_month" onchange="this.form.submit()">
+                            <option value="0">All Months</option>
+                            <?php for ($m = 1; $m <= 12; $m++): ?>
+                                <option value="<?= $m ?>" <?= $hist_month === $m ? 'selected' : '' ?>><?= date('F', mktime(0, 0, 0, $m, 1)) ?></option>
+                            <?php endfor; ?>
+                        </select>
+                        <select name="hist_year" onchange="this.form.submit()">
+                            <option value="0">All Years</option>
+                            <?php foreach ($hist_years as $y): ?>
+                                <option value="<?= $y ?>" <?= $hist_year === (int) $y ? 'selected' : '' ?>><?= $y ?></option>
+                            <?php endforeach; ?>
+                        </select>
+                        <?php if ($hist_month || $hist_year): ?>
+                            <a href="admin_module_dynamic.php?phase=stats&view=history" class="btn-clear">Reset</a>
+                        <?php endif; ?>
+                        <a href="admin_module_dynamic.php?phase=stats&view=history&export=csv&hist_month=<?= $hist_month ?>&hist_year=<?= $hist_year ?>"
+                           class="btn-update" style="margin-left: auto; text-decoration: none; display: inline-flex; align-items: center; gap: 6px;">
+                            <i data-lucide="download" style="width: 14px; height: 14px;"></i> Export to Excel
+                        </a>
+                    </form>
+                </div>
+
+                <!-- Flat log — no card wrapper, just the log -->
+                <?php if (count($payment_history) > 0): ?>
+                    <div class="pay-hist-list">
+                        <?php foreach ($payment_history as $h):
+                            $accepted = ($h['action'] === 'accepted');
+                            $doc_names = [36 => 'Validated Form', 37 => 'Official Receipt'];
+                        ?>
+                            <div class="pay-hist-row">
+                                <span class="pay-hist-badge <?= $accepted ? 'ok' : 'no' ?>">
+                                    <i data-lucide="<?= $accepted ? 'badge-check' : 'x-circle' ?>"></i>
+                                    <?= $accepted ? 'Accepted' : 'Rejected' ?>
+                                </span>
+                                <div class="pay-hist-body">
+                                    <div class="pay-hist-top">
+                                        <span><?= htmlspecialchars($h['research_group_name'] ?? 'Unknown group') ?></span>
+                                        <?php if ($accepted && !empty($h['control_no'])): ?>
+                                            <span class="pay-hist-ctrl"><?= htmlspecialchars($h['control_no']) ?></span>
+                                        <?php elseif (!$accepted && isset($doc_names[$h['item_id']])): ?>
+                                            <span class="pay-hist-doc"><?= $doc_names[$h['item_id']] ?></span>
+                                        <?php endif; ?>
+                                    </div>
+                                    <?php if (!empty($h['remarks'])): ?>
+                                        <div class="pay-hist-remarks">&ldquo;<?= htmlspecialchars($h['remarks']) ?>&rdquo;</div>
+                                    <?php endif; ?>
+                                    <div class="pay-hist-meta">
+                                        by <strong><?= htmlspecialchars($h['actor_name'] ?? 'Statistician') ?></strong>
+                                        &middot; <?= date('M j, Y • h:i A', strtotime($h['created_at'])) ?>
+                                    </div>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                    </div>
+
+                    <?php if ($hist_total_pages > 1): ?>
+                        <div style="display: flex; justify-content: center; align-items: center; gap: 14px; margin-top: 20px;">
+                            <?php if ($hist_page > 1): ?>
+                                <a href="admin_module_dynamic.php?phase=stats&view=history&hist_month=<?= $hist_month ?>&hist_year=<?= $hist_year ?>&hist_page=<?= $hist_page - 1 ?>" class="btn-clear">&larr; Newer</a>
+                            <?php endif; ?>
+                            <span style="font-size: 12px; font-weight: 700; color: var(--text-muted);">Page <?= $hist_page ?> of <?= $hist_total_pages ?></span>
+                            <?php if ($hist_page < $hist_total_pages): ?>
+                                <a href="admin_module_dynamic.php?phase=stats&view=history&hist_month=<?= $hist_month ?>&hist_year=<?= $hist_year ?>&hist_page=<?= $hist_page + 1 ?>" class="btn-clear">Older &rarr;</a>
+                            <?php endif; ?>
+                        </div>
+                    <?php endif; ?>
+                <?php else: ?>
+                    <p style="text-align: center; color: var(--text-muted); padding: 40px;">
+                        No payment decisions logged<?= ($hist_month || $hist_year) ? ' for this period.' : ' yet.' ?>
+                    </p>
+                <?php endif; ?>
             <?php endif; ?>
 
             <?php if ($phase === 'stats' && in_array($stats_view, ['all', 'release'], true) && count($release_queue) > 0): ?>
@@ -1367,7 +1536,10 @@ if ($phase === 'plag') {
                                         <img src="<?= htmlspecialchars($m_pfp) ?>" class="grp-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/bottts/svg?seed=<?= urlencode($m['username']) ?>';">
                                         <div class="plag-head-id">
                                             <span class="grp-name"><?= htmlspecialchars($m['research_group_name']) ?></span>
-                                            <span class="grp-sub"><?= htmlspecialchars($m['program'] ?: $m['department']) ?><?php if (!empty($m['formatted_control_no'])): ?> &middot; <span class="plag-ctrl"><?= htmlspecialchars($m['formatted_control_no']) ?></span><?php endif; ?></span>
+                                            <span class="grp-sub" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                                <span><?= htmlspecialchars($m['program'] ?: $m['department']) ?><?php if (!empty($m['formatted_control_no'])): ?> &middot; <span class="plag-ctrl"><?= htmlspecialchars($m['formatted_control_no']) ?></span><?php endif; ?></span>
+                                                <?php if (!empty($m['student_number'])): ?><span class="school-id-chip"><i data-lucide="id-card"></i><?= htmlspecialchars($m['student_number']) ?></span><?php endif; ?>
+                                            </span>
                                         </div>
                                         <span class="status-pill <?= $m_pill ?>"><?= htmlspecialchars($m['verification_status']) ?></span>
                                     </div>
@@ -1465,7 +1637,12 @@ if ($phase === 'plag') {
                                 <img src="<?= htmlspecialchars($g_pfp) ?>" class="grp-avatar" onerror="this.onerror=null;this.src='https://api.dicebear.com/9.x/bottts/svg?seed=<?= urlencode($meta['username']) ?>';">
                                 <span style="display:flex;flex-direction:column;gap:2px;">
                                     <span class="grp-name"><?= highlightSearchTerm($meta['research_group_name'], $search_query) ?></span>
-                                    <span class="grp-sub"><?= highlightSearchTerm($meta['username'], $search_query) ?> &middot; <?= htmlspecialchars($meta['program'] ?: $meta['department']) ?></span>
+                                    <span class="grp-sub" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap;">
+                                        <span><?= highlightSearchTerm($meta['username'], $search_query) ?> &middot; <?= htmlspecialchars($meta['program'] ?: $meta['department']) ?></span>
+                                        <?php if (!empty($meta['student_number'])): ?>
+                                            <span class="school-id-chip"><i data-lucide="id-card"></i><?= highlightSearchTerm($meta['student_number'], $search_query) ?></span>
+                                        <?php endif; ?>
+                                    </span>
                                 </span>
                             </div>
                             <div class="req-meta">
@@ -1705,12 +1882,12 @@ if ($phase === 'plag') {
     </div>
 
     <!-- Premium Split Window Evaluation Console Modal -->
-    <div class="preview-modal" id="docModal">
+    <div class="preview-modal" id="docModal" onclick="if (event.target === this) closeDocumentModal();">
         <div class="preview-content">
             <div class="preview-header">
-                <div style="display:flex; flex-direction:column; gap:2px;">
+                <div class="preview-header-titles">
                     <span style="font-size:10px; text-transform:uppercase; font-weight:bold; opacity:0.85; letter-spacing:0.02em;">ISAP-QMS-DCO-RDC Form No: 008 (Research Proposal Review)</span>
-                    <h4 id="modalTitle" style="margin:0; font-family:'Cinzel', serif; font-size:16px; font-weight:800;">Document Viewer Console</h4>
+                    <h4 id="modalTitle" title="Document Viewer Console" style="margin:0; font-family:'Cinzel', serif; font-size:16px; font-weight:800;">Document Viewer Console</h4>
                 </div>
                 <span class="close-preview" onclick="closeDocumentModal()">&times;</span>
             </div>
@@ -1730,9 +1907,6 @@ if ($phase === 'plag') {
                         <div id="form008RubricBox" style="display:none; flex-direction:column; margin-bottom:15px; width:100%;">
                             <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
                                 <label style="font-size:11px; font-weight:800; color:#6b7280; text-transform:uppercase; margin:0; letter-spacing:0.02em;">Rubric Criteria Rubrics Checklist</label>
-                                <button type="button" id="btnAIPrescore" class="btn-update" style="background:#8b5cf6; display:flex; align-items:center; gap:5px; padding:6px 10px; font-size:10px;" onclick="runAIPrescore()">
-                                    <i data-lucide="sparkles" style="width:12; height:12;"></i> AI Pre-Score
-                                </button>
                             </div>
 
                             <?php
@@ -1895,7 +2069,8 @@ if ($phase === 'plag') {
                 const groupName = item.getAttribute('data-group-name') || '';
                 const studentName = item.getAttribute('data-student-name') || '';
                 const programName = item.getAttribute('data-program-name') || '';
-                const matches = groupName.includes(query) || studentName.includes(query) || programName.includes(query);
+                const schoolId = item.getAttribute('data-school-id') || '';
+                const matches = groupName.includes(query) || studentName.includes(query) || programName.includes(query) || schoolId.includes(query);
                 const isExtra = item.getAttribute('data-extra') === '1';
 
                 item.style.display = (matches && (searching || sidebarGroupsExpanded || !isExtra)) ? 'flex' : 'none';
@@ -1930,6 +2105,11 @@ if ($phase === 'plag') {
                 document.getElementById('cardLeader').innerHTML = `<i data-lucide="user" style="width:14px; height:14px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> Primary Contact: ${data.username}`;
                 document.getElementById('cardEmail').innerHTML = `<i data-lucide="mail" style="width:13px; height:13px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> ${data.email}`;
                 document.getElementById('cardDetails').textContent = `${data.program} • ${data.department}`;
+
+                // School ID number — hidden entirely for accounts that predate the field.
+                const schoolIdWrap = document.getElementById('cardSchoolIdWrap');
+                document.getElementById('cardSchoolId').textContent = data.student_number || '';
+                schoolIdWrap.style.display = data.student_number ? 'block' : 'none';
 
                 // Update actual progress metrics
                 const progressInfo = groupProgressData[data.user_id] || {
@@ -2220,7 +2400,10 @@ if ($phase === 'plag') {
 
         function openDocumentModal(data, reqName, itemId) {
             document.getElementById('docModal').style.display = 'flex';
-            document.getElementById('modalTitle').textContent = data.research_group_name + ' - ' + (data.original_filename || 'Document');
+            const modalTitleText = data.research_group_name + ' - ' + (data.original_filename || 'Document');
+            const modalTitleEl = document.getElementById('modalTitle');
+            modalTitleEl.textContent = modalTitleText;
+            modalTitleEl.title = modalTitleText; // full text on hover — the header truncates long names with an ellipsis
             document.getElementById('modalReqName').textContent = reqName;
 
             document.getElementById('modal_upload_id').value = data.upload_id;
@@ -2351,50 +2534,6 @@ if ($phase === 'plag') {
                 }
             }
         });
-
-        async function runAIPrescore() {
-            const uploadId = document.getElementById('modal_upload_id').value;
-            const btn = document.getElementById('btnAIPrescore');
-            const originalText = btn.innerHTML;
-
-            if (!uploadId) return alert("No document selected.");
-            if (!confirm("This will analyze the document using AI and overwrite your current rubric selections. Proceed?")) return;
-
-            btn.innerHTML = `<i data-lucide="loader" style="animation: spin 1s linear infinite; width:12; height:12;"></i> Analyzing...`;
-            btn.disabled = true;
-            lucide.createIcons();
-
-            try {
-                const response = await fetch('ai_prescore_handler.php', {
-                    method: 'POST',
-                    headers: {
-                        'Content-Type': 'application/x-www-form-urlencoded'
-                    },
-                    body: 'upload_id=' + encodeURIComponent(uploadId)
-                });
-                const result = await response.json();
-
-                if (result.success && result.data) {
-                    Object.keys(result.data).forEach(key => {
-                        const radioMatch = document.querySelector(`input[name="rubric[${key}][val]"][value="${result.data[key].val}"]`);
-                        if (radioMatch) radioMatch.checked = true;
-                        const textMatch = document.querySelector(`input[name="rubric[${key}][comment]"]`);
-                        if (textMatch) textMatch.value = result.data[key].comment || '';
-                    });
-                    runForm008Tally(); // Auto-tally the new scores!
-                    alert("AI Evaluation Complete! Please review and modify the suggestions.");
-                } else {
-                    alert("AI Error: " + (result.error || "Unknown error"));
-                }
-            } catch (err) {
-                console.error(err);
-                alert("Failed to connect to the AI Service.");
-            } finally {
-                btn.innerHTML = originalText;
-                btn.disabled = false;
-                lucide.createIcons();
-            }
-        }
 
         // Apply the default "Action Needed" filter on load so Approved submissions start in the archive
         filterTableRows();

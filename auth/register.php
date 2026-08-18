@@ -31,6 +31,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
     $role = $_POST['role'] ?? 'Student';
     $department = $_POST['department'] ?? null;
     $program = $_POST['program'] ?? null;
+    $student_number = trim($_POST['student_number'] ?? '');
     $group_name = ($role === 'Student') ? trim($_POST['group_name'] ?? '') : null;
     $group_member_emails = ($role === 'Student') ? trim($_POST['group_member_emails'] ?? '') : null;
     $is_group_leader = isset($_POST['is_group_leader']) && $_POST['is_group_leader'] === 'yes';
@@ -62,6 +63,28 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         }
     }
 
+    // School ID number: personal to the account (never inherited from the leader the way
+    // research_group_name/department/program are above) and unique portal-wide.
+    if ($role === 'Student') {
+        if (!preg_match('/^\d{4}-\d{4,6}$/', $student_number)) {
+            $message = "Please enter your School ID Number in the format 2023-10078.";
+            $message_type = "error";
+            goto end_registration;
+        }
+
+        // Pre-check so a duplicate reads as a friendly message instead of surfacing the
+        // uniq_student_number index violation as a raw PDO exception.
+        $stmt_sn = $pdo->prepare("SELECT user_id FROM users WHERE student_number = ?");
+        $stmt_sn->execute([$student_number]);
+        if ($stmt_sn->fetch()) {
+            $message = "That School ID Number is already registered to another portal account.";
+            $message_type = "error";
+            goto end_registration;
+        }
+    } else {
+        $student_number = null;
+    }
+
     // Verify institutional email uniqueness
     $stmt = $pdo->prepare("SELECT user_id FROM users WHERE email = ?");
     $stmt->execute([$email]);
@@ -71,8 +94,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         $message_type = "error";
     } else {
         // Insert new record
-        $stmt = $pdo->prepare("INSERT INTO users (username, password, email, role, department, program, research_group_name, leader_id, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)");
-        if ($stmt->execute([$username, $password, $email, $role, $department, $program, $group_name, $leader_id])) {
+        $stmt = $pdo->prepare("INSERT INTO users (username, password, email, student_number, role, department, program, research_group_name, leader_id, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)");
+        if ($stmt->execute([$username, $password, $email, $student_number ?: null, $role, $department, $program, $group_name, $leader_id])) {
             $new_user_id = $pdo->lastInsertId();
 
             // Leader invited teammates by email in Step 4: link immediately if they
@@ -368,6 +391,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                                     <option value="Medical Colleges of Northern Philippines">Medical Colleges of Northern Philippines (MCNP)</option>
                                     <option value="International School of Asia and the Pacific">International School of Asia and the Pacific (ISAP)</option>
                                 </select>
+                            </div>
+                        </div>
+
+                        <div class="mat-input-group">
+                            <label>School ID Number</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="id-card" class="mat-icon" style="width: 18px; height: 18px;"></i>
+                                <input type="text" class="mat-input" name="student_number" id="studentNumberInput" placeholder="e.g. 2023-10078" required inputmode="numeric" maxlength="11" pattern="\d{4}-\d{4,6}" title="Format: year-serial, e.g. 2023-10078" oninput="formatStudentNumber(this)">
                             </div>
                         </div>
 
@@ -750,6 +781,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                     error.style.display = 'none';
                     return true;
                 }
+            }
+
+            // School ID is always <4-digit year>-<serial>; drop the hyphen in for the student
+            // so they can just type digits. Rebuilt from the digits only, so paste works too.
+            function formatStudentNumber(input) {
+                const digits = input.value.replace(/\D/g, '').slice(0, 10);
+                input.value = digits.length > 4 ? digits.slice(0, 4) + '-' + digits.slice(4) : digits;
             }
 
             function validateStep(step) {

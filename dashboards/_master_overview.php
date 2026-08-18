@@ -24,7 +24,7 @@ $mo_terminal_title = $mo_role_titles[$mo_role] ?? 'Staff Terminal';
 // (Previously this read only from `approvals`, so 48 of 52 groups — incl. 12 with real
 // uploads — were invisible in the explorer and undercounted the stat card.)
 $mo_workflow_tracks = $pdo->query("
-    SELECT u.user_id, u.username, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
+    SELECT u.user_id, u.username, u.student_number, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
            COALESCE(ap.coordinator_status, 'Pending')  AS coordinator_status,
            COALESCE(ap.statistician_status, 'Pending') AS statistician_status,
            COALESCE(ap.director_status, 'Pending')     AS director_status,
@@ -155,10 +155,10 @@ $mo_message = $message ?? '';
                         <?php $mo_gi = 0; foreach ($mo_workflow_tracks as $group): $mo_gi++; $mo_extra = $mo_gi > 4; ?>
                             <div class="custom-dropdown-item" <?= $mo_extra ? 'data-extra="1"' : '' ?>
                                  onclick='selectCustomDropdownOption(<?= htmlspecialchars(json_encode($group), ENT_QUOTES, "UTF-8") ?>)'
-                                 data-search-term="<?= htmlspecialchars(strtolower($group['research_group_name'] . ' ' . $group['username'] . ' ' . $group['program'] . ' ' . $group['department'])) ?>"
+                                 data-search-term="<?= htmlspecialchars(strtolower($group['research_group_name'] . ' ' . $group['username'] . ' ' . $group['program'] . ' ' . $group['department'] . ' ' . ($group['student_number'] ?? ''))) ?>"
                                  style="padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-dark); cursor: pointer; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.03);<?= $mo_extra ? ' display:none;' : '' ?>"
                                  onmouseover="this.style.backgroundColor='#faf8f4'" onmouseout="this.style.backgroundColor='transparent'">
-                                <?= htmlspecialchars($group['research_group_name']) ?> <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(<?= htmlspecialchars($group['username']) ?>)</span>
+                                <?= htmlspecialchars($group['research_group_name']) ?> <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(<?= htmlspecialchars($group['username']) ?><?= !empty($group['student_number']) ? ' &middot; ' . htmlspecialchars($group['student_number']) : '' ?>)</span>
                             </div>
                         <?php endforeach; ?>
                         <div id="customDropdownNoResults" style="display: none; padding: 12px; font-size: 11.5px; color: var(--text-muted); text-align: center;">No groups found</div>
@@ -421,7 +421,8 @@ $mo_message = $message ?? '';
             document.getElementById('groupName').textContent = data.research_group_name;
             document.getElementById('groupLeader').innerHTML = 'Leader: <strong style="color:var(--mcnp-teal);">' + data.username + '</strong>';
             document.getElementById('groupMail').innerHTML = '<i data-lucide="mail" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> ' + data.email;
-            document.getElementById('groupDetails').textContent = data.program + ' • ' + data.department;
+            document.getElementById('groupDetails').textContent = data.program + ' • ' + data.department +
+                (data.student_number ? ' • ID ' + data.student_number : '');
             document.getElementById('progCoord').textContent = data.coordinator_status;
             document.getElementById('progCoord').className = 'badge-status ' + (data.coordinator_status === 'Approved' ? 'badge-paid' : 'badge-pending');
             document.getElementById('progStats').textContent = data.statistician_status;
@@ -498,7 +499,8 @@ $mo_message = $message ?? '';
                 '<div style="flex:1;">' +
                 '<h4 style="color:var(--ink); font-size:15px; font-weight:700; margin:0;">' + escapeHtml(g.research_title || 'Untitled Research') + '</h4>' +
                 '<p style="font-weight:600; color:var(--ink-soft); font-size:12.5px; margin:2px 0 0;">Leader: ' + escapeHtml(g.username) + ' &middot; ' + escapeHtml(g.email) + '</p>' +
-                '<p style="font-size:11px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(g.program) + ' &middot; ' + escapeHtml(g.department) + '</p>' +
+                '<p style="font-size:11px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(g.program) + ' &middot; ' + escapeHtml(g.department) +
+                (g.student_number ? ' &middot; ID ' + escapeHtml(g.student_number) : '') + '</p>' +
                 '</div>' +
                 '</div>' +
                 '<div style="background:var(--surface); border:1px solid var(--line); border-radius:var(--r-md); padding:14px 16px; margin-bottom:18px; display:flex; flex-wrap:wrap; gap:14px; justify-content:space-between; align-items:center;">' +

@@ -213,22 +213,38 @@ $recent_activities = $pdo->query("
     LIMIT 60
 ")->fetchAll();
 
-// Fetch pending counts for the sidebar badges (Director handles 'Under Review' status)
-// Director acts on 'Under Review' submissions. Count only the LATEST upload per group per item
-// (mirrors the admin module's $uploads_by_item logic) so superseded versions don't inflate the badges.
+// Fetch pending counts for the sidebar badges. Director outranks Coordinator and wants full
+// pipeline visibility the moment a student submits — not just the subset waiting on Director's own
+// action — so these badges count 'Pending' (with Coordinator) + 'Under Review' (with Director)
+// combined per phase, in sync with what's actually happening system-wide. Count only the LATEST
+// upload per group per item (mirrors the admin module's $uploads_by_item logic) so superseded
+// versions don't inflate the badges.
+// Stats range includes 36/37 (payment docs): Director has one combined Statistics badge (no
+// separate Payment badge like statistician.php has), so it must cover everything phase=stats
+// shows in its default 'all' view, or pending payment docs would never surface anywhere.
 $pending_counts = $pdo->query("
     SELECT
         SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16) THEN 1 ELSE 0 END) as proposal_pending,
         SUM(CASE WHEN up.item_id IN (21,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
-        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35) THEN 1 ELSE 0 END) as stats_pending,
-        SUM(CASE WHEN up.item_id = 4 THEN 1 ELSE 0 END) as plag_pending
+        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats_pending
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date
         FROM uploads GROUP BY user_id, item_id
     ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-    WHERE up.verification_status = 'Under Review'
+    WHERE up.verification_status IN ('Pending', 'Under Review')
 ")->fetch();
+// Plagiarism (item 4) is single-stage — it never reaches 'Under Review', it stays 'Pending' the
+// whole time it's actionable by any of Coordinator/Director/Statistician (see CLAUDE.md). Counting
+// it against 'Under Review' like the phases above always returned 0, so the Director's Plagiarism
+// badge silently never lit up. Mirrors statistician.php's $plag_pending_count.
+$pending_counts['plag_pending'] = (int) $pdo->query("
+    SELECT COUNT(*) FROM uploads up
+    INNER JOIN (
+        SELECT user_id, MAX(upload_id) AS max_id FROM uploads WHERE item_id = 4 GROUP BY user_id
+    ) latest ON latest.max_id = up.upload_id
+    WHERE up.item_id = 4 AND up.verification_status = 'Pending'
+")->fetchColumn();
 
 // Fetch Calendar Events
 $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_date ASC")->fetchAll();
@@ -262,20 +278,20 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Proposal" data-win-icon="file-check" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
                         <i data-lucide="file-check"></i><span class="dock-label">Proposal</span>
-                        <?= $pending_counts['proposal_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['proposal_pending'] . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgeProposal" style="<?= $pending_counts['proposal_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['proposal_pending'] ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Final" data-win-icon="graduation-cap" onclick="openOverlay('admin_module_dynamic.php?phase=final', this)">
                         <i data-lucide="graduation-cap"></i><span class="dock-label">Final</span>
-                        <?= $pending_counts['final_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['final_pending'] . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgeFinal" style="<?= $pending_counts['final_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['final_pending'] ?></span>
                     </button>
                 </li>
                 <li class="nav-section-label">Plagiarism</li>
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Review" data-win-icon="shield-alert" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=review', this)">
                         <i data-lucide="shield-alert"></i><span class="dock-label">Review</span>
-                        <?= $pending_counts['plag_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['plag_pending'] . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgePlag" style="<?= $pending_counts['plag_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['plag_pending'] ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
@@ -286,7 +302,7 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
                 <li class="dock-item">
                     <button class="dock-btn nav-item-btn" data-win-title="Statistics" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
                         <i data-lucide="sigma"></i><span class="dock-label">Statistics</span>
-                        <?= $pending_counts['stats_pending'] > 0 ? '<span class="dock-badge">' . $pending_counts['stats_pending'] . '</span>' : '' ?>
+                        <span class="dock-badge" id="navBadgeStats" style="<?= $pending_counts['stats_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['stats_pending'] ?></span>
                     </button>
                 </li>
                 <li class="dock-item">
@@ -662,6 +678,25 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         }
         setInterval(updateDirectorClock, 1000);
         updateDirectorClock();
+
+        // 2. Keep the review-queue dock badges live without a manual page refresh — they're only
+        // rendered once at page load otherwise, so counts go stale as items move through review
+        // module windows (opened in iframes, which don't touch this parent shell's PHP output).
+        function refreshNavBadges() {
+            fetch('nav_badge_counts.php').then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
+                if (!data) return;
+                var map = { proposal: 'navBadgeProposal', final: 'navBadgeFinal', stats: 'navBadgeStats', plag: 'navBadgePlag' };
+                Object.keys(map).forEach(function (key) {
+                    var el = document.getElementById(map[key]);
+                    if (!el) return;
+                    var count = data[key] || 0;
+                    el.textContent = count;
+                    el.style.display = count > 0 ? '' : 'none';
+                });
+            }).catch(function () {});
+        }
+        setInterval(refreshNavBadges, 20000);
+        document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshNavBadges(); });
 
         function hideAllDashboards() {
             document.getElementById('masterDashboard').style.display = 'none';

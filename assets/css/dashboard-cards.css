@@ -916,9 +916,21 @@
             display: flex;
             flex-direction: column;
             transform: translateY(100%);
-            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1);
+            /* Closed panels are parked off-screen by transform only, which does NOT stop the
+               browser painting their box-shadow — the shadow bleeds back over the page edge as a
+               dark vertical/horizontal band. Panels are only emitted for items that already have
+               review history, so the band appeared once a card had been acted on, and darkened as
+               more panels stacked up. visibility:hidden while closed suppresses the paint (and
+               keeps the off-screen panel out of hit-testing/tab order); the 0.35s delay lets the
+               slide-out animation finish before it hides. */
+            visibility: hidden;
+            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1), visibility 0s linear 0.35s;
             box-shadow: 0 -8px 40px rgba(0,0,0,0.12);
             border-radius: 0;
+        }
+        .history-panel.open {
+            visibility: visible;
+            transition: transform 0.35s cubic-bezier(0.2,0.8,0.2,1), visibility 0s linear 0s;
         }
         @media (min-width: 769px) {
             /* Real blur + darken behind the drawer (was fully transparent — the page content

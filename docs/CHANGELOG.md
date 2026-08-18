@@ -4,6 +4,127 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Stage hover-peek on the student home cards (2026-08-19, desktop only):** dwelling ~380ms on
+  any of the 4 milestone cards grows it into a large preview over a blurred scrim — a FLIP
+  transform starts the panel at the card's own footprint and springs it out to full size, so it
+  reads as the card becoming the panel. The panel is anchored on the card it came from (clamped
+  to the viewport) rather than screen-centred; that is also what guarantees the pointer lands
+  inside it, so moving card → panel can't trip the leave-to-close. Contents are a read-only
+  projection of data `student.php` already fetched (`$stage_peek_data`): big ring + %, the
+  "what's next" line, and a live requirement checklist with per-item Approved / Under review /
+  Needs revision / Submitted / Not uploaded status. Proposal lists items in the same order
+  `module_proposal.php` does (12, 11, 14, then cascaded 13/15/16 tagged "Follows Capsule
+  Proposal"); Statistics has no checklist rows so it shows the 7-phase ladder marked against the
+  same monotonic `$stats_progress` the ring uses; Plagiarism shows manuscript (4) + Turnitin
+  report (40). Chip and ring tone are copied from the card's own logic so the preview can never
+  disagree with the card it grew out of. Clicking anywhere in the panel opens the module exactly
+  as clicking the card does; a "What to do" button reaches the existing ⋮ steps modal (which the
+  panel would otherwise cover); backdrop click, Esc, wheel, resize, blur and back all dismiss.
+  One new read-only `SELECT` (checklist item names) — no workflow logic, POST handlers or SQL
+  writes touched. Off entirely below 1025px and for coarse/touch pointers, guarded in both the
+  CSS and the JS. Status chips in the panel carry no lucide `<i>` on purpose: injecting one would
+  force a `lucide.createIcons()` full-DOM rescan on every hover, the same scan that previously
+  froze the card modal. Verified with headless-Chrome renders of all 4 panels plus dark mode.
+
+### Fixed
+- **Dark band bleeding over the right edge of the student modules (2026-08-16):** on web, closed
+  `.history-panel` drawers were parked off-screen with `transform: translateX(100%)` only. A
+  transform doesn't stop the browser painting the element's `box-shadow`, so the drawer's
+  left-side shadow (`-12px 0 40px rgba(15,23,42,.22)`) spilled back onto the page as a blurry
+  grey/black vertical strip hugging the right edge — reported as "a black LCD-looking thing".
+  It only showed once a requirement had been acted on, because history panels are emitted only
+  for items with review history, and it darkened as more approved items stacked more off-screen
+  panels. Fixed in `assets/css/dashboard-cards.css` by adding `visibility: hidden` while closed
+  (`visible` on `.open`, with a `visibility 0s linear 0.35s` delay so the slide-out still
+  animates). Same latent bug on mobile, where the bottom sheet's `0 -8px 40px` shadow bled
+  upward. Applies to all four student modules (proposal, final, statistics, plagiarism), which
+  share this stylesheet. Verified with headless-Chrome renders: band present with the fix
+  disabled, gone with it on, drawer still opens and closes normally.
+
+### Changed
+- **Statistics "Payment History" redone as a POS-style log (2026-07-25):** the old view was a
+  single collapsible "Payment Decision History" card with a hardcoded 30-row limit, sitting next
+  to the group sidebar and the group/department/program filter bar — neither of which the payment
+  log actually uses. Now (`view=history` on `admin_module_dynamic.php`): the group sidebar and
+  filter bar are hidden on this tab only (`$is_history_view`, `.workspace-grid.full-width`); 5
+  summary widgets up top (Logged Decisions, Accepted, Rejected, Accept Rate, Decided Today, all
+  reusing the existing `.stat-card` component so nothing new was invented); a dedicated Month/Year
+  filter; pagination (25/page) instead of a hard cutoff; and a CSV export
+  (`&export=csv`, respects the active filter) that opens directly in Excel. "Total accumulated"
+  was scoped to counts, not currency — `payment_logs` has no amount field, the payment step here is
+  a document accept/reject decision, not a tracked transaction value; user confirmed count-based is
+  fine, no schema change made. Verified end-to-end over real HTTP: widgets/log/export all agree,
+  year filter correctly narrows to an empty state, screenshotted light + dark.
+
+### Removed
+- **AI Pre-Score (2026-07-10):** removed the "AI Pre-Score" button and its `runAIPrescore()` flow
+  from the Form 008 rubric in `dashboards/admin_module_dynamic.php`, and deleted
+  `dashboards/ai_prescore_handler.php`. That handler shipped a **hardcoded live OpenAI API key**
+  in source — it's been in the repo since the initial commit, so the key is in git history
+  regardless of this deletion and needs to be rotated on OpenAI's side. See `CLAUDE.md`.
+
+### Fixed
+- **Document Viewer Console: close button hidden by long titles (2026-07-25):** `#modalTitle`
+  (`research_group_name + ' - ' + original_filename`) had no width constraint in `.preview-header`
+  (a flex row), so a long group/file name forced the title block wider than the header and pushed
+  the `×` close button out of view. `.preview-header-titles` now has `min-width:0` with
+  ellipsis-truncated children (full text still available via a `title` hover tooltip), and
+  `.close-preview` got `flex-shrink:0` so it can never be pushed out regardless of title length
+  (`assets/css/portal.css`, `dashboards/admin_module_dynamic.php`). Also added click-outside-to-close
+  on the modal backdrop (`event.target === this` guard, so clicks inside the panel don't close it).
+- **Staff dock badges: stale counts + a badge that could never show (2026-07-10):** the
+  Proposal/Final/Stats/Plagiarism review-queue badges in `director.php`/`coordinator.php`/
+  `statistician.php` were computed once at page load only — since review modules open in iframe
+  overlays that never touch the parent shell, the counts went stale until a full manual refresh.
+  They now poll a new read-only endpoint (`dashboards/nav_badge_counts.php`) every 20s and on tab
+  focus. Also fixed two real bugs found along the way: (1) the Director's Plagiarism badge counted
+  `verification_status = 'Under Review'`, but item 4 (plagiarism) is single-stage and stays
+  `'Pending'` the whole time it's actionable — so that badge could never light up. Now counts
+  `'Pending'` for item 4 specifically, matching `statistician.php`'s existing logic. (2) Director's
+  and Coordinator's combined Statistics badge only counted item range `30-35`, silently missing
+  items 36/37 (the payment docs — Validated Form / Official Receipt). Since neither role has a
+  separate Payment badge the way `statistician.php` does, a pending payment-doc submission was
+  invisible in their sidebar entirely. Now counts `30-37`. Verified end-to-end over real HTTP with
+  forged session cookies (not just static renders) for all three roles, including inserting real
+  test upload rows and confirming both the initial page render and the live poll agree.
+- **Director's badges scoped to full pipeline, not just 'Under Review' (2026-07-25):** Director
+  outranks Coordinator and wants visibility the moment a student submits, not just the subset
+  already advanced to Director's own action queue. `director.php`'s `$pending_counts` and
+  `nav_badge_counts.php`'s Director branch now count `'Pending'` + `'Under Review'` combined per
+  phase, so Director's badges light up in sync with Coordinator's instead of one workflow stage
+  behind. Coordinator's own badges are unchanged (still `'Pending'` only — that's genuinely their
+  action queue). Verified live against real in-flight submissions.
+
+### Added
+- **School ID Number on student accounts (2026-07-22):** students now carry an institutional ID
+  (e.g. `2023-10078`), captured as a **required** field in **Step 3 "Academic Affiliation"** of
+  `auth/register.php` and surfaced everywhere staff already identify a group by its leader.
+  - **Schema:** new `users.student_number VARCHAR(20) NULL UNIQUE`
+    (`database/migrations/2026-07-22_student_number.sql`, idempotent). Named `student_number`
+    rather than `school_id` because `users.department` already stores the school (MCNP vs. ISAP),
+    so `school_id` would read like a foreign key. The **UI label stays "School ID Number"**.
+  - **Format:** `/^\d{4}-\d{4,6}$/` — year, hyphen, 4–6 digit serial. Enforced client-side via the
+    `pattern` attribute (picked up for free by `validateStep()`) *and* server-side in both
+    `register.php` and `profile.php`. Both pre-check uniqueness with a `SELECT` so a duplicate
+    reads as a friendly message instead of a raw `uniq_student_number` PDO exception.
+  - **Editable** by the student in `dashboards/profile.php` — this is also the backfill path for
+    accounts created before the field existed. Empty is normalised to **`NULL`**, never `''`
+    (two rows holding `''` would collide on the unique index). A bad value rejects the whole save
+    rather than leaving the profile half-written.
+  - **Personal, never inherited.** Unlike `research_group_name`/`department`/`program`, a group
+    member does *not* pick this up from their leader at registration, and `profile.php` always
+    writes it to the caller's own row (`$user_id`, not `$effective_user_id`).
+  - **Staff visibility:** leader ID now shows on the sidebar group list, the group-inbox cards, the
+    selected-group profile card, the payment queue, and the plagiarism cards in
+    `dashboards/admin_module_dynamic.php` (new shared `.school-id-chip`), plus the Explorer
+    dropdown and the Group 360 modal in `dashboards/_master_overview.php` /
+    `dashboards/group_profile_data.php`. Students see teammates' IDs on `dashboards/members.php`.
+  - **Search:** the admin module's search matches on `u.student_number`, and the sidebar's live
+    client-side filter matches a new `data-school-id` attribute — so staff can type `2023-10078`
+    (or just `10078`) to jump to a group. Existing name/group/program searches are unaffected.
+  - Cards degrade cleanly (chip simply omitted) for accounts with no ID yet.
+
 ### Changed
 - **Student Final Defense module: full UI parity with Proposal (2026-07-16):**
   `dashboards/module_final.php` was rewritten from its old standalone design (inline `<style>`,

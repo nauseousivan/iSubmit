@@ -274,6 +274,131 @@ $plag_next_short_map = [50 => 'Revise file', 25 => 'Awaiting review', 0 => 'Uplo
 $plag_next_full  = $plag_next_full_map[$plag_progress] ?? 'Awaiting review';
 $plag_next_short = $plag_next_short_map[$plag_progress] ?? 'Awaiting review';
 
+// ── STAGE PEEK DATA (desktop hover-preview on the 4 milestone cards) ──────────────────────
+// Read-only projection of data already fetched above ($latest_by_item, $stats_progress, the
+// *_meta arrays) into one JSON blob the peek panel renders client-side. No new workflow logic:
+// it mirrors what each module already shows, so the preview can never disagree with the module.
+$peek_item_names = [];
+$peek_rows = $pdo->query(
+    "SELECT item_id, item_name FROM checklist_items WHERE item_id IN (4,11,12,13,14,15,16,21,22,23,24,25,26,27,40)"
+)->fetchAll();
+foreach ($peek_rows as $r) $peek_item_names[(int)$r['item_id']] = $r['item_name'];
+
+// uploads.verification_status → student-facing label + tone class. 'Pending' reads as "Submitted"
+// here: to the student the file IS in, it just hasn't been picked up by a reviewer yet.
+$peek_status_map = [
+    'Approved'           => ['Approved',      'ok'],
+    'Under Review'       => ['Under review',  'review'],
+    'Revision Requested' => ['Needs revision', 'revision'],
+    'Pending'            => ['Submitted',     'pending'],
+];
+
+function peekItemRow($itemId, $names, $latestByItem, $statusMap, $note = null)
+{
+    $status = $latestByItem[$itemId]['verification_status'] ?? null;
+    [$label, $tone] = $statusMap[$status] ?? ['Not uploaded', 'empty'];
+    return [
+        'name' => $names[$itemId] ?? ('Requirement #' . $itemId),
+        'label' => $label,
+        'tone' => $tone,
+        'note' => $note,
+    ];
+}
+
+// Proposal display order mirrors module_proposal.php's ORDER BY (12 first, cascaded 13/15/16
+// tucked under their parent 14) so the peek lists requirements in the same sequence as the module.
+$peek_proposal = [];
+foreach ([12, 11, 14] as $id) $peek_proposal[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
+foreach ([13, 15, 16] as $id) $peek_proposal[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map, 'Follows Capsule Proposal');
+
+$peek_final = [];
+foreach ([21, 22, 23, 24, 25, 26, 27] as $id) $peek_final[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
+
+$peek_plag = [
+    peekItemRow(4,  $peek_item_names, $latest_by_item, $peek_status_map),
+    peekItemRow(40, $peek_item_names, $latest_by_item, $peek_status_map, 'Uploaded by staff'),
+];
+
+// Statistics has no checklist rows — it runs off form_stat_treatment's phase ladder. Steps are
+// marked done/current against the SAME monotonic % the ring uses ($stats_progress), so the peek
+// and the card can never disagree. See $stats_phase_meta for where these pcts come from.
+$peek_stats_ladder = [
+    [15,  'Coded data submitted'],
+    [30,  'Form download'],
+    [45,  'Payment verification'],
+    [55,  'Registered'],
+    [80,  'Requirements review'],
+    [92,  'Statistical treatment'],
+    [100, 'Results released'],
+];
+$peek_stats = [];
+$peek_stats_current_used = false;
+foreach ($peek_stats_ladder as [$pct, $name]) {
+    if ($stats_progress >= $pct) {
+        $row = ['name' => $name, 'label' => 'Done', 'tone' => 'ok', 'note' => null];
+    } elseif (!$peek_stats_current_used) {
+        $peek_stats_current_used = true;
+        // Label the one in-flight step with the real phase text, not a generic "in progress"
+        $row = ['name' => $name, 'label' => $stats_chip_label ?: 'In progress', 'tone' => $stats_chip_class === 'chip-revision' ? 'revision' : ($stats_chip_class === 'chip-review' ? 'review' : 'pending'), 'note' => null];
+    } else {
+        $row = ['name' => $name, 'label' => 'Not started', 'tone' => 'empty', 'note' => null];
+    }
+    $peek_stats[] = $row;
+}
+
+// Chip + ring tone mirror the small card's own logic (see the .stage-card-tab markup) so the
+// blown-up preview always reads the same state as the card it grew out of.
+function peekChip($pct)
+{
+    if ($pct == 100) return ['chip-approved', 'Completed'];
+    if ($pct >= 75)  return ['chip-review',   'Reviewed'];
+    if ($pct >= 50)  return ['chip-revision', 'Revision'];
+    if ($pct > 0)    return ['chip-pending',  'Pending'];
+    return ['', ''];
+}
+function peekRingTone($pct)
+{
+    if ($pct >= 100) return 'approved';
+    if ($pct >= 75)  return 'review';
+    return '';
+}
+
+$stage_peek_data = [
+    'proposal' => [
+        'num' => 1, 'title' => 'Proposal Defense', 'open' => 'zoom-proposal', 'url' => 'module_proposal.php',
+        'chip' => peekChip($proposal_progress)[0], 'chipLabel' => peekChip($proposal_progress)[1],
+        'ring' => peekRingTone($proposal_progress),
+        'pct' => $proposal_progress, 'updated' => $proposal_meta['updated'],
+        'next' => $proposal_progress >= 100 ? 'Download clearing form' : $proposal_meta['next_full'],
+        'heading' => 'Requirements', 'items' => $peek_proposal,
+    ],
+    'final' => [
+        'num' => 2, 'title' => 'Final Defense', 'open' => 'zoom-final', 'url' => 'module_final.php',
+        'chip' => peekChip($final_progress)[0], 'chipLabel' => peekChip($final_progress)[1],
+        'ring' => peekRingTone($final_progress),
+        'pct' => $final_progress, 'updated' => $final_meta['updated'],
+        'next' => $final_progress >= 100 ? 'Download approval form' : $final_meta['next_full'],
+        'heading' => 'Requirements', 'items' => $peek_final,
+    ],
+    'stats' => [
+        'num' => 3, 'title' => 'Statistics Review', 'open' => 'zoom-stats', 'url' => 'module_statistics.php',
+        // Stats chip/ring are phase-driven, not %-threshold-driven — reuse the card's own values.
+        'chip' => $stats_chip_class, 'chipLabel' => $stats_chip_label,
+        'ring' => $stats_ring_class,
+        'pct' => $stats_progress, 'updated' => $stats_updated,
+        'next' => $stats_footer_full,
+        'heading' => 'Phases', 'items' => $peek_stats,
+    ],
+    'plag' => [
+        'num' => 4, 'title' => 'Plagiarism Test', 'open' => 'zoom-plag', 'url' => 'module_plagiarism.php',
+        'chip' => peekChip($plag_progress)[0], 'chipLabel' => peekChip($plag_progress)[1],
+        'ring' => peekRingTone($plag_progress),
+        'pct' => $plag_progress, 'updated' => $plag_updated,
+        'next' => $plag_next_full,
+        'heading' => 'Documents', 'items' => $peek_plag,
+    ],
+];
+
 // Fetch Announcements
 try {
     $stmt_ann = $pdo->query("SELECT * FROM announcements WHERE expires_at IS NULL OR expires_at > NOW() ORDER BY created_at DESC LIMIT 1");
@@ -3083,6 +3208,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <!-- Proposal Card — pink/rose accent -->
                 <div class="stage-card-tab <?= $proposal_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    data-peek="proposal"
                     onclick="pushView('zoom-proposal','module_proposal.php',this)">
                     <div class="card-ghost-num">1</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'proposal')" title="What to do">
@@ -3132,6 +3258,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <!-- Final Defense Card -->
                 <div class="stage-card-tab <?= $final_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    data-peek="final"
                     onclick="pushView('zoom-final','module_final.php',this)">
                     <div class="card-ghost-num">2</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'final')" title="What to do">
@@ -3181,6 +3308,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <!-- Statistics Card -->
                 <div class="stage-card-tab <?= $stats_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    data-peek="stats"
                     onclick="pushView('zoom-stats','module_statistics.php',this)">
                     <div class="card-ghost-num">3</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'stats')" title="What to do">
@@ -3230,6 +3358,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <!-- Plagiarism Card -->
                 <div class="stage-card-tab <?= $plag_progress == 100 ? 'card-completed' : '' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    data-peek="plag"
                     onclick="pushView('zoom-plag','module_plagiarism.php',this)">
                     <div class="card-ghost-num">4</div>
                     <button class="card-dot-btn" onclick="openCardModal(event,'plag')" title="What to do">
@@ -3511,6 +3640,11 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         </div>
     </div>
 
+    <!-- Stage hover-peek (desktop only; wired up in the STAGE PEEK script block below) -->
+    <div class="peek-scrim" id="peekScrim" aria-hidden="true">
+        <div class="peek-panel" id="peekPanel" role="dialog" aria-label="Milestone preview"></div>
+    </div>
+
     <!-- Card Info Modal -->
     <div class="card-modal-overlay" id="cardInfoModal" onclick="closeCardModal(event)">
         <div class="card-modal-box" id="cardModalBox">
@@ -3532,6 +3666,401 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
     </div>
 
     <style>
+        /* ── STAGE HOVER-PEEK (desktop only) ─────────────────────────────────────────────
+           Hover-dwell on a milestone card grows it into a large preview over a blurred
+           backdrop. Kept OFF for touch/coarse pointers and below 1025px — a hover-triggered
+           overlay has no sane meaning there, and the mobile wallet-card stack owns that
+           breakpoint. The JS guards on the same conditions; this is the belt-and-braces half. */
+        .peek-scrim {
+            position: fixed;
+            inset: 0;
+            z-index: 98000;
+            /* below .card-modal-overlay (99000) so the ⋮ "what to do" modal still layers on top */
+            background: rgba(9, 13, 18, 0.34);
+            backdrop-filter: blur(16px) saturate(140%);
+            -webkit-backdrop-filter: blur(16px) saturate(140%);
+            opacity: 0;
+            visibility: hidden;
+            pointer-events: none;
+            transition: opacity 0.32s var(--smooth), visibility 0.32s var(--smooth);
+        }
+
+        .peek-scrim.open {
+            opacity: 1;
+            visibility: visible;
+            pointer-events: auto;
+        }
+
+        /* left/top are written by JS each time so the panel grows centred on the card that
+           spawned it (clamped to the viewport) — that also guarantees the pointer is inside
+           the panel the moment it opens, so travelling card → panel never trips the close. */
+        .peek-panel {
+            position: fixed;
+            left: 0;
+            top: 0;
+            width: 540px;
+            background: var(--bg-card);
+            border: 1px solid var(--border-subtle);
+            border-radius: 30px;
+            box-shadow: var(--shadow-xl), 0 0 0 1px rgba(15, 23, 42, 0.03);
+            padding: 26px 26px 22px;
+            cursor: pointer;
+            /* Never taller than the viewport — the 7-requirement Final Defense panel on a short
+               laptop screen is the case that needs this; it scrolls itself instead of overflowing. */
+            max-height: calc(100vh - 40px);
+            overflow-y: auto;
+            overflow-x: hidden;
+            scrollbar-width: none;
+            will-change: transform;
+            transition: transform 0.46s var(--spring);
+        }
+
+        .peek-panel::-webkit-scrollbar {
+            display: none;
+        }
+
+        body.theme-dark .peek-panel {
+            border-color: rgba(255, 255, 255, 0.09);
+            box-shadow: 0 32px 80px -16px rgba(0, 0, 0, 0.6);
+        }
+
+        /* Content cross-fades in slightly behind the geometry so the scale-up reads as the
+           card "becoming" the panel rather than a new box appearing. */
+        .peek-inner {
+            opacity: 0;
+            transition: opacity 0.22s var(--smooth);
+        }
+
+        .peek-scrim.open .peek-inner {
+            opacity: 1;
+            transition-delay: 0.1s;
+        }
+
+        .peek-ghost-num {
+            position: absolute;
+            top: -34px;
+            right: -8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 150px;
+            font-weight: 800;
+            color: rgba(15, 23, 42, 0.04);
+            line-height: 1;
+            user-select: none;
+            pointer-events: none;
+        }
+
+        body.theme-dark .peek-ghost-num {
+            color: rgba(255, 255, 255, 0.035);
+        }
+
+        .peek-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 14px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .peek-head h3 {
+            margin: 0;
+            font-size: 21px;
+            font-weight: 800;
+            letter-spacing: -0.02em;
+            color: var(--text-primary);
+            line-height: 1.15;
+        }
+
+        .peek-updated {
+            display: block;
+            margin-top: 4px;
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        /* Big ring + the single "what's next" line, side by side */
+        .peek-stat-row {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            margin-top: 20px;
+            padding: 16px 18px;
+            border-radius: 20px;
+            background: color-mix(in srgb, var(--active-accent) 5%, transparent);
+            position: relative;
+            z-index: 1;
+        }
+
+        body.theme-dark .peek-stat-row {
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .peek-ring-wrap {
+            position: relative;
+            width: 84px;
+            height: 84px;
+            flex-shrink: 0;
+        }
+
+        .peek-ring-wrap svg {
+            width: 100%;
+            height: 100%;
+            transform: rotate(-90deg);
+        }
+
+        .peek-ring-track {
+            fill: none;
+            stroke: var(--border-subtle);
+            stroke-width: 6;
+        }
+
+        .peek-ring-fill {
+            fill: none;
+            stroke: var(--active-accent);
+            stroke-width: 6;
+            stroke-linecap: round;
+            stroke-dasharray: 175.93;
+            /* 2π × 28 — same geometry as the card's .cp-fill */
+            stroke-dashoffset: 175.93;
+            transition: stroke-dashoffset 0.9s var(--spring);
+        }
+
+        .peek-ring-fill.approved {
+            stroke: var(--color-approved);
+        }
+
+        .peek-ring-fill.review {
+            stroke: var(--color-review);
+        }
+
+        .peek-ring-pct {
+            position: absolute;
+            inset: 0;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 20px;
+            font-weight: 800;
+            color: var(--text-primary);
+        }
+
+        .peek-next-label {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+        }
+
+        .peek-next-text {
+            margin-top: 4px;
+            font-size: 15px;
+            font-weight: 650;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .peek-list-head {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            margin: 20px 2px 8px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .peek-list-head strong {
+            font-size: 10px;
+            font-weight: 800;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--text-muted);
+        }
+
+        .peek-list-count {
+            font-size: 11px;
+            font-weight: 700;
+            color: var(--text-secondary);
+        }
+
+        .peek-list {
+            display: flex;
+            flex-direction: column;
+            position: relative;
+            z-index: 1;
+        }
+
+        .peek-row {
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            padding: 9px 2px;
+            border-top: 1px solid var(--border-subtle);
+        }
+
+        .peek-row:first-child {
+            border-top: none;
+        }
+
+        .peek-dot {
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            background: var(--border-subtle);
+            box-shadow: 0 0 0 3px transparent;
+        }
+
+        .peek-dot.ok {
+            background: var(--color-approved);
+            box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+        }
+
+        .peek-dot.review {
+            background: var(--color-review);
+            box-shadow: 0 0 0 3px rgba(245, 158, 11, 0.14);
+        }
+
+        .peek-dot.revision {
+            background: var(--color-revision);
+            box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+        }
+
+        .peek-dot.pending {
+            background: var(--color-pending);
+            box-shadow: 0 0 0 3px rgba(100, 116, 139, 0.14);
+        }
+
+        .peek-row-name {
+            flex: 1;
+            min-width: 0;
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-primary);
+            line-height: 1.3;
+        }
+
+        .peek-row-note {
+            display: block;
+            font-size: 10.5px;
+            font-weight: 500;
+            color: var(--text-muted);
+            margin-top: 1px;
+        }
+
+        .peek-row-status {
+            font-size: 10.5px;
+            font-weight: 700;
+            white-space: nowrap;
+            color: var(--text-muted);
+        }
+
+        .peek-row-status.ok {
+            color: #059669;
+        }
+
+        .peek-row-status.review {
+            color: #b45309;
+        }
+
+        .peek-row-status.revision {
+            color: #dc2626;
+        }
+
+        .peek-row-status.pending {
+            color: var(--text-secondary);
+        }
+
+        .peek-foot {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-top: 18px;
+            position: relative;
+            z-index: 1;
+        }
+
+        .peek-cta {
+            flex: 1;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            padding: 13px 18px;
+            border-radius: 15px;
+            border: none;
+            background: var(--active-accent);
+            color: #fff;
+            font-family: inherit;
+            font-size: 13.5px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: filter 0.2s var(--smooth), transform 0.2s var(--smooth);
+        }
+
+        .peek-cta:hover {
+            filter: brightness(1.08);
+            transform: translateY(-1px);
+        }
+
+        .peek-cta svg {
+            width: 16px;
+            height: 16px;
+        }
+
+        .peek-steps-btn {
+            padding: 13px 16px;
+            border-radius: 15px;
+            border: 1px solid var(--border-subtle);
+            background: transparent;
+            color: var(--text-secondary);
+            font-family: inherit;
+            font-size: 13px;
+            font-weight: 650;
+            cursor: pointer;
+            white-space: nowrap;
+            transition: background 0.2s var(--smooth), color 0.2s var(--smooth);
+        }
+
+        .peek-steps-btn:hover {
+            background: color-mix(in srgb, var(--active-accent) 8%, transparent);
+            color: var(--text-primary);
+        }
+
+        .peek-hint {
+            margin: 12px 0 0;
+            text-align: center;
+            font-size: 10.5px;
+            color: var(--text-muted);
+            position: relative;
+            z-index: 1;
+        }
+
+        /* The card that spawned the peek stays put but drops its hover lift, so it doesn't
+           fight the panel for attention through the blur. */
+        .stage-card-tab.peek-source {
+            transform: none !important;
+            box-shadow: var(--shadow-sm) !important;
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+
+            .peek-panel,
+            .peek-inner,
+            .peek-ring-fill {
+                transition: none !important;
+            }
+        }
+
+        /* Touch, coarse pointers and every non-desktop width: the peek does not exist. */
+        @media (max-width: 1024px),
+        (hover: none),
+        (pointer: coarse) {
+            .peek-scrim {
+                display: none !important;
+            }
+        }
+
         /* ── CARD INFO MODAL ── */
         /* Use visibility+opacity (NOT display:none) so CSS transitions fire correctly */
         .card-modal-overlay {
@@ -4016,6 +4545,199 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') closeCardModalNow();
         });
+
+        // ── STAGE HOVER-PEEK (desktop only) ────────────────────────────────────────────────
+        // Hover-dwell on a milestone card grows it into a large live preview over a blurred
+        // scrim. Purely presentational: it renders a read-only projection of data the page
+        // already fetched, and the only actions it can take are the same pushView()/
+        // openCardModal() calls the card itself offers. No POSTs, no workflow logic.
+        const STAGE_PEEK_DATA = <?= json_encode($stage_peek_data, JSON_HEX_TAG | JSON_HEX_AMP | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_UNESCAPED_UNICODE) ?>;
+
+        (function() {
+            const scrim = document.getElementById('peekScrim');
+            const panel = document.getElementById('peekPanel');
+            if (!scrim || !panel) return;
+
+            const DWELL_MS = 380; // hover time before the peek commits — long enough that
+            //                       sweeping the pointer across the row doesn't trigger it
+            const LEAVE_MS = 160; // grace period after the pointer leaves the panel
+            const MARGIN = 20; // viewport clamp
+            const RING_C = 175.93; // 2π × 28, matches the card's .cp-fill
+
+            let dwellTimer = null,
+                leaveTimer = null;
+            let openKey = null,
+                sourceCard = null,
+                fromTransform = '';
+
+            // Same conditions as the CSS media guard — no peek on touch or below 1025px.
+            const isDesktop = () => window.matchMedia('(min-width: 1025px) and (hover: hover) and (pointer: fine)').matches;
+
+            const ESC_MAP = { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' };
+            const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
+
+            const ARROW = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+
+            function buildHTML(d) {
+                const done = d.items.filter((i) => i.tone === 'ok').length;
+                // Status chips here deliberately carry no lucide <i> icon: injecting one would
+                // force a lucide.createIcons() full-DOM rescan on every hover (see the note on
+                // MODAL_ICON_SVG above — that scan is what froze the card modal).
+                const rows = d.items.map((i) => `
+                    <div class="peek-row">
+                        <span class="peek-dot ${esc(i.tone)}"></span>
+                        <span class="peek-row-name">${esc(i.name)}${i.note ? `<span class="peek-row-note">${esc(i.note)}</span>` : ''}</span>
+                        <span class="peek-row-status ${esc(i.tone)}">${esc(i.label)}</span>
+                    </div>`).join('');
+
+                return `
+                    <div class="peek-ghost-num">${esc(d.num)}</div>
+                    <div class="peek-inner">
+                        <div class="peek-head">
+                            <div style="flex:1;min-width:0;">
+                                <h3>${esc(d.title)}</h3>
+                                ${d.updated ? `<span class="peek-updated">${d.pct >= 100 ? 'Cleared' : 'Updated'} ${esc(d.updated)}</span>` : ''}
+                            </div>
+                            ${d.chip ? `<span class="status-chip ${esc(d.chip)}">${esc(d.chipLabel)}</span>` : ''}
+                        </div>
+                        <div class="peek-stat-row">
+                            <div class="peek-ring-wrap">
+                                <svg viewBox="0 0 72 72">
+                                    <circle class="peek-ring-track" cx="36" cy="36" r="28"/>
+                                    <circle class="peek-ring-fill ${esc(d.ring)}" cx="36" cy="36" r="28"/>
+                                </svg>
+                                <div class="peek-ring-pct">${esc(d.pct)}%</div>
+                            </div>
+                            <div style="min-width:0;">
+                                <div class="peek-next-label">What's next</div>
+                                <div class="peek-next-text">${esc(d.next)}</div>
+                            </div>
+                        </div>
+                        <div class="peek-list-head">
+                            <strong>${esc(d.heading)}</strong>
+                            <span class="peek-list-count">${done} of ${d.items.length} done</span>
+                        </div>
+                        <div class="peek-list">${rows}</div>
+                        <div class="peek-foot">
+                            <button type="button" class="peek-cta">${ARROW} Open ${esc(d.title)}</button>
+                            <button type="button" class="peek-steps-btn" data-peek-steps="1">What to do</button>
+                        </div>
+                        <p class="peek-hint">Click to open · move away or press Esc to dismiss</p>
+                    </div>`;
+            }
+
+            function openPeek(card, key) {
+                const d = STAGE_PEEK_DATA[key];
+                if (!d) return;
+                openKey = key;
+                sourceCard = card;
+                card.classList.add('peek-source');
+                panel.innerHTML = buildHTML(d);
+
+                // Measure the panel at its resting size, then anchor it centred on the card that
+                // spawned it (clamped to the viewport). Anchoring rather than centring on screen
+                // is what makes the pointer land INSIDE the panel the instant it opens — so
+                // travelling from card to panel can never trip the leave-to-close.
+                panel.style.transition = 'none';
+                panel.style.transform = 'none';
+                panel.style.left = '0px';
+                panel.style.top = '0px';
+                const pw = panel.offsetWidth,
+                    ph = panel.offsetHeight;
+                const c = card.getBoundingClientRect();
+                const left = Math.min(Math.max(c.left + c.width / 2 - pw / 2, MARGIN), Math.max(MARGIN, window.innerWidth - pw - MARGIN));
+                const top = Math.min(Math.max(c.top + c.height / 2 - ph / 2, MARGIN), Math.max(MARGIN, window.innerHeight - ph - MARGIN));
+                panel.style.left = left + 'px';
+                panel.style.top = top + 'px';
+
+                // FLIP: start life as the card's own footprint, then spring out to full size.
+                const scale = Math.max(0.15, c.width / pw);
+                const dx = (c.left + c.width / 2) - (left + pw / 2);
+                const dy = (c.top + c.height / 2) - (top + ph / 2);
+                fromTransform = `translate(${dx}px, ${dy}px) scale(${scale})`;
+                panel.style.transform = fromTransform;
+                void panel.offsetWidth; // flush, so the transition has a start value to run from
+                panel.style.transition = '';
+                panel.style.transform = 'none';
+
+                scrim.classList.add('open');
+                scrim.setAttribute('aria-hidden', 'false');
+
+                const fill = panel.querySelector('.peek-ring-fill');
+                if (fill) {
+                    requestAnimationFrame(() => {
+                        fill.style.strokeDashoffset = (RING_C * (1 - Math.min(100, Math.max(0, d.pct)) / 100)).toFixed(2);
+                    });
+                }
+            }
+
+            function closePeek() {
+                clearTimeout(dwellTimer);
+                clearTimeout(leaveTimer);
+                dwellTimer = leaveTimer = null;
+                if (!openKey) return;
+                openKey = null;
+                scrim.classList.remove('open');
+                scrim.setAttribute('aria-hidden', 'true');
+                if (fromTransform) panel.style.transform = fromTransform; // shrink back into the card
+                if (sourceCard) sourceCard.classList.remove('peek-source');
+                sourceCard = null;
+            }
+
+            document.querySelectorAll('.stage-card-tab[data-peek]').forEach((card) => {
+                const key = card.getAttribute('data-peek');
+
+                card.addEventListener('mouseenter', () => {
+                    // Don't peek while a module is already open over the dashboard
+                    if (!isDesktop() || document.body.classList.contains('zoom-active')) return;
+                    if (openKey === key) return;
+                    clearTimeout(dwellTimer);
+                    dwellTimer = setTimeout(() => openPeek(card, key), DWELL_MS);
+                });
+                card.addEventListener('mouseleave', () => clearTimeout(dwellTimer));
+
+                // Keep the ⋮ "what to do" button directly clickable — hold the peek off while
+                // the pointer is on it (the peek also carries its own "What to do" button).
+                const dot = card.querySelector('.card-dot-btn');
+                if (dot) dot.addEventListener('mouseenter', () => clearTimeout(dwellTimer));
+            });
+
+            panel.addEventListener('mouseenter', () => clearTimeout(leaveTimer));
+            panel.addEventListener('mouseleave', () => {
+                clearTimeout(leaveTimer);
+                leaveTimer = setTimeout(closePeek, LEAVE_MS);
+            });
+
+            scrim.addEventListener('click', (e) => {
+                if (!openKey) return;
+                const d = STAGE_PEEK_DATA[openKey];
+                if (!panel.contains(e.target)) {
+                    closePeek(); // clicked the backdrop → just dismiss
+                    return;
+                }
+                if (e.target.closest('[data-peek-steps]')) {
+                    const key = openKey;
+                    closePeek();
+                    openCardModal(e, key);
+                    return;
+                }
+                closePeek(); // anywhere else inside the panel → enter the module as normal
+                pushView(d.open, d.url);
+            });
+
+            document.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') closePeek();
+            });
+            window.addEventListener('resize', closePeek);
+            window.addEventListener('blur', closePeek);
+            window.addEventListener('popstate', closePeek);
+            window.addEventListener('wheel', (e) => {
+                if (!openKey) return;
+                // Let a tall panel scroll its own overflow; any other wheel dismisses.
+                if (panel.scrollHeight > panel.clientHeight + 1 && panel.contains(e.target)) return;
+                closePeek();
+            }, { passive: true });
+        })();
 
         // Initialize elements
         document.addEventListener("DOMContentLoaded", function() {

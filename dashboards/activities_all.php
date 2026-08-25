@@ -253,6 +253,8 @@ $total = count($items);
         @media (max-width: 768px) {
             body { padding: 22px 16px; }
             .header-title { font-size: 23px; }
+            .header-desc { display: none; }
+            .page-header { gap: 0; margin-bottom: 16px; }
             .ev-date { width: 48px; }
             .ev-day { font-size: 18px; }
         }

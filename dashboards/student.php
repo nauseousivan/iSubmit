@@ -46,6 +46,14 @@ if (isset($_GET['ajax'])) {
 $group_name = $_SESSION['research_group_name'] ?? 'MCNP-ISAP Research Group';
 $account_holder = $_SESSION['username'] ?? 'User';
 
+// Mobile header greeting. There is no separate first-name column — derive it the same way
+// the mascot bubble does. The hour is read in Asia/Manila explicitly rather than via
+// date_default_timezone_set() so the rest of this file's timestamp handling is untouched.
+// This is only the no-flash initial paint; the client clock overwrites #liveGreeting on load.
+$first_name = explode(' ', trim($account_holder))[0] ?: $account_holder;
+$greeting_hour = (int) (new DateTime('now', new DateTimeZone('Asia/Manila')))->format('G');
+$greeting = $greeting_hour < 12 ? 'Good morning' : ($greeting_hour < 18 ? 'Good afternoon' : 'Good evening');
+
 // Fetch group department and program directly from the effective group leader to ensure consistency for all members
 $stmt_leader_info = $pdo->prepare("SELECT department, program FROM users WHERE user_id = ?");
 $stmt_leader_info->execute([$effective_user_id]);
@@ -2733,22 +2741,128 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 display: none !important;
             }
 
-            /* Slim the whole header row */
+            /* Slim the whole header row. No divider rule on mobile — the greeting reads as
+               an app header, and the card grid below provides its own separation. */
             .workspace-header-block {
-                padding-bottom: 10px;
+                padding-bottom: 4px;
+                border-bottom: none;
                 align-items: center;
                 gap: 8px;
             }
 
-            /* Title: single line, clipped, smaller */
-            .header-title-container h1 {
-                font-size: 14px !important;
+            /* Anchor for the tap-to-reveal identity popover */
+            .header-title-container {
+                position: relative;
+            }
+
+            /* ── Greeting (replaces the clipped title) ── */
+            .header-greeting {
+                display: flex;
+                flex-direction: column;
+                align-items: flex-start;
+                gap: 1px;
+                padding: 0;
+                border: none;
+                background: transparent;
+                text-align: left;
+                cursor: pointer;
+                font-family: 'Inter', sans-serif;
+                -webkit-tap-highlight-color: transparent;
+                transition: opacity 0.18s var(--smooth);
+            }
+
+            .header-greeting:active {
+                opacity: 0.6;
+            }
+
+            .hg-line {
+                font-size: 11px;
+                font-weight: 600;
+                color: var(--text-secondary);
+                letter-spacing: 0.2px;
+                line-height: 1.1;
+            }
+
+            .hg-name-row {
+                display: flex;
+                align-items: center;
+                gap: 4px;
+            }
+
+            .hg-name {
+                font-size: 19px;
+                font-weight: 800;
+                color: var(--text-primary);
+                letter-spacing: -0.4px;
+                line-height: 1.15;
+            }
+
+            .hg-chevron {
+                width: 13px;
+                height: 13px;
+                color: var(--text-secondary);
+                transition: transform 0.28s var(--smooth);
+            }
+
+            .header-greeting.open .hg-chevron {
+                transform: rotate(180deg);
+            }
+
+            /* ── Identity popover: full group name, free to wrap, never clipped ── */
+            /* visibility+opacity (NOT display:none) so the transition actually fires */
+            .header-identity-pop {
+                position: absolute;
+                top: calc(100% + 8px);
+                left: 0;
+                z-index: 60;
+                /* width:max-content is required — the absolute box would otherwise
+                   shrink-to-fit the narrow .header-title-container, not the max-width */
+                width: max-content;
+                max-width: min(78vw, 320px);
+                padding: 13px 15px;
+                background: var(--bg-card);
+                border: 1px solid var(--border-subtle);
+                border-radius: 18px;
+                box-shadow: var(--shadow-xl);
+                opacity: 0;
+                visibility: hidden;
+                pointer-events: none;
+                transform: translateY(-6px);
+                transition: opacity 0.24s var(--smooth), visibility 0.24s var(--smooth), transform 0.28s var(--spring);
+            }
+
+            .header-identity-pop.open {
+                opacity: 1;
+                visibility: visible;
+                pointer-events: auto;
+                transform: translateY(0);
+            }
+
+            .hip-name {
+                font-family: 'Inter', sans-serif;
+                font-size: 14px;
                 font-weight: 700;
-                white-space: nowrap;
-                overflow: hidden;
-                text-overflow: ellipsis;
-                max-width: 180px;
+                color: var(--text-primary);
                 letter-spacing: -0.2px;
+                line-height: 1.35;
+            }
+
+            .hip-sub {
+                display: flex;
+                align-items: flex-start;
+                gap: 6px;
+                margin-top: 6px;
+                font-family: 'Inter', sans-serif;
+                font-size: 11.5px;
+                font-weight: 500;
+                color: var(--text-secondary);
+                line-height: 1.3;
+            }
+
+            /* Align the dot to the first line, not the middle of a wrapped block */
+            .hip-sub .program-pomp-dot {
+                flex-shrink: 0;
+                margin-top: 5px;
             }
 
             /* Shrink action buttons */
@@ -3141,8 +3255,29 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             <div class="workspace-header-block">
                 <div class="header-left-cluster">
                     <div class="header-title-container">
-                        <h1><?= htmlspecialchars($group_name) ?></h1>
+                        <h1 class="mobile-hidden"><?= htmlspecialchars($group_name) ?></h1>
                         <p><span class="program-pomp-dot"></span><?= htmlspecialchars($institutional_subtitle) ?></p>
+
+                        <!-- Mobile-only app-style greeting. Replaces the group title below 641px,
+                             where a long title could only ever render as an ellipsis. Tap reveals
+                             the full group identity in #headerIdentityPop. -->
+                        <button type="button" class="header-greeting desktop-hidden"
+                            id="headerGreetingBtn" onclick="toggleHeaderIdentity(event)"
+                            aria-expanded="false" aria-controls="headerIdentityPop"
+                            aria-label="Show research group details">
+                            <span class="hg-line" id="liveGreeting"><?= htmlspecialchars($greeting) ?></span>
+                            <span class="hg-name-row">
+                                <span class="hg-name"><?= htmlspecialchars($first_name) ?></span>
+                                <svg class="hg-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+                                    <polyline points="6 9 12 15 18 9" />
+                                </svg>
+                            </span>
+                        </button>
+
+                        <div class="header-identity-pop desktop-hidden" id="headerIdentityPop" role="dialog" aria-label="Research group details">
+                            <div class="hip-name"><?= htmlspecialchars($group_name) ?></div>
+                            <div class="hip-sub"><span class="program-pomp-dot"></span><?= htmlspecialchars($institutional_subtitle) ?></div>
+                        </div>
                     </div>
                 </div>
 
@@ -4541,9 +4676,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             if (e.target.id === 'cardInfoModal') closeCardModalNow();
         }
 
-        // ESC key closes modal
+        // ESC key closes modal + the mobile header identity popover
         document.addEventListener('keydown', function(e) {
-            if (e.key === 'Escape') closeCardModalNow();
+            if (e.key === 'Escape') {
+                closeCardModalNow();
+                if (typeof closeHeaderIdentity === 'function') closeHeaderIdentity();
+            }
         });
 
         // ── STAGE HOVER-PEEK (desktop only) ────────────────────────────────────────────────
@@ -4740,6 +4878,16 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         })();
 
         // Initialize elements
+        // Re-derive the mobile header greeting from the device clock — that is the student's
+        // real local time. PHP already rendered an Asia/Manila value so there is no flash;
+        // this only corrects it, and keeps it correct across a midday/evening rollover.
+        function refreshLiveGreeting() {
+            const el = document.getElementById('liveGreeting');
+            if (!el) return;
+            const h = new Date().getHours();
+            el.textContent = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
+        }
+
         document.addEventListener("DOMContentLoaded", function() {
             lucide.createIcons();
             fetchWeatherWidget();
@@ -4747,6 +4895,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             staggerRevealCards();
             updateRelativeTimestamps();
             setInterval(updateRelativeTimestamps, 30000);
+            refreshLiveGreeting();
+            setInterval(refreshLiveGreeting, 300000);
         });
 
         // ── Notification unread counter ──────────────────────────────────────
@@ -4805,7 +4955,48 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             const menu = document.getElementById('avatarDropdownMenu');
             if (!menu) return;
             menu.classList.toggle('active');
+            // Never leave both header popovers open at once
+            if (menu.classList.contains('active')) closeHeaderIdentity();
         }
+
+        // ── Mobile header identity popover ──────────────────────────────────────────────
+        // Tapping the greeting reveals the full research group name + dept • program.
+        // Presentation only: no navigation, no state written anywhere.
+        function closeHeaderIdentity() {
+            const pop = document.getElementById('headerIdentityPop');
+            const btn = document.getElementById('headerGreetingBtn');
+            if (pop) pop.classList.remove('open');
+            if (btn) {
+                btn.classList.remove('open');
+                btn.setAttribute('aria-expanded', 'false');
+            }
+        }
+
+        function toggleHeaderIdentity(event) {
+            event.stopPropagation();
+            const pop = document.getElementById('headerIdentityPop');
+            const btn = document.getElementById('headerGreetingBtn');
+            if (!pop || !btn) return;
+            const open = pop.classList.toggle('open');
+            btn.classList.toggle('open', open);
+            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+            // Never leave both header popovers open at once
+            if (open) {
+                const menu = document.getElementById('avatarDropdownMenu');
+                if (menu) menu.classList.remove('active');
+            }
+        }
+
+        // A popover left open across a route change or rotation is stale state.
+        // Guard on width: mobile browsers fire resize every time the URL bar collapses
+        // on scroll, which would otherwise snap the popover shut the moment it opens.
+        window.addEventListener('popstate', closeHeaderIdentity);
+        let hgLastWidth = window.innerWidth;
+        window.addEventListener('resize', function() {
+            if (window.innerWidth === hgLastWidth) return;
+            hgLastWidth = window.innerWidth;
+            closeHeaderIdentity();
+        });
 
         document.addEventListener('click', function(e) {
             const menu = document.getElementById('avatarDropdownMenu');
@@ -4815,6 +5006,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 if ((!wrapper || !wrapper.contains(e.target)) && (!profile || !profile.contains(e.target))) {
                     menu.classList.remove('active');
                 }
+            }
+
+            const pop = document.getElementById('headerIdentityPop');
+            if (pop && pop.classList.contains('open')) {
+                const container = document.querySelector('.header-title-container');
+                if (!container || !container.contains(e.target)) closeHeaderIdentity();
             }
         });
 

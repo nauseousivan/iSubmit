@@ -27,6 +27,38 @@ All notable changes to the `iSubmit` project will be documented in this file.
   force a `lucide.createIcons()` full-DOM rescan on every hover, the same scan that previously
   froze the card modal. Verified with headless-Chrome renders of all 4 panels plus dark mode.
 
+### Changed
+- **Student mobile header is now an app-style greeting instead of a clipped title (2026-08-24):**
+  below 641px the header showed the research group name capped at a fixed `max-width: 180px`
+  with `text-overflow: ellipsis`. Because the cap was a hard pixel value rather than
+  flex-derived, a long group name rendered as `THE EFFECT OF CLASS A…` even on a 430px phone
+  with room to spare — a full header row that conveyed nothing. On phones the title is now
+  replaced by a two-line greeting: a time-aware `Good morning / afternoon / evening` over the
+  student's first name, which cannot truncate because it is bounded by a name. The
+  `border-bottom` divider is dropped at that breakpoint too, so the header reads as app chrome
+  rather than a shrunken desktop header. The full group name has not gone away — tapping the
+  greeting opens a popover with the complete name (free to wrap, no ellipsis anywhere) plus the
+  `MCNP • BS Nursing` subtitle that mobile already hid. The greeting fills the previously dead
+  `#liveGreeting` CSS hook, which had sat in the file with no matching element. PHP renders an
+  initial Asia/Manila value so there is no flash, then the device clock corrects it on load and
+  every 5 min; the hour is read via an explicit `DateTimeZone` rather than
+  `date_default_timezone_set()` so the rest of the file's timestamp handling is untouched.
+  Popover closes on outside click, Esc, `popstate`, and orientation change, and is mutually
+  exclusive with the avatar dropdown. The resize listener deliberately compares `innerWidth`
+  first: mobile browsers fire `resize` every time the URL bar collapses on scroll, which
+  otherwise snapped the popover shut the moment it opened. Presentation only — no workflow
+  logic, POST handlers, SQL writes or review-JS contract touched. Desktop and tablet render
+  byte-for-byte as before (verified against the committed version at 820px and 1280px);
+  checked at 390px and 430px in light and dark, with the longest group name in the database
+  (83 chars).
+
+- **Header blurbs hidden on mobile in the student sub-pages (2026-08-19):** `activities_all.php`
+  and `calendar_all.php` each open with an explanatory `.header-desc` paragraph ("A record of
+  everything you've done…" / "Everything on the research office calendar…"). On phones those two
+  sentences pushed the search box and filter pills below the fold. Both now `display: none` under
+  768px, with `.page-header` gap/margin tightened so the title sits directly above the search
+  field. Desktop is unchanged, and the paragraphs stay in the markup for wider screens.
+
 ### Fixed
 - **Dark band bleeding over the right edge of the student modules (2026-08-16):** on web, closed
   `.history-panel` drawers were parked off-screen with `transform: translateX(100%)` only. A

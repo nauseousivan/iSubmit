@@ -20,6 +20,14 @@ require_once '../config/db.php';
 
 $message = "";
 $message_type = "error";
+// config/db.php signs out an account that was disabled mid-session and sends it here.
+if (isset($_GET['blocked'])) {
+    $message = "Your account is no longer active. Please contact the research office.";
+}
+if (isset($_GET['maintenance']) || (rd_setting('maintenance_mode') === '1' && $_SERVER['REQUEST_METHOD'] !== 'POST')) {
+    $message = "The system is under maintenance. Please try again later.";
+    $message_type = "error";
+}
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_POST['auth_action'] === 'login') {
     $email = trim($_POST['email'] ?? '');
@@ -30,7 +38,35 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         $stmt->execute([$email]);
         $user = $stmt->fetch();
 
-        if ($user && password_verify($password, $user['password'])) {
+        // 2026-10-01: the ACCESS LOG + LOCKOUT (config/system.php). A locked email is refused
+        // before its password is even checked, so guessing cannot continue during the lockout.
+        $locked = rd_locked_minutes($pdo, $email);
+        $pw_ok  = !$locked && $user && password_verify($password, $user['password']);
+        $uid_or_null = $user ? (int)$user['user_id'] : null;
+
+        if ($locked) {
+            rd_log_login($pdo, $email, $uid_or_null, false, 'locked');
+            $message = "Too many wrong passwords. Try again in $locked minute" . ($locked === 1 ? '' : 's')
+                     . ", or ask the administrator for help below.";
+            $message_type = "error";
+        } elseif ($pw_ok && ($user['account_status'] ?? 'active') !== 'active') {
+            rd_log_login($pdo, $email, $uid_or_null, false, 'inactive');
+            // 2026-09-30: checked BEFORE the OTP branch. A disabled account used to be sent to
+            // verify_otp.php, which set is_verified back to 1 — the person re-enabled themself.
+            // Only after the password matched, so this never tells a stranger an email exists.
+            $message = [
+                'pending'  => 'Your account is waiting for the administrator\'s approval. You can sign in once it is approved.',
+                'rejected' => 'This account was not approved. Please contact the research office.',
+                'disabled' => 'This account has been disabled. Please contact the research office.',
+            ][$user['account_status']] ?? 'This account cannot sign in. Please contact the research office.';
+            $message_type = $user['account_status'] === 'pending' ? 'warning' : 'error';
+        } elseif ($pw_ok && rd_setting('maintenance_mode') === '1' && $user['role'] !== 'Admin') {
+            // MAINTENANCE MODE (System settings): only the Admin may sign in.
+            rd_log_login($pdo, $email, $uid_or_null, false, 'maintenance');
+            $message = "The system is under maintenance. Please try again later.";
+            $message_type = "error";
+        } elseif ($pw_ok) {
+            rd_log_login($pdo, $email, $uid_or_null, true, 'ok');
             if (!$user['is_verified']) {
                 $_SESSION['verify_email'] = $user['email'];
                 $message = "Your account is not verified yet. Verification code sent.";
@@ -57,6 +93,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             }
             $_SESSION['research_group_name'] = $eff_group_name ?: 'Research Group';
 
+            // The Admin reset this password: the person chooses their own before anything else.
+            if (!empty($user['must_change_password'])) {
+                header("Location: change_password.php");
+                exit();
+            }
+
+            // 2026-10-01: back to the page that sent them to sign in (a scanned QR, e.g. stat_desk.php).
+            // Only a path inside this app is accepted, so this can never become an open redirect.
+            if (!empty($_SESSION['login_next'])) {
+                $next = (string)$_SESSION['login_next'];
+                unset($_SESSION['login_next']);
+                if (strpos($next, rd_app_url() . '/dashboards/') === 0 && preg_match('#^[A-Za-z0-9_./?=&%-]+$#', $next) && strpos($next, '..') === false && strpos($next, '//') === false
+                    && (strpos($next, '/dashboards/student.php') === false || $user['role'] === 'Student')) {
+                    header("Location: " . $next);
+                    exit();
+                }
+            }
+
             // Route dynamically depending on role permissions
             switch ($user['role']) {
                 case 'Student':
@@ -71,10 +125,25 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                 case 'Research Director':
                     header("Location: ../dashboards/director.php");
                     exit();
+                case 'Focal Person':
+                    header("Location: ../dashboards/focal.php");
+                    exit();
+                case 'Admin':
+                    header("Location: ../dashboards/admin.php");
+                    exit();
             }
+            // A role with no destination used to fall straight through this switch and
+            // silently re-render the login form, which reads as "wrong password".
+            $message = "Your account has no dashboard yet. Please contact the research office.";
+            $message_type = "error";
         } else {
+            rd_log_login($pdo, $email, $uid_or_null, false, $user ? 'wrong_password' : 'no_account');
             $message = "Invalid credentials. Verify email and password.";
             $message_type = "error";
+            // The attempt that trips the lockout says so, instead of one more "invalid".
+            if ($user && ($now_locked = rd_locked_minutes($pdo, $email))) {
+                $message = "Too many wrong passwords. Try again in $now_locked minutes, or ask the administrator for help below.";
+            }
         }
     } else {
         $message = "Please populate all security fields.";
@@ -90,7 +159,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="color-scheme" content="light only">
     <title>Login | iSubmit</title>
-    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <!-- Premium Academic & Display Typography -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons CDN -->
@@ -109,101 +180,108 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             color: #ffffff !important;
         }
 
-        /* Splash Screen Mascot Animations */
-        #splash-body, #splash-footL, #splash-wingR, #splash-wingL {
-            transition: transform 0.3s ease;
-        }
-        
-        .splash-wave #splash-body {
-            transform: rotate(8deg);
-        }
-        .splash-wave #splash-footL {
-            transform: translateY(-8px) rotate(15deg);
-        }
-        .splash-wave #splash-wingR {
-            transform: rotate(30deg) translate(-5px, 5px);
-        }
-        .splash-wave #splash-wingL {
-            animation: quillWaveHigh 0.4s ease-in-out infinite alternate;
+        /* Loading screen, "Eagle flight" (2026-10-07). The main eagle (ids "sp-", assets/mascot/eagle_svg.php)
+           flaps in from the lower left, loops across a drifting doodle sky and lands on the "i" of iSubmit
+           as its dot. Her dotted trail draws behind her — the trail IS the progress bar. On landing she
+           bounces, tiptoes and waves (.splash-wave), then the curtain fades into the card. The path is
+           built by the intro script from where the "i" really is, so she lands on it at any font size.
+           Tap skips. Reduced motion: she is simply sitting on the "i". */
+        .fl-stage { position: relative; width: 360px; height: 270px; }
+        .fl-trail { position: absolute; inset: 0; overflow: visible; color: #a39dff; transition: opacity .45s ease; }
+        .fl-trail-mask { stroke-dasharray: 1; stroke-dashoffset: 1; }
+        .fl-bird { position: absolute; top: 0; left: 0; width: 86px; height: 89px; offset-anchor: 48% 94%; offset-rotate: 0deg;
+                   offset-distance: 0%; opacity: 0; }
+        .fl-tilt { width: 100%; height: 100%; transform-origin: 48% 94%; }
+        .splash-eagle { width: 100%; height: 100%; display: block; overflow: visible; filter: drop-shadow(0 8px 12px rgba(76, 29, 149, .22)); }
+        .fl-word { position: absolute; left: 0; right: 0; bottom: 18px; text-align: center; margin: 0; font-family: 'Poppins', sans-serif;
+                   font-size: 64px; font-weight: 800; letter-spacing: -2px; line-height: 1; color: #5b50f5; white-space: nowrap; }
+        .fl-word span { display: inline-block; opacity: 0; transform: translateY(18px) scale(.6); }
+        .fl-bl { display: inline-block; width: 0; height: 0; vertical-align: baseline; }   /* marks the baseline for the script */
+        .fl-skip { position: absolute; bottom: calc(26px + env(safe-area-inset-bottom)); left: 0; right: 0; text-align: center;
+                   font-size: 12px; font-weight: 600; letter-spacing: .4px; color: #8b83c9; opacity: 0; transition: opacity .4s ease .8s; }
+        @media (max-width: 400px) { .fl-stage { transform: scale(.88); } }
+
+        /* in flight */
+        .intro-fly .fl-bird  { opacity: 1; offset-distance: 100%; transition: offset-distance 1.5s cubic-bezier(.45, .05, .35, 1), opacity .2s ease; }
+        .intro-fly .fl-trail-mask { stroke-dashoffset: 0; transition: stroke-dashoffset 1.5s cubic-bezier(.45, .05, .35, 1); }
+        .intro-fly .fl-tilt  { animation: flTilt 1.5s cubic-bezier(.45, .05, .35, 1) forwards; }
+        .intro-fly #sp-wingL { animation: flFlapL .18s ease-in-out infinite alternate; }
+        .intro-fly #sp-wingR { animation: flFlapR .18s ease-in-out infinite alternate; }
+        .intro-fly .fl-word span { animation: flPop .45s cubic-bezier(.34, 1.56, .64, 1) forwards; animation-delay: calc(.35s + var(--n) * .08s); }
+        .intro-fly .fl-skip  { opacity: 1; }
+        /* landed */
+        .intro-landed .fl-trail { opacity: 0; }
+        .intro-landed .fl-tilt  { animation: flLand .4s cubic-bezier(.34, 1.56, .64, 1); }
+        .intro-landed #sp-wingL, .intro-landed #sp-wingR { animation: none; }
+
+        #sp-wingL { transform-box: view-box; transform-origin: 70px 166px; }
+        #sp-wingR { transform-box: view-box; transform-origin: 190px 166px; }
+        #sp-body  { transform-box: view-box; transform-origin: 170px 256px; transition: transform .35s ease; }
+        #sp-footL { transform-box: view-box; transform-origin: 90px 256px; transition: transform .35s ease; }
+        #sp-cap   { transform-box: view-box; transform-origin: 128px 60px; }
+        .splash-wave #sp-body  { transform: rotate(7deg); }
+        .splash-wave #sp-footL { transform: translateY(-9px) rotate(16deg); }
+        .intro-landed .splash-wave #sp-wingL { animation: spWaveHigh .4s ease-in-out infinite alternate; }
+        .splash-wave #sp-wingR { transform: rotate(-8deg); }
+        .splash-wave #sp-cap   { animation: spCapBob .4s ease-in-out infinite alternate; }
+        @keyframes flFlapL { from { transform: rotate(-12deg); } to { transform: rotate(46deg); } }
+        @keyframes flFlapR { from { transform: rotate(12deg); } to { transform: rotate(-46deg); } }
+        @keyframes flTilt { 0% { transform: rotate(-10deg); } 35% { transform: rotate(-16deg); } 62% { transform: rotate(12deg); } 88% { transform: rotate(10deg); } 100% { transform: rotate(0); } }
+        @keyframes flLand { 0% { transform: scale(1.12, .84); } 55% { transform: scale(.94, 1.08); } 100% { transform: scale(1); } }
+        @keyframes flPop { to { opacity: 1; transform: none; } }
+        @keyframes spWaveHigh { from { transform: rotate(118deg); } to { transform: rotate(150deg); } }
+        @keyframes spCapBob { from { transform: rotate(-2deg); } to { transform: rotate(2deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .intro-cinematic-curtain::before { animation: none; }
+            .fl-bird, .intro-fly .fl-bird { opacity: 1; offset-distance: 100%; transition: none; }
+            .fl-trail { display: none; }
+            .fl-word span, .intro-fly .fl-word span { opacity: 1; transform: none; animation: none; }
+            .intro-fly .fl-tilt, .intro-landed .fl-tilt, .intro-fly #sp-wingL, .intro-fly #sp-wingR, .splash-wave #sp-cap,
+            .intro-landed .splash-wave #sp-wingL { animation: none; }
         }
     </style>
 </head>
 
 <body class="no-intro-delay">
+<?php include __DIR__ . '/../dashboards/components/announcement.php'; /* 2026-10-01: the Admin's banner */ ?>
     <script>
         window.isFirstLoad = !sessionStorage.getItem('mcnp_isap_intro_played');
         // Check if the user has already played the intro during this session
         if (window.isFirstLoad) {
             document.body.classList.remove('no-intro-delay');
+            document.body.classList.add('intro-playing');   // holds the card back until she lands
             sessionStorage.setItem('mcnp_isap_intro_played', 'true');
         }
+        // Ends the intro: fade the curtain, let the card in. Safe to call twice; the 6s timer is the
+        // net if anything below fails, so the card can never stay hidden.
+        window.endIntro = function () {
+            if (!document.body.classList.contains('intro-playing')) return;
+            document.body.classList.remove('intro-playing');
+            var c = document.getElementById('introCurtain');
+            if (c) { c.classList.add('is-out'); setTimeout(function () { c.style.display = 'none'; }, 600); }
+        };
+        if (window.isFirstLoad) setTimeout(window.endIntro, 6000);
     </script>
 
-    <!-- iSubmit Loading Curtain -->
-    <div class="intro-cinematic-curtain" id="introCurtain">
-        <div class="isubmit-loader-container" style="animation: fadeInScale 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards, heroTransition 0.6s cubic-bezier(0.85, 0, 0.15, 1) 4.2s forwards;">
-            <!-- Splash Mascot and Title -->
-            <svg viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg" style="width: 140px; height: 140px; margin-bottom: 8px;" id="splash-mascot">
-                <defs>
-                    <filter id="splash-ground-shadow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="3" />
-                    </filter>
-                    <filter id="splash-core-shadow" x="-50%" y="-50%" width="200%" height="200%">
-                        <feGaussianBlur stdDeviation="1.5" />
-                    </filter>
-                </defs>
-                
-                <ellipse cx="60" cy="134" rx="36" ry="4" fill="#B8A9FF" opacity="0.6" filter="url(#splash-ground-shadow)" />
-                <ellipse cx="60" cy="134" rx="22" ry="2" fill="#5750d4" opacity="0.4" filter="url(#splash-core-shadow)" />
-                
-                <g>
-                    <!-- Left foot raised and angled -->
-                    <ellipse cx="46" cy="130" rx="10" ry="5" fill="#5750d4" style="transform-origin: 46px 130px;" id="splash-footL" />
-                    <!-- Right foot planted -->
-                    <ellipse cx="74" cy="130" rx="10" ry="5" fill="#5750d4" />
-                </g>
-
-                <!-- Body pivots on right foot (74px 130px) -->
-                <g style="transform-origin: 74px 130px;" id="splash-body">
-                    <g style="transform-origin: 60px 25px;">
-                        <rect x="28" y="24" width="64" height="10" rx="3" fill="#1e1b4b" />
-                        <polygon points="60,10 90,26 60,30 30,26" fill="#312e81" />
-                        <line x1="90" y1="26" x2="96" y2="46" stroke="#312e81" stroke-width="2" />
-                        <circle cx="96" cy="48" r="4" fill="#a78bfa" />
-                    </g>
-
-                    <ellipse cx="60" cy="90" rx="34" ry="42" fill="#6C63FF" />
-                    <ellipse cx="60" cy="96" rx="20" ry="26" fill="#ede9fe" />
-
-                    <g style="transform-origin: 60px 72px;">
-                        <circle cx="44" cy="72" r="11" fill="white" />
-                        <circle cx="76" cy="72" r="11" fill="white" />
-                        <g>
-                            <circle cx="46" cy="73" r="6" fill="#1e1b4b" />
-                            <circle cx="78" cy="73" r="6" fill="#1e1b4b" />
-                            <circle cx="48" cy="70" r="2.5" fill="white" />
-                            <circle cx="80" cy="70" r="2.5" fill="white" />
-                        </g>
-                    </g>
-
-                    <polygon points="60,78 53,86 67,86" fill="#f59e0b" />
-
-                    <!-- Left wing waves continuously using the keyframes from mascot.css -->
-                    <g style="transform-origin: 27px 90px;" id="splash-wingL">
-                        <ellipse cx="27" cy="98" rx="12" ry="20" fill="#5750d4" transform="rotate(-15,27,98)" />
-                    </g>
-
-                    <!-- Right wing tucks in -->
-                    <g style="transform-origin: 93px 90px;" id="splash-wingR">
-                        <ellipse cx="93" cy="98" rx="12" ry="20" fill="#5750d4" transform="rotate(15,93,98)" />
-                    </g>
-                </g>
+    <!-- iSubmit Loading Curtain: "Eagle flight" -->
+    <div class="intro-cinematic-curtain" id="introCurtain" aria-hidden="true" onclick="window.endIntro()">
+        <div class="fl-stage" id="flStage">
+            <svg class="fl-trail" width="360" height="270" viewBox="0 0 360 270">
+                <defs><mask id="flMask" maskUnits="userSpaceOnUse" x="-200" y="-200" width="760" height="670">
+                    <path class="fl-trail-mask" id="flMaskPath" d="" fill="none" stroke="#fff" stroke-width="16" stroke-linecap="round" pathLength="1"/>
+                </mask></defs>
+                <path id="flTrailPath" d="" fill="none" stroke="currentColor" stroke-width="5" stroke-linecap="round" stroke-dasharray="0 13" mask="url(#flMask)"/>
             </svg>
-            <h1 class="isubmit-logo" style="font-family: 'Poppins', sans-serif; font-size: 48px; letter-spacing: -1.5px; margin: 0; color: var(--primary-color);">iSubmit</h1>
-            <div class="isubmit-progress-bar">
-                <div class="isubmit-progress-fill"></div>
-            </div>
+            <div class="fl-word" id="flWord"><?php
+                // "ı" (dotless) — she is the dot. Each letter pops in as she passes.
+                foreach (['ı', 'S', 'u', 'b', 'm', 'i', 't'] as $n => $ch) {
+                    echo '<span style="--n:' . $n . '"' . ($n === 0 ? ' id="flI"' : '') . '>' . $ch . ($n === 0 ? '<i class="fl-bl" id="flBase"></i>' : '') . '</span>';
+                } ?></div>
+            <div class="fl-bird" id="flBird"><div class="fl-tilt"><?php
+                require_once __DIR__ . '/../assets/mascot/eagle_svg.php';
+                echo eagle_plain_svg('sp', 'id="splash-mascot" class="splash-eagle"'); ?></div></div>
         </div>
+        <div class="fl-skip">Tap to skip</div>
     </div>
 
     <div class="auth-wrapper">
@@ -268,7 +346,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                         </div>
                     </div>
 
-                    <div style="text-align: right; margin-bottom: 24px;">
+                    <div style="display: flex; justify-content: flex-end; align-items: center; margin-bottom: 24px;">
                         <a href="forgot_password.php" style="font-size: 13px; color: var(--primary-color); text-decoration: none; font-weight: 600; display: inline-flex; align-items: center; gap: 4px;">
                             <i data-lucide="key-round" style="width: 14px; height: 14px;"></i>
                             Forgot password?
@@ -281,8 +359,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
 
                     <div style="text-align: center; margin-top: 24px; font-size: 14px; color: var(--text-secondary);" class="mobile-only-link">
                         First time? <a href="register.php" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Create Account</a>
+                        <span style="margin: 0 6px; opacity: 0.4;">&middot;</span>
+                        <a href="help.php" style="color: var(--text-secondary); font-weight: 600; text-decoration: none;">Get help</a>
                     </div>
                 </form>
+
+                <?php /* 2026-10-01: for anyone who cannot use the email reset (lost the inbox, wrong email).
+                         Its own quiet line under the button, not a rival link beside "Forgot password?".
+                         Desktop only: on a phone it rides the "First time?" line instead of stacking under it. */ ?>
+                <div class="desktop-only" style="text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted);">
+                    Trouble signing in? <a href="help.php" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Ask the Help Desk</a>
+                </div>
 
                 <div class="auth-footer" style="text-align: center; margin-top: 48px; font-size: 11px; color: #a1a1aa; letter-spacing: 0.5px; font-weight: 400;">
                     Medical Colleges of Northern Philippines
@@ -298,15 +385,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         // Initialize dynamic Lucide icons
         lucide.createIcons();
 
-        // Transition cleanup to free up rendering budget after animation
-        window.addEventListener('DOMContentLoaded', () => {
-            setTimeout(() => {
-                const curtain = document.getElementById('introCurtain');
-                if (curtain) {
-                    curtain.style.display = 'none';
-                }
-            }, 3000);
-        });
         // Reveal/Obscure Password Entry
         function togglePassword(inputId, btn) {
             const input = document.getElementById(inputId);
@@ -321,7 +399,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             lucide.createIcons();
         }
 
-        // Real-time Academic Domain Interactive Accent Morph
+        // The sub-line names the institution as the email is typed. The COLOUR no longer follows it
+        // (2026-10-07, the user asked): the pane stays the one iSubmit violet for everyone.
         const loginEmail = document.getElementById('loginEmail');
         const brandSubLead = document.getElementById('brandSubLead');
 
@@ -329,14 +408,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             const emailVal = loginEmail.value.toLowerCase().trim();
 
             if (emailVal.includes('isap')) {
-                document.body.setAttribute('data-theme', 'isap');
                 brandSubLead.innerText = "International School of Asia & the Pacific";
             } else if (emailVal.includes('mcnp')) {
-                document.body.setAttribute('data-theme', 'mcnp');
                 brandSubLead.innerText = "Medical Colleges of Northern Philippines";
             } else {
                 // Revert to original
-                document.body.removeAttribute('data-theme');
                 document.getElementById('brandTitle').textContent = 'iSubmit';
                 document.getElementById('brandSubLead').textContent = 'Research Digitalization Platform';
             }
@@ -364,15 +440,59 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
     <script src="../assets/js/constellation.js"></script>
     <script src="../assets/mascot/mascot.js"></script>
     <script>
-        // Trigger splash screen mascot wave after a short delay
-        window.addEventListener('load', () => {
-            setTimeout(() => {
-                const splashMascot = document.getElementById('splash-mascot');
-                if (splashMascot) {
-                    splashMascot.classList.add('splash-wave');
-                }
-            }, 1200); // Waits 1.2s before starting to tiptoe and wave
-        });
+        // "Eagle flight" intro (first visit of the session only; see the CSS above for the look).
+        (function () {
+            if (!document.body.classList.contains('intro-playing')) return;
+            const curtain = document.getElementById('introCurtain');
+            const word = document.getElementById('flWord'), dotless = document.getElementById('flI'), base = document.getElementById('flBase');
+            const still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            let started = false;
+
+            // Where the stem of the "ı" starts, in stage pixels. offset* ignore the letters' pop-in
+            // transforms; the stem height comes from the font itself.
+            function landingPoint() {
+                const fs = parseFloat(getComputedStyle(word).fontSize);
+                let ascent = fs * 0.56;
+                try {
+                    const ctx = document.createElement('canvas').getContext('2d');
+                    ctx.font = '800 ' + fs + 'px Poppins';
+                    const m = ctx.measureText('ı');
+                    if (m.actualBoundingBoxAscent > 0) ascent = m.actualBoundingBoxAscent;
+                } catch (e) {}
+                return {
+                    x: word.offsetLeft + dotless.offsetLeft + dotless.offsetWidth / 2 - 1,
+                    y: word.offsetTop + base.offsetTop - ascent - 6
+                };
+            }
+
+            function fly() {
+                if (started) return;
+                started = true;
+                const e = landingPoint();
+                // In low from the left, a loop high over the stage, then down onto the "ı".
+                const d = 'M -70 230 C 40 40, 300 -40, 330 70 C 352 150, ' + (e.x + 90) + ' ' + (e.y - 120) + ', ' + e.x + ' ' + e.y;
+                document.getElementById('flTrailPath').setAttribute('d', d);
+                document.getElementById('flMaskPath').setAttribute('d', d);
+                document.getElementById('flBird').style.offsetPath = "path('" + d + "')";
+                const eagle = document.getElementById('splash-mascot');
+
+                if (still) { curtain.classList.add('intro-fly', 'intro-landed'); setTimeout(window.endIntro, 900); return; }
+                void curtain.offsetWidth;                         // commit the start position before moving
+                curtain.classList.add('intro-fly');
+                setTimeout(function () {                          // touchdown
+                    curtain.classList.add('intro-landed');
+                    setTimeout(function () { eagle.classList.add('splash-wave'); }, 250);
+                }, 1500);
+                setTimeout(window.endIntro, 2600);
+            }
+
+            // Wait for Poppins (the landing spot depends on it), but never more than 400ms.
+            if (document.fonts && document.fonts.load) {
+                Promise.race([document.fonts.load('800 64px Poppins'), new Promise(function (r) { setTimeout(r, 400); })]).then(fly, fly);
+            } else {
+                fly();
+            }
+        })();
     </script>
 </body>
 

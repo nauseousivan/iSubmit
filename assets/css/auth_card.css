@@ -1,0 +1,93 @@
+/* assets/css/auth_card.css — the small auth pages (2026-10-01, re-laid 2026-10-07):
+   auth/help.php (Help Desk) and auth/change_password.php (forced password change).
+   Same shape as the sign-in page: a purple brand pane (eagle badge + big "iSubmit") beside the
+   form on desktop, at the SAME 900x625 as login's .auth-card so going from one to the other does
+   not resize the card (the form scrolls inside instead). On a phone the pane is the header and the
+   form a draggable bottom sheet (assets/js/bottom-sheet.js, the login one — hence the .auth-card /
+   .bottom-sheet classes on the markup). Standalone (no theme.css); the purple is theme.css's. */
+body.ac-page { margin: 0; min-height: 100vh; min-height: 100dvh; background: #f7f8fb; font-family: 'Plus Jakarta Sans', 'Inter', system-ui, sans-serif;
+               color: #1e1b4b; display: flex; align-items: center; justify-content: center; padding: 24px; box-sizing: border-box; }
+body.ac-page::before { content: ""; position: fixed; inset: 0; background: #5b50f5; clip-path: polygon(0 0, 100% 0, 100% 30%, 0 62%); opacity: .07; pointer-events: none; }   /* the faint band behind the card, as on login */
+.ac-wrap { position: relative; width: 100%; max-width: 900px; height: 625px; max-height: calc(100vh - 48px); display: flex; background: #fff; border-radius: 16px;
+           overflow: hidden; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, .1), 0 4px 6px -2px rgba(0, 0, 0, .05); }
+
+/* ---- brand pane ---- */
+.ac-hero { flex: 1 1 0; min-width: 0; box-sizing: border-box; padding: 60px 40px; color: #fff; text-align: center;
+           background: #5b50f5 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160' fill='none' stroke='%23ffffff' stroke-opacity='.14' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 12h18l7 7v25H14z'/%3E%3Cpath d='M32 12v7h7M19 28h14M19 34h10'/%3E%3Ccircle cx='112' cy='26' r='11'/%3E%3Cpath d='M107 26l4 4 7-8'/%3E%3Cpath d='M58 66l14-7 14 7-14 7z'/%3E%3Cpath d='M64 69v8c4 3 12 3 16 0v-8M86 66v9'/%3E%3Cpath d='M112 119l22-22 7 7-22 22h-7z'/%3E%3Cpath d='M129 102l7 7'/%3E%3Cpath d='M28 92l3.5 7.5 8 1-6 5.5 1.5 8-7-4-7 4 1.5-8-6-5.5 8-1z'/%3E%3Cpath d='M62 146v-14M72 146v-24M82 146v-18M57 149h30'/%3E%3Ccircle cx='134' cy='138' r='8'/%3E%3Cpath d='M140 144l7 7'/%3E%3Ccircle cx='100' cy='62' r='2'/%3E%3Ccircle cx='44' cy='140' r='2'/%3E%3C/svg%3E") 0 0 / 160px 160px;   /* the "Study doodles" pane — twin of theme.css --brand-solid / --brand-doodles */ display: flex; flex-direction: column; align-items: center; justify-content: center; }
+.ac-hero-in { display: flex; flex-direction: column; align-items: center; }
+.ac-badge { background: #fff; border-radius: 50%; padding: 20px; box-shadow: 0 8px 32px rgba(0, 0, 0, .15); margin-bottom: 20px; display: inline-flex; }
+.ac-badge #quill-container { width: 150px; height: 144px; }   /* the eagle (assets/mascot) */
+.ac-title { font-family: 'Poppins', sans-serif; font-size: 38px; font-weight: 800; letter-spacing: -.5px; line-height: 1.1; margin: 0; color: #fff; }
+.ac-sub { font-size: 16px; font-weight: 500; opacity: .95; margin: 4px 0 0; }
+.ac-blurb { font-size: 14px; line-height: 1.6; opacity: .8; max-width: 320px; margin: 22px auto 0; }
+
+/* ---- form pane ---- */
+.ac-card { flex: 1 1 0; min-width: 0; box-sizing: border-box; padding: 44px 44px 32px; overflow-y: auto; scrollbar-width: thin; scrollbar-color: #e4e1f5 transparent; }
+.ac-card h1 { font-family: 'Poppins', sans-serif; font-size: 26px; font-weight: 700; letter-spacing: -.02em; margin: 0 0 6px; color: #6C63FF; }
+.ac-card > p { font-size: 14px; line-height: 1.55; color: #5b5480; margin: 0 0 22px; }
+.ac-field { margin-bottom: 16px; }
+.ac-field > label, .ac-label { display: block; font-size: 13px; font-weight: 700; color: #2e1065; margin-bottom: 7px; }
+.ac-field label small { font-weight: 500; color: #8b83b3; }
+.ac-in { width: 100%; box-sizing: border-box; padding: 13px 15px; border-radius: 14px; border: 1.5px solid #e4defd; background: #faf9ff;
+         font: inherit; font-size: 14.5px; color: #1e1b4b; outline: none; transition: border-color .15s, background .15s, box-shadow .15s; }
+.ac-in:focus { border-color: #6C63FF; background: #fff; box-shadow: 0 0 0 4px rgba(108, 99, 255, .12); }
+textarea.ac-in { min-height: 120px; resize: vertical; line-height: 1.5; }
+.ac-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; }   /* a wrapped label must not push its box below its neighbour's */
+
+/* "What do you need?" — icon tiles, two across */
+.ac-cats { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.ac-cat { position: relative; cursor: pointer; border: 1.5px solid #ece8ff; border-radius: 16px; padding: 10px 12px; background: #fff;
+          display: flex; align-items: center; gap: 10px; font-size: 12.5px; font-weight: 600; color: #2e1065; line-height: 1.3;
+          transition: border-color .15s, background .15s; }
+.ac-cat:hover { border-color: #d6cffd; }
+.ac-cat input { position: absolute; opacity: 0; pointer-events: none; }
+.ac-cat-ic { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: #f1effe; color: #6C63FF; flex-shrink: 0; }
+.ac-cat-ic svg { width: 17px; height: 17px; }
+.ac-cat:has(input:checked) { border-color: #6C63FF; background: #f3f1ff; }
+.ac-cat:has(input:checked) .ac-cat-ic { background: #6C63FF; color: #fff; }
+.ac-cat:has(input:focus-visible) { box-shadow: 0 0 0 4px rgba(108, 99, 255, .18); }
+
+.ac-btn { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%;
+          padding: 15px; border-radius: 999px; background: #6C63FF; color: #fff; font-size: 15px; font-weight: 700; margin-top: 8px;
+          box-shadow: 0 10px 20px -10px rgba(108, 99, 255, .7); transition: background .15s; }
+.ac-btn:hover { background: #5a50f0; }
+.ac-alert { padding: 12px 14px; border-radius: 14px; font-size: 13.5px; font-weight: 600; margin-bottom: 18px; line-height: 1.45; }
+.ac-alert.ok { background: #ecfdf5; color: #065f46; }
+.ac-alert.bad { background: #fef2f2; color: #991b1b; }
+.ac-foot { display: flex; justify-content: space-between; gap: 12px; margin-top: 20px; font-size: 13px; }
+.ac-foot a { color: #6C63FF; font-weight: 700; text-decoration: none; }
+.ac-hp { position: absolute; left: -9999px; }   /* honeypot: people never see it, bots fill it */
+.ac-mine { margin-top: 26px; padding-top: 22px; border-top: 1px solid #f0edff; }
+.ac-mine h2 { font-size: 16px; font-weight: 800; color: #2e1065; margin: 0 0 10px; }
+.ac-req { border: 1px solid #ece8ff; border-radius: 16px; padding: 12px 14px; margin-bottom: 8px; background: #fff; }
+.ac-req-top { display: flex; justify-content: space-between; gap: 10px; font-size: 13px; font-weight: 700; color: #2e1065; }
+.ac-req-top span { font-size: 11px; font-weight: 800; border-radius: 999px; padding: 2px 9px; flex-shrink: 0; height: fit-content; }
+.ac-req-top .open { background: #fef3c7; color: #92400e; }
+.ac-req-top .resolved { background: #d1fae5; color: #065f46; }
+.ac-req p { margin: 6px 0 0; font-size: 13px; color: #5b5480; line-height: 1.45; white-space: pre-line; }
+.ac-req .reply { margin-top: 8px; padding: 9px 11px; border-radius: 12px; background: #f5f3ff; color: #2e1065; }
+.ac-req small { display: block; margin-top: 6px; font-size: 11.5px; color: #8b83b3; }
+.ac-handle { display: none; }
+
+/* ---- phone: the pane is the header, the form a draggable sheet over it (as on login) ---- */
+@media (max-width: 768px) {
+    body.ac-page { padding: 0; display: block; overflow: hidden; background: #fff; }
+    .ac-wrap { display: block; position: relative; max-width: none; height: 100vh; height: 100dvh; max-height: none;
+               border-radius: 0; box-shadow: none; background: transparent; }
+    .ac-hero { position: absolute; top: 0; left: 0; right: 0; height: 45vh; height: 45dvh; padding: 20px 24px 24px; justify-content: flex-start; }
+    .ac-badge { padding: 8px; margin-bottom: 10px; box-shadow: 0 4px 12px rgba(0, 0, 0, .15); }
+    .ac-badge #quill-container { width: 100px; height: 96px; }
+    .ac-title { font-size: clamp(30px, 8vw, 42px); margin-bottom: 2px; }
+    .ac-sub { font-size: 15px; opacity: .9; }
+    .ac-blurb { display: none; }
+    /* bottom-sheet.js moves it: rests just below the sub-line, drags up to 80px from the top */
+    .ac-card { position: absolute; top: 0; left: 0; right: 0; z-index: 10; height: 100vh; height: 100dvh; background: #fff;
+               border-radius: 32px 32px 0 0; padding: 16px 20px calc(110px + env(safe-area-inset-bottom));
+               transform: translateY(35vh); overflow-y: hidden; touch-action: pan-y; transition: transform .4s cubic-bezier(.16, 1, .3, 1);
+               box-shadow: 0 -10px 30px -18px rgba(30, 27, 75, .35); }
+    .ac-card.dragging { transition: none; }
+    .ac-handle { display: block; width: 48px; height: 5px; border-radius: 4px; background: #d9d5ee; margin: 0 auto 22px; cursor: grab; }
+    .ac-card h1 { font-size: 22px; }
+    .ac-2 { grid-template-columns: 1fr; gap: 0; }
+    .ac-in { font-size: 16px; }   /* 16px stops iOS zooming into a focused field */
+}

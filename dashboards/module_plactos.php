@@ -30,6 +30,9 @@ $message_type = $_GET['type'] ?? '';
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <style>
         :root { 
             --bg-beige: #f7f4eb; --mcnp-teal: #0c343d; --text-muted: #7d7569;

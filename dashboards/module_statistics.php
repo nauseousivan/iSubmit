@@ -20,6 +20,18 @@ $stats_status = $stats_data['status'] ?? 'Phase 1: Pending Coded Data';
 $control_no = $stats_data['formatted_control_no'] ?? '';
 $remarks = $stats_data['statistician_remarks'] ?? '';
 $result_file = $stats_data['result_file'] ?? '';
+// Sent back from the TREAT stage rather than from the checklist: the latest revision request
+// on a deliverable is no newer than the "Revision Needed" log the treatment send-back writes
+// (both stamped by MySQL, same clock). An optional treated file rides in result_file with
+// date_released still NULL — the final release overwrites it.
+$from_treatment = false;
+if ($stats_status === 'Phase 6: Revision Requested' && $stats_data) {
+    $ft = $pdo->prepare("SELECT (SELECT MAX(created_at) FROM activity_logs WHERE user_id = ? AND title = 'Statistical Treatment: Revision Needed')
+                             >= (SELECT MAX(verified_at) FROM uploads WHERE user_id = ? AND item_id IN (31,32,33,34,35) AND verification_status = 'Revision Requested')");
+    $ft->execute([$effective_user_id, $effective_user_id]);
+    $from_treatment = (bool)$ft->fetchColumn();
+}
+$revision_file = ($from_treatment && $result_file && empty($stats_data['date_released'])) ? $result_file : '';
 
 // Fetch checklist_items for form_id = 3
 $checklist_stmt = $pdo->prepare("SELECT * FROM checklist_items WHERE form_id = 3 ORDER BY item_id ASC");
@@ -60,6 +72,14 @@ elseif (in_array($stats_status, ['Phase 2: Form Download', 'Phase 4: Payment Ver
 elseif (in_array($stats_status, ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'])) { $current_step = 3; }
 elseif (in_array($stats_status, ['Phase 7: Statistical Treatment', 'Phase 7: Completed'])) { $current_step = 4; }
 
+// DESK QR (2026-10-01): what is waiting for the statistician's in-person check, and the signed
+// link the QR carries. Null when nothing is — the card then shows no QR. See stat_desk_lib.php.
+require_once __DIR__ . '/stat_desk_lib.php';
+$sd = sd_pending($pdo, (int)$effective_user_id);
+$sd_url = $sd ? sd_url((int)$effective_user_id, $sd['ids']) : '';
+$sd_dept = (string)$pdo->query("SELECT department FROM users WHERE user_id = " . (int)$effective_user_id)->fetchColumn();
+$sd_inst = (stripos($sd_dept, 'International') !== false) ? 'ISAP' : 'MCNP';
+
 // Count uploaded deliverables for step 3 (Items 31, 32, 33, 34, 35)
 $deliverable_count = 0;
 foreach ([31,32,33,34,35] as $did) {
@@ -70,6 +90,9 @@ foreach ([31,32,33,34,35] as $did) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Statistical Treatment Module</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -664,8 +687,12 @@ foreach ([31,32,33,34,35] as $did) {
             overflow: hidden;
         }
 
+        /* The glow is positioned, so it painted OVER the static download link and ate its clicks.
+           pointer-events lets them through; the z-index keeps the content above it anyway. */
+        .completion-card > * { position: relative; z-index: 1; }
         .completion-card::before {
             content: '';
+            pointer-events: none;
             position: absolute;
             top: -50%;
             left: -50%;
@@ -734,6 +761,22 @@ foreach ([31,32,33,34,35] as $did) {
                 max-width: 288px;
             }
         }
+        /* DESK QR (2026-10-01) — same white step-alert card, the QR in the icon's place */
+        .sd-card { align-items: center; }
+        .sd-qr-tile { flex-shrink: 0; width: 140px; height: 140px; border-radius: 16px; background: #fff; border: 1px solid var(--border);
+                      display: grid; place-items: center; cursor: zoom-in; }
+        .sd-qr-tile img, .sd-qr-tile canvas { display: block; }
+        .sd-steps { margin: 6px 0 0; padding-left: 18px; font-size: 13px; color: #475569; line-height: 1.6; }
+        .sd-steps strong { color: #0f172a; }
+        .sd-actions { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-top: 12px; }
+        .sd-small { font-size: 11.5px; color: #64748b; }
+        .sd-big[hidden] { display: none !important; }
+        .sd-big { position: fixed; inset: 0; z-index: 9000; background: rgba(15, 23, 42, .55); backdrop-filter: blur(6px); display: grid; place-items: center; padding: 16px; }
+        .sd-big-box { background: #fff; border-radius: 24px; padding: 26px; text-align: center; display: flex; flex-direction: column; align-items: center; box-shadow: 0 30px 60px -20px rgba(0,0,0,.4); }
+        .sd-big-box #sdQrBig { padding: 10px; background: #fff; }
+        .sd-big-box b { margin-top: 14px; font-size: 16px; font-weight: 800; color: #0f172a; }
+        .sd-big-box span { font-size: 13px; color: #64748b; margin-top: 2px; }
+        @media (max-width: 640px) { .sd-card { flex-direction: column; align-items: flex-start; } }
     </style>
 </head>
 <body>
@@ -819,7 +862,7 @@ foreach ([31,32,33,34,35] as $did) {
                 <div class="step-alert-body">
                     <div class="step-alert-head">
                         <h3>Step 2: Proceed to Finance Office</h3>
-                        <a href="downloads/rdc.jpg" target="_blank" class="step-alert-dl">
+                        <a href="<?= htmlspecialchars(rd_form_url($pdo, 'stat_form', (int)$effective_user_id)) ?>" target="_blank" class="step-alert-dl">
                             <i data-lucide="download" style="width:14px; height:14px;"></i> RDC Form 011
                         </a>
                     </div>
@@ -851,8 +894,10 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="<?= $stats_status === 'Phase 6: Revision Requested' ? 'alert-circle' : 'check-circle-2' ?>" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3>Step 3: <?= $stats_status === 'Phase 6: Revision Requested' ? 'Revision Needed on a Requirement' : 'Upload Remaining Requirements' ?></h3>
-                    <p><?php if ($stats_status === 'Phase 6: Revision Requested'): ?>
+                    <h3><?= $from_treatment ? 'Revision Needed After Statistical Treatment' : ('Step 3: ' . ($stats_status === 'Phase 6: Revision Requested' ? 'Revision Needed on a Requirement' : 'Upload Remaining Requirements')) ?></h3>
+                    <p><?php if ($from_treatment): ?>
+                        While treating your data, the Statistician found something that needs fixing. Read the note on each <strong>flagged card</strong> below and re-upload it. Once it is approved, your treatment continues. <strong>No additional payment is needed.</strong>
+                    <?php elseif ($stats_status === 'Phase 6: Revision Requested'): ?>
                         The Statistician requested a <strong>revision</strong> on one or more of your requirements. Check the remarks on the flagged card below and re-upload the corrected file.
                     <?php else: ?>
                         Your payment is verified and your Official Control Number has been registered. You may now upload the remaining deliverables below.
@@ -864,6 +909,13 @@ foreach ([31,32,33,34,35] as $did) {
                     <?php if ($remarks && $stats_status === 'Phase 6: Revision Requested'): ?>
                         <div class="remarks-inline">
                             <strong>Statistician Remarks:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
+                        </div>
+                    <?php endif; ?>
+                    <?php if ($revision_file): ?>
+                        <div style="margin-top: 12px;">
+                            <a href="<?= htmlspecialchars($revision_file) ?>" target="_blank" rel="noopener" download class="btn-inline outline">
+                                <i data-lucide="download" style="width:15px; height:15px;"></i> Download the Statistician's file
+                            </a>
                         </div>
                     <?php endif; ?>
                     <?php if ($deliverable_count > 0): ?>
@@ -892,29 +944,65 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="award" style="width:30px; height:30px;"></i>
                 </div>
                 <h3>Statistical Treatment Completed</h3>
-                <p>The Statistician has finalized your data treatment.<br>You may download your processed results below.</p>
-                <div class="step-alert success" style="max-width: 600px; margin: 20px auto; text-align: left;">
-                    <div class="step-alert-icon"><i data-lucide="info" style="width:22px; height:22px;"></i></div>
-                    <div class="step-alert-body">
-                        <h3>Final Step</h3>
-                        <p><strong>Please proceed to the Research Office</strong> to claim your physical copies of the Statistical Treatment Results.</p>
-                    </div>
-                </div>
+                <p>Your results are ready. Download them below.</p>
                 <?php if ($result_file): ?>
                     <div style="margin-top: 16px;">
-                        <a href="<?= htmlspecialchars($result_file) ?>" target="_blank" class="btn-inline primary">
-                            <i data-lucide="download" style="width:16px; height:16px;"></i> Download Final Results
+                        <a href="<?= htmlspecialchars($result_file) ?>" target="_blank" rel="noopener" download class="btn-inline primary">
+                            <i data-lucide="download" style="width:16px; height:16px;"></i> Download Results
                         </a>
                     </div>
                 <?php endif; ?>
+                <?php // The release note only: releasing clears statistician_remarks, so an old
+                      // checklist or revision remark cannot resurface here. ?>
                 <?php if ($remarks): ?>
                     <div class="remarks-inline" style="text-align: left; max-width: 600px; margin: 16px auto 0; background: rgba(5, 150, 105, 0.08); color: #065f46; border-left-color: var(--emerald);">
-                        <strong>Statistician Remarks:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
+                        <strong>Note from the statistician:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
                     </div>
                 <?php endif; ?>
             </div>
         <?php endif; ?>
 
+        <?php // DESK QR (2026-10-01): shown only while something waits for the statistician's in-person check. ?>
+        <?php if ($sd): ?>
+            <div class="step-alert sd-card animate-in delay-2">
+                <div class="sd-qr-tile" onclick="sdBig(true)" title="Show bigger"><div id="sdQr"></div></div>
+                <div class="step-alert-body">
+                    <h3><?= $sd['stage'] === 'coded' ? 'Going to the statistician\'s office?' : 'Bring your requirements to the statistician' ?></h3>
+                    <ol class="sd-steps">
+                        <?php if ($sd['stage'] === 'coded'): ?>
+                            <li>Go through your coded data with the <strong><?= $sd_inst ?> statistician</strong>.</li>
+                            <li>If everything is right, she <strong>scans this code</strong> and your coded data is approved. Then pay at the <strong>Finance Office</strong>.</li>
+                            <li>If something needs fixing, fix it and upload it again here. A new code appears.</li>
+                        <?php else: ?>
+                            <li>Go through your requirements with the <strong><?= $sd_inst ?> statistician</strong>.</li>
+                            <li>If they are complete, she <strong>scans this code</strong> to approve <?= count($sd['ids']) === 1 ? 'it' : 'all ' . count($sd['ids']) ?> at once.</li>
+                            <li>If something needs changes, upload the corrected file here and bring the new code.</li>
+                        <?php endif; ?>
+                    </ol>
+                    <div class="sd-actions">
+                        <button type="button" class="btn-inline outline" onclick="sdBig(true)" style="margin-top:0;"><i data-lucide="maximize-2" style="width:15px;height:15px;"></i> Show bigger</button>
+                        <span class="sd-small">Works only for the files you uploaded now. Optional: you can also just wait for the review online.</span>
+                    </div>
+                </div>
+            </div>
+            <div class="sd-big" id="sdBig" hidden onclick="sdBig(false)">
+                <div class="sd-big-box" onclick="event.stopPropagation()">
+                    <div id="sdQrBig"></div>
+                    <b><?= $sd['stage'] === 'coded' ? 'Coded data check' : 'Requirements check' ?></b>
+                    <span>For the <?= $sd_inst ?> statistician to scan</span>
+                    <button type="button" class="btn-inline primary" onclick="sdBig(false)" style="margin-top:14px;">Done</button>
+                </div>
+            </div>
+            <script src="../assets/js/qrcode.min.js"></script>
+            <script>
+                (function () {
+                    var url = <?= json_encode($sd_url) ?>;
+                    new QRCode(document.getElementById('sdQr'), { text: url, width: 124, height: 124, correctLevel: QRCode.CorrectLevel.M });
+                    new QRCode(document.getElementById('sdQrBig'), { text: url, width: 280, height: 280, correctLevel: QRCode.CorrectLevel.M });
+                })();
+                function sdBig(on) { document.getElementById('sdBig').hidden = !on; }
+            </script>
+        <?php endif; ?>
         <!-- Deliverable Cards Grid -->
         <?php 
         // Filter checklist items based on current step

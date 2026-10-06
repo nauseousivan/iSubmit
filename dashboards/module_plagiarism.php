@@ -1,5 +1,6 @@
 <?php
 require_once '../config/db.php';
+require_once 'plag_pipeline_lib.php';   // pp_current_pay_docs() / pp_round_start() — the re-payment round
 if (session_status() === PHP_SESSION_NONE) { session_start(); }
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') { exit("Access Denied"); }
 
@@ -28,10 +29,28 @@ $hist_stmt = $pdo->prepare("SELECT upload_id, verification_status, remarks, file
 $hist_stmt->execute([$effective_user_id]);
 $upload_history = $hist_stmt->fetchAll();
 
-// Control number (satellite table, persists across re-uploads)
-$pc_stmt = $pdo->prepare("SELECT formatted_control_no FROM plagiarism_checks WHERE user_id = ?");
+// The phase ladder. Everything on this page is driven by it — which cards show, which panel is
+// on top, and what the tracker says. Mirrors module_statistics.php's use of
+// form_stat_treatment.status; see the migration for the full list of strings.
+$pc_stmt = $pdo->prepare("SELECT formatted_control_no, status, released_at, registered_at, remarks
+                          FROM plagiarism_checks WHERE user_id = ?");
 $pc_stmt->execute([$effective_user_id]);
-$plag_control_no = $pc_stmt->fetchColumn() ?: '';
+$pc = $pc_stmt->fetch() ?: [];
+$plag_phase      = $pc['status'] ?? 'Phase 1: Pending Manuscript';
+$plag_released   = !empty($pc['released_at']);
+$plag_registered = !empty($pc['registered_at']);
+$plag_remarks    = $pc['remarks'] ?? '';
+// Issued on their first upload, but only SHOWN once the payment is registered — before that it is
+// a number nobody has earned yet.
+$plag_control_no = $plag_registered ? ($pc['formatted_control_no'] ?: '') : '';
+
+// The two finance-office documents (41 validated form, 42 official receipt) — THIS ROUND's.
+// Every Turnitin revision is a new round, paid again (office rule, 2026-09-28); round 1's approved
+// pair would otherwise show as done and hide the upload buttons, leaving the group stuck.
+$pay_docs = pp_current_pay_docs($pdo, (int)$effective_user_id);
+$plag_round_again = pp_round_start($pdo, (int)$effective_user_id) !== null;
+
+$pay_items = $pdo->query("SELECT item_id, item_name, description FROM checklist_items WHERE item_id IN (41,42) ORDER BY item_id")->fetchAll();
 
 // Turnitin report (item_id = 40) — staff-uploaded, versioned in the same `uploads` table as
 // everything else, so the report is downloadable regardless of the manuscript's current status
@@ -54,17 +73,29 @@ if ($has_upload) {
     else { $card_status = 'pending'; $status_text = 'In Review'; }
 }
 
-// 3-step tracker (sister-card visual to Statistics' Data Upload/Finance Payment/Requirements/
-// Release tracker, reworded for plagiarism and with the Finance step cut — no payment here).
-$current_step = 1;
-if ($card_status === 'pending') $current_step = 2;
-elseif ($card_status === 'approved') $current_step = 3;
-$step_completed_3 = ($card_status === 'approved');
+// 4-step tracker, the same shape as Statistics' — and it now HAS the Finance step, because the
+// scan is paid for exactly like the statistical treatment is.
+//   1 Manuscript · 2 Finance Payment · 3 Turnitin Check · 4 Cleared
+$plag_step_map = [
+    'Phase 1: Pending Manuscript'  => 1,
+    'Phase 1: Manuscript Review'   => 1,
+    'Phase 1: Manuscript Returned' => 1,
+    'Phase 2: Form Download'       => 2,
+    'Phase 3: Payment Verification' => 2,
+    'Phase 4: Registered'          => 3,
+    'Phase 5: Revision Requested'  => 3,
+    'Phase 5: Cleared'             => 4,
+];
+$current_step     = $plag_step_map[$plag_phase] ?? 1;
+$step_completed_4 = ($plag_phase === 'Phase 5: Cleared');
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Plagiarism Verification Scan Hub</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
@@ -158,6 +189,32 @@ $step_completed_3 = ($card_status === 'approved');
         /* Step tracker — sister visual to Statistics' Data Upload/Finance Payment/Requirements/
            Release tracker, reworded for plagiarism's simpler 3-step flow (no payment step). */
         .hero-header { display:flex; align-items:center; justify-content:flex-end; margin-bottom:14px; }
+        /* Stage banner. Same component Statistics uses for its Finance step — this card now has
+           the identical errand, so it gets the identical panel rather than a lookalike. */
+        .step-alert { display:flex; gap:14px; padding:16px 18px; border-radius:18px; margin-bottom:20px;
+                      background:#fff; border:1px solid #f1f5f9; box-shadow:0 8px 16px -4px rgba(0,0,0,.05); }
+        .step-alert-icon { width:44px; height:44px; border-radius:13px; flex-shrink:0;
+                           display:flex; align-items:center; justify-content:center; }
+        .step-alert.gold    .step-alert-icon { background:#fef3c7; color:#b45309; }
+        .step-alert.info    .step-alert-icon { background:#e0f2fe; color:#0369a1; }
+        .step-alert.success .step-alert-icon { background:#d1fae5; color:#047857; }
+        .step-alert.warning .step-alert-icon { background:#fef3c7; color:#b45309; }
+        .step-alert-body { min-width:0; flex:1; }
+        .step-alert-body h3 { margin:0 0 6px; font-size:15px; font-weight:800; color:#0f172a; line-height:1.3; }
+        .step-alert-body p { margin:0; font-size:13px; color:#475569; line-height:1.6; }
+        .step-alert-body p strong { color:#0f172a; font-weight:700; }
+        .step-alert-head { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+        .step-alert-dl { display:inline-flex; align-items:center; gap:6px; flex-shrink:0;
+                         padding:6px 12px; border-radius:999px; text-decoration:none;
+                         background:#fffbeb; border:1px solid #fde68a; color:#b45309;
+                         font-size:11.5px; font-weight:750; }
+        .step-alert-dl:hover { background:#fef3c7; }
+        .remarks-inline { margin-top:10px; padding:10px 12px; border-radius:12px;
+                          background:#fffbeb; border:1px solid #fde68a; color:#92400e; font-size:12.5px; line-height:1.5; }
+        body.theme-dark .step-alert { background:#24282d; border-color:#3a3f45; }
+        body.theme-dark .step-alert-body h3 { color:#e0e0e0; }
+        body.theme-dark .step-alert-body p { color:#b0ada8; }
+
         .step-tracker { display:flex; align-items:flex-start; justify-content:space-between; margin-bottom:22px; position:relative; padding:0 10px; }
         .step-tracker::before { content:''; position:absolute; top:20px; left:40px; right:40px; height:3px; background:#e5e7eb; border-radius:2px; z-index:0; }
         .step-tracker .progress-line { position:absolute; top:20px; left:40px; height:3px; background:linear-gradient(90deg, #059669, var(--mcnp-teal)); border-radius:2px; z-index:1; transition:width 0.8s cubic-bezier(0.4,0,0.2,1); }
@@ -198,19 +255,18 @@ $step_completed_3 = ($card_status === 'approved');
 
     <?php
     $steps = [
-        ['num' => 1, 'label' => 'Upload Manuscript', 'icon' => 'upload-cloud'],
-        ['num' => 2, 'label' => 'In Review', 'icon' => 'search'],
-        ['num' => 3, 'label' => 'Clearance Report', 'icon' => 'award'],
+        ['num' => 1, 'label' => 'Manuscript', 'icon' => 'upload-cloud'],
+        ['num' => 2, 'label' => 'Finance Payment', 'icon' => 'wallet'],
+        ['num' => 3, 'label' => 'Turnitin Check', 'icon' => 'search'],
+        ['num' => 4, 'label' => 'Cleared', 'icon' => 'award'],
     ];
-    $step_progress = 0;
-    if ($current_step >= 2) $step_progress = 50;
-    if ($current_step >= 3) $step_progress = 100;
+    $step_progress = [1 => 0, 2 => 33, 3 => 66, 4 => 100][$current_step] ?? 0;
     ?>
     <div class="step-tracker">
         <div class="progress-line" style="width: calc(<?= $step_progress ?>% * 0.85);"></div>
         <?php foreach ($steps as $s):
             $state = '';
-            if ($s['num'] < $current_step || ($s['num'] == 3 && $step_completed_3)) $state = 'completed';
+            if ($s['num'] < $current_step || ($s['num'] == 4 && $step_completed_4)) $state = 'completed';
             elseif ($s['num'] == $current_step) $state = 'active';
         ?>
             <div class="step-item <?= $state ?>">
@@ -250,11 +306,137 @@ $step_completed_3 = ($card_status === 'approved');
         </div>
     <?php endif; ?>
 
+    <?php // ── STEP 2: THE FINANCE OFFICE ──────────────────────────────────────────────────────
+    // Deliberately the same panel Statistics uses for RDC Form 011 — the group does the identical
+    // errand here: print the form, pay, come back with the validated copy and the receipt. ?>
+    <?php if ($plag_phase === 'Phase 2: Form Download'): ?>
+        <div class="step-alert gold animate-in delay-2">
+            <div class="step-alert-icon"><i data-lucide="wallet" style="width:22px; height:22px;"></i></div>
+            <div class="step-alert-body">
+                <div class="step-alert-head">
+                    <h3>Step 2: Proceed to Finance Office</h3>
+                    <a href="<?= htmlspecialchars(rd_form_url($pdo, 'plag_form', (int)$effective_user_id)) ?>" target="_blank" class="step-alert-dl">
+                        <i data-lucide="download" style="width:14px; height:14px;"></i> RDC Form 13
+                    </a>
+                </div>
+                <?php if ($plag_round_again): ?>
+                    <div class="remarks-inline" style="margin-bottom:10px;"><strong>New scan, new payment:</strong> your revised manuscript is scanned again,
+                        so the scan fee is paid again. Upload the NEW validated form and receipt below. Your control number stays the same.</div>
+                <?php endif; ?>
+                <p>Your manuscript has been <strong>received</strong>. Now follow these exact steps:<br><br>
+                1. <strong>Print and fill out</strong> the Plagiarism Scan Form (RDC Form No. 13). You can download it above.<br>
+                2. <strong>Proceed to the Finance Office</strong> to pay the scan fee.<br>
+                3. Get the form <strong>Validated</strong> and secure your <strong>Official Receipt</strong>.<br>
+                4. <strong>Upload both documents below.</strong></p>
+                <?php if ($plag_remarks): ?>
+                    <div class="remarks-inline"><strong>Research Office remarks:</strong> <?= nl2br(htmlspecialchars($plag_remarks)) ?></div>
+                <?php endif; ?>
+            </div>
+        </div>
+    <?php elseif ($plag_phase === 'Phase 3: Payment Verification'): ?>
+        <div class="step-alert info animate-in delay-2">
+            <div class="step-alert-icon"><i data-lucide="clock" style="width:22px; height:22px;"></i></div>
+            <div class="step-alert-body">
+                <h3>Step 2: Payment Verification</h3>
+                <p>Your payment documents are in and are being <strong>verified</strong> by the research
+                   office. Once they register you, your control number appears here and the Turnitin
+                   check begins.</p>
+            </div>
+        </div>
+    <?php elseif ($plag_phase === 'Phase 4: Registered'): ?>
+        <div class="step-alert info animate-in delay-2">
+            <div class="step-alert-icon"><i data-lucide="search" style="width:22px; height:22px;"></i></div>
+            <div class="step-alert-body">
+                <h3>Step 3: Turnitin check in progress</h3>
+                <p>You are registered — <strong>nothing left to upload</strong>. The research office is
+                   running your manuscript through Turnitin and will post the result here.</p>
+            </div>
+        </div>
+    <?php elseif ($plag_phase === 'Phase 5: Revision Requested'): ?>
+        <div class="step-alert warning animate-in delay-2">
+            <div class="step-alert-icon"><i data-lucide="rotate-ccw" style="width:22px; height:22px;"></i></div>
+            <div class="step-alert-body">
+                <h3>Revise and re-send your manuscript</h3>
+                <p>The Turnitin check flagged your paper. Read the report above, revise, then upload the
+                   revised manuscript below. Once the office receives it, you will <strong>pay the scan fee
+                   again</strong> at the finance office &mdash; every revision is a new scan.</p>
+            </div>
+        </div>
+    <?php elseif ($plag_phase === 'Phase 5: Cleared'): ?>
+        <div class="step-alert success animate-in delay-2">
+            <div class="step-alert-icon"><i data-lucide="award" style="width:22px; height:22px;"></i></div>
+            <div class="step-alert-body">
+                <h3>Cleared — you may bookbind your paper</h3>
+                <p>Your paper passed the Turnitin check. Congratulations!</p>
+            </div>
+        </div>
+    <?php endif; ?>
+
     <div class="mobile-stack-hint">
         <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap the card to manage
     </div>
 
+    <?php // Which document the group is being asked for depends entirely on the phase. Showing
+    // all three at once would put a finished job and a not-yet-possible one side by side. ?>
+    <?php $show_manuscript = in_array($plag_phase, ['Phase 1: Pending Manuscript', 'Phase 1: Manuscript Review',
+                                                    'Phase 1: Manuscript Returned', 'Phase 5: Revision Requested'], true);
+          $show_payment    = in_array($plag_phase, ['Phase 2: Form Download', 'Phase 3: Payment Verification'], true); ?>
+
+    <?php if ($show_payment): ?>
     <div class="items-grid">
+        <?php $pc_i = 0; foreach ($pay_items as $pit):
+            $pc_i++;
+            $pd = $pay_docs[(int)$pit['item_id']] ?? null;
+            $pst = $pd['verification_status'] ?? null;
+            if ($pst === 'Approved')            { $pcls = 'approved';  $ptxt = 'Approved'; }
+            elseif ($pst === 'Revision Requested') { $pcls = 'revision'; $ptxt = 'Revision Needed'; }
+            elseif ($pst !== null)              { $pcls = 'review';    $ptxt = 'Under Review'; }
+            else                                { $pcls = 'no-upload'; $ptxt = 'No Upload'; }
+        ?>
+            <div class="item-card <?= $pcls ?>" id="req-item-<?= (int)$pit['item_id'] ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $pc_i ?>;">
+                <div class="card-inner-bg">
+                    <div class="card-header">
+                        <div class="status-icon-box num-indicator"><?= str_pad($pc_i, 2, '0', STR_PAD_LEFT) ?></div>
+                        <div>
+                            <h3 class="card-title"><?= htmlspecialchars($pit['item_name']) ?></h3>
+                            <p class="card-meta"><?= htmlspecialchars($pit['description']) ?></p>
+                        </div>
+                    </div>
+                    <div class="card-body" onclick="event.stopPropagation()">
+                        <div style="display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:16px;">
+                            <div class="status-pill <?= $pcls ?>" style="margin-bottom:0;"><?= $ptxt ?></div>
+                        </div>
+                        <?php if ($pst === 'Revision Requested' && !empty($pd['remarks'])): ?>
+                            <div class="instruction-box" style="background:#fef2f2; color:#b91c1c; border:1px solid #fecaca; margin-bottom:16px;">
+                                <strong>Sent back:</strong> "<?= htmlspecialchars($pd['remarks']) ?>"
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($pd): ?>
+                            <div class="apple-file-card">
+                                <div class="afc-thumb-wrap"><i data-lucide="file-text" style="width:20px;height:20px;color:#64748b;"></i></div>
+                                <div class="afc-info">
+                                    <div class="afc-name" title="<?= htmlspecialchars($pd['original_filename']) ?>"><?= htmlspecialchars(strlen($pd['original_filename']) > 28 ? substr($pd['original_filename'], 0, 25) . '...' : $pd['original_filename']) ?></div>
+                                    <div class="afc-meta"><?= $pd['uploaded_at'] ? date('M j, Y · g:i A', strtotime($pd['uploaded_at'])) : '' ?></div>
+                                </div>
+                                <div class="afc-actions">
+                                    <button type="button" class="afc-btn" onclick="openDownloadModal('<?= htmlspecialchars($pd['file_path']) ?>', '<?= htmlspecialchars($pd['original_filename'], ENT_QUOTES) ?>'); event.stopPropagation();">View</button>
+                                </div>
+                            </div>
+                        <?php endif; ?>
+                        <?php if ($pst !== 'Approved'): ?>
+                            <button type="button" class="btn btn-primary" style="margin-top:14px;" onclick="openUploadModal(<?= (int)$pit['item_id'] ?>)">
+                                <i data-lucide="<?= $pd ? 'refresh-cw' : 'upload' ?>" style="width:18px;height:18px;"></i>
+                                <?= $pd ? 'Re-upload' : 'Upload' ?>
+                            </button>
+                        <?php endif; ?>
+                    </div>
+                </div>
+            </div>
+        <?php endforeach; ?>
+    </div>
+    <?php endif; ?>
+
+    <div class="items-grid" style="<?= $show_manuscript ? '' : 'display:none;' ?>">
         <div class="item-card <?= $card_status ?>" id="req-item-<?= $checklist_item['item_id'] ?>" onclick="expandWalletCard(this, event)" style="z-index: 1;">
             <div class="card-inner-bg">
                 <div class="card-header">
@@ -369,7 +551,7 @@ $step_completed_3 = ($card_status === 'approved');
             <div class="modal-body">
                 <form action="upload_handler.php" method="POST" enctype="multipart/form-data" id="uploadForm" target="_parent">
                     <input type="hidden" name="module_context" value="plagiarism">
-                    <input type="hidden" name="item_id" value="4">
+                    <input type="hidden" name="item_id" id="modalItemId" value="4">
                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
 
                     <div class="drop-zone" id="dropArea">
@@ -491,7 +673,14 @@ $step_completed_3 = ($card_status === 'approved');
         const filePreview = document.getElementById('filePreview');
         const dropArea = document.getElementById('dropArea');
 
-        function openUploadModal() {
+        // itemId lets the one modal serve all three documents this card asks for at different
+        // phases: the manuscript (4) and the two finance scans (41 / 42).
+        function openUploadModal(itemId) {
+            var idField = document.getElementById('modalItemId');
+            if (idField) idField.value = itemId || 4;
+            // The finance documents are photos of paper; the manuscript is a document file.
+            fileInput.setAttribute('accept', (itemId === 41 || itemId === 42)
+                ? 'image/*,.jpg,.jpeg,.png,.pdf' : '.pdf,.doc,.docx');
             fileInput.value = '';
             filePreview.classList.remove('visible');
             dropArea.style.display = 'block';

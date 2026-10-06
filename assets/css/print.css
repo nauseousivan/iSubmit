@@ -1,0 +1,67 @@
+/* =============================================================================
+   print.css — how every iSubmit report looks on paper (2026-10-01).
+   Loaded by office_analytics.php, admin_analytics.php and focal_reports.php
+   (each page adds its own few layout rules in its own @media print block).
+
+   On paper a report is ALWAYS: white A4, the light palette whatever the screen
+   theme is (a dark-mode print used to come out as dark pages with an invisible
+   title), a letterhead (.rp-head), real colours on the charts (browsers drop
+   backgrounds by default, which erased every bar), page numbers, and none of
+   the screen's buttons, filters or "tap to..." hints (.rp-hint).
+   ========================================================================== */
+
+/* the letterhead and the closing line exist only on paper */
+.rp-only { display: none; }
+
+@page {
+    size: A4;
+    margin: 14mm 12mm 15mm;
+    @bottom-left { content: "iSubmit · Research & Development Center · MCNP – ISAP"; font: 7.5pt "Segoe UI", system-ui, sans-serif; color: #8a8599; }
+    @bottom-right { content: "Page " counter(page) " of " counter(pages); font: 7.5pt "Segoe UI", system-ui, sans-serif; color: #8a8599; }
+}
+/* a report with a wide table asks for landscape: <body class="... rp-wide"> */
+@page wide { size: A4 landscape; }
+
+@media print {
+    /* ---- the light palette, whatever the viewer's theme or accent ---- */
+    html, body, body.theme-light, body.theme-dark {
+        --canvas: #ffffff !important; --surface: #ffffff !important; --surface-2: #f6f5fa !important; --surface-3: #f3f1f8 !important;
+        --ink: #1e1633 !important; --ink-soft: #3b3156 !important; --muted: #6b6585 !important;
+        --line: #e4e0ee !important; --line-soft: #f1eff6 !important;
+        --accent: #6d28d9 !important; --accent-ink: #ffffff !important;
+        --c1: #2a78d6 !important; --c2: #eb6834 !important; --c3: #1baf7a !important; --c4: #eda100 !important;
+        --c5: #e87ba4 !important; --c6: #008300 !important; --c7: #4a3aa7 !important; --c8: #e34948 !important;
+        --s-good: #0ca30c !important; --s-warn: #e09b00 !important; --s-bad: #d03b3b !important; --s-none: #c9c4bd !important;
+        --grid: rgba(0, 0, 0, .1) !important;
+        background: #ffffff !important; color: #1e1633 !important; color-scheme: light !important;
+    }
+    body.rp-wide .rp-page { page: wide; }
+    * { -webkit-print-color-adjust: exact !important; print-color-adjust: exact !important; box-shadow: none !important; text-shadow: none !important;
+        transition: none !important; animation: none !important; }
+    body { font-size: 10pt; }
+
+    /* ---- never on paper ---- */
+    .rp-hint, .rp-screen, button.rp-screen { display: none !important; }
+
+    /* ---- the letterhead ---- */
+    .rp-only { display: block; }
+    .rp-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16pt; padding-bottom: 8pt; margin-bottom: 12pt;
+        border-bottom: 2pt solid #6d28d9; }
+    .rp-brand { display: flex; align-items: center; gap: 8pt; }
+    .rp-logo { height: 28pt; width: auto; display: block; }
+    .rp-brand b { display: block; font: 700 11pt "Outfit", "Segoe UI", sans-serif; color: #1e1633; letter-spacing: -.01em; }
+    .rp-brand span { display: block; font-size: 8pt; color: #6b6585; }
+    .rp-meta { text-align: right; font-size: 8pt; color: #6b6585; line-height: 1.45; }
+    .rp-meta b { display: block; font-size: 9pt; color: #1e1633; }
+    .rp-end { display: block; margin-top: 14pt; padding-top: 6pt; border-top: .6pt solid #e4e0ee; font-size: 8pt; color: #6b6585; }
+
+    /* ---- shared rules for the report bodies ---- */
+    h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+    table { break-inside: auto; }
+    thead { display: table-header-group; }
+    th:has(> .rp-th) > button { display: none !important; }   /* the plain-text twin prints instead */
+    .rp-only.rp-th { display: inline; }
+    tr { break-inside: avoid; page-break-inside: avoid; }
+    a { color: inherit; text-decoration: none; }
+    i svg, svg { max-width: 100%; }
+}

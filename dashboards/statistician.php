@@ -11,6 +11,12 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Statistician') {
 }
 
 $uid = $_SESSION['user_id'];
+// Institution scope (2026-09-26): a Statistician covers one institution or both
+// (AA_ALL_INSTITUTIONS). Her dock badges must agree with what her Checklist actually shows
+// her, so they run through aa_scope_sql() like every other scoped listing.
+require_once __DIR__ . '/admin_accounts_lib.php';
+require_once __DIR__ . '/stats_pipeline_lib.php';   // sp_rows() — the one-ladder view
+$role = $_SESSION['role'];
 $message = "";
 if (isset($_SESSION['flash_message'])) {
     $message = $_SESSION['flash_message'];
@@ -135,24 +141,39 @@ $stats_checklist_pending = $pdo->query("
 ")->fetchColumn();
 
 // form_stat_treatment isn't versioned like uploads, so no dedup subquery is needed here.
-$stats_payment_pending = $pdo->query("
-    SELECT COUNT(*) FROM form_stat_treatment
-    WHERE status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')
-")->fetchColumn();
+[$sb_sql, $sb_params] = aa_scope_sql($pdo, $role, (int)$uid, 'u');
 
-$stats_release_pending = $pdo->query("
-    SELECT COUNT(*) FROM form_stat_treatment WHERE status = 'Phase 7: Statistical Treatment'
-")->fetchColumn();
+// Only what the desk can ACT on — the same definition the Ready lane uses in
+// admin_module_dynamic.php. Phase 2 (form downloaded, nothing paid) is the student's move and
+// must not inflate this: the badge used to say 4 while only 2 groups had submitted anything.
+$sb_stmt = $pdo->prepare("
+    SELECT COUNT(*) FROM form_stat_treatment f
+    JOIN users u ON u.user_id = f.user_id
+    WHERE f.status = 'Phase 4: Payment Verification'
+      AND EXISTS (SELECT 1 FROM uploads up WHERE up.user_id = f.user_id AND up.item_id IN (36, 37))
+      AND $sb_sql
+");
+$sb_stmt->execute($sb_params);
+$stats_payment_pending = $sb_stmt->fetchColumn();
 
-// Plagiarism nav badge: Statistician has full parity with Coordinator/Director on phase=plag,
-// so items at either the first-pass (Pending) or final (Under Review) stage count as actionable.
-$plag_pending_count = $pdo->query("
-    SELECT COUNT(*) FROM uploads up
-    INNER JOIN (
-        SELECT user_id, MAX(upload_id) AS max_id FROM uploads WHERE item_id = 4 GROUP BY user_id
-    ) latest ON latest.max_id = up.upload_id
-    WHERE up.item_id = 4 AND up.verification_status IN ('Pending', 'Under Review')
-")->fetchColumn();
+$sr_stmt = $pdo->prepare("
+    SELECT COUNT(*) FROM form_stat_treatment f JOIN users u ON u.user_id = f.user_id
+    WHERE f.status = 'Phase 7: Statistical Treatment' AND $sb_sql
+");
+$sr_stmt->execute($sb_params);
+$stats_release_pending = $sr_stmt->fetchColumn();
+
+// The Pipeline's badge is its own 'Your move' band — counted from the rows it renders, not
+// a parallel query, so the number on the nav and the number on the screen are one thing.
+$sp_you = sp_counts(sp_rows($pdo, $sb_sql, $sb_params))['you'];
+
+// Manuscript's four desks. Statistician has full parity with Coordinator/Director on phase=plag,
+// so it shows the same four badges. Counted off the phase ladder — see nav_badge_lib.php.
+require_once __DIR__ . '/nav_badge_lib.php';
+require_once __DIR__ . '/plag_pipeline_lib.php';   // pp_badge_counts() — the three Plagiarism step badges
+$pp_step_n = pp_badge_counts($pdo, (string)$_SESSION['role'], (int)$_SESSION['user_id']);
+$plag_counts = rd_plag_badge_counts($pdo);
+$plag_pending_count = $plag_counts['review'];
 
 // Backward-compat alias: the "Pending Data Validations" stat card (and the Master Dashboard
 // partial's Statistician branch) reads this same corrected value.
@@ -194,188 +215,48 @@ $recent_activities = $pdo->query("
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Statistician Dashboard</title>
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/portal.css">
+    <link rel="stylesheet" href="../assets/mascot/mascot.css">
+    <link rel="stylesheet" href="../assets/css/staff_home.css">
     <script src="../assets/js/portal.js"></script>
 </head>
 
-<body>
+<body class="sh-shell">
     <div class="app-dashboard-frame">
-        <nav class="app-dock-navigation" aria-label="Primary navigation">
-            <div class="dock-brand"><i data-lucide="graduation-cap" style="width:22px;height:22px;color:var(--accent);"></i><span class="dock-brand-name">iSubmit</span></div>
-            <ul class="dock-menu-list">
-                <li class="nav-section-label">Overview</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn active" data-view="home" onclick="showMasterDashboard(this)"><i data-lucide="house"></i><span class="dock-label">Dashboard</span></button>
-                </li>
-
-                <li class="nav-section-label">Statistics</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Clearance" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=checklist', this)">
-                        <i data-lucide="sigma"></i><span class="dock-label">Clearance</span>
-                        <span class="dock-badge" id="navBadgeChecklist" style="<?= $stats_checklist_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_checklist_pending ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Payment" data-win-icon="receipt" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=payments', this)">
-                        <i data-lucide="receipt"></i><span class="dock-label">Payment</span>
-                        <span class="dock-badge" id="navBadgePayment" style="<?= $stats_payment_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_payment_pending ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Payment History" data-win-icon="history" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=history', this)"><i data-lucide="history"></i><span class="dock-label">History</span></button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Release Results" data-win-icon="send" onclick="openOverlay('admin_module_dynamic.php?phase=stats&view=release', this)">
-                        <i data-lucide="send"></i><span class="dock-label">Release</span>
-                        <span class="dock-badge" id="navBadgeRelease" style="<?= $stats_release_pending > 0 ? '' : 'display:none;' ?>"><?= (int) $stats_release_pending ?></span>
-                    </button>
-                </li>
-
-                <li class="nav-section-label">Plagiarism</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Review" data-win-icon="shield-alert" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=review', this)">
-                        <i data-lucide="shield-alert"></i><span class="dock-label">Review</span>
-                        <span class="dock-badge" id="navBadgePlag" style="<?= $plag_pending_count > 0 ? '' : 'display:none;' ?>"><?= (int) $plag_pending_count ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Cleared" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=cleared', this)"><i data-lucide="shield-check"></i><span class="dock-label">Cleared</span></button>
-                </li>
-
-                <li class="nav-section-label">Workspace</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i><span class="dock-label">Messages</span></button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Analytics" data-win-icon="bar-chart-3" onclick="openOverlay('analytics.php', this)"><i data-lucide="bar-chart-3"></i><span class="dock-label">Analytics</span></button>
-                </li>
-
-                <li class="nav-account">
-                    <div class="nav-section-label">Account</div>
-                    <div class="dock-item">
-                        <button class="dock-btn nav-item-btn" onclick="showSettingsDashboard(this)"><i data-lucide="settings-2"></i><span class="dock-label">Settings</span></button>
-                    </div>
-                    <div class="dock-item">
-                        <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">
-                            <div class="dock-avatar-ring"><img src="<?= htmlspecialchars($current_pfp) ?>" class="dock-avatar-img" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';"></div>
-                            <span class="dock-avatar-name"><?= htmlspecialchars($currentUser['username']) ?></span>
-                        </button>
-                        <div class="dock-dropdown" id="dockAvatarMenu" onclick="event.stopPropagation()">
-                            <div class="dock-dropdown-head">
-                                <div class="dock-dropdown-name"><?= htmlspecialchars($currentUser['username']) ?></div>
-                                <div class="dock-dropdown-role">Statistician</div>
-                            </div>
-                            <a onclick="showSettingsDashboard(document.getElementById('settings-nav-btn')); toggleDockMenu('dockAvatarMenu')"><i data-lucide="settings-2"></i> Panel Settings</a>
-                            <a href="../auth/logout.php" class="danger"><i data-lucide="log-out"></i> Log out</a>
-                        </div>
-                    </div>
-                    <div class="dock-item">
-                        <button class="dock-btn dock-logout" onclick="window.location.href='../auth/logout.php'"><i data-lucide="log-out"></i><span class="dock-label">Log out</span></button>
-                    </div>
-                </li>
-            </ul>
-        </nav>
-
-        <!-- Hidden settings button retained so showSettingsDashboard() keeps its JS reference -->
-        <button class="nav-item-btn" id="settings-nav-btn" onclick="showSettingsDashboard(this)" style="display: none;"></button>
-
-        <main class="main-workspace-content">
-            <?php include __DIR__ . "/_master_overview.php"; ?>
+        <?php
+        // The staff home (2026-09-29), the Statistician's rail: Home · Statistics · Plagiarism ·
+        // Workspace. Counts use nav_badge_counts.php's keys so the page and the 20s refresh agree.
+        $sh_counts = [
+            'pipeline'     => (int)$sp_you,
+            'checklist'    => (int)$stats_checklist_pending,
+            'plag'         => (int)$plag_counts['review'],
+            'plag_release' => (int)$plag_counts['release'],
+            'plag_pay'     => (int)$plag_counts['payment'],
+            'plag_cleared' => (int)$plag_counts['verdict'],
+            'plag_manu'          => $pp_step_n['manuscript'],   // plag_pipeline_lib.php
+            'plag_log'           => $pp_step_n['payment'],
+            'plag_check'         => $pp_step_n['result'],
+        ];
+        $sh_role_label   = 'Statistician';
+        $sh_has_calendar = false;   // no Calendar view in this shell
+        ?>
+        <script>window.SH_SHELL_VIEWS = ['settingsDashboard'];</script>
+        <?php include __DIR__ . '/_staff_home.php'; ?>
 
 
             <!-- PANEL SETTINGS DASHBOARD -->
-            <div class="container" id="settingsDashboard" style="display: none;">
-                <div class="header">
-                    <div class="header-title">
-                        <h1>Panel Settings</h1>
-                        <p>Customize your administrative profile, credentials, and appearance.</p>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
-                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
-                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Profile Information</h3>
-
-                        <form method="POST" id="profileSettingsForm">
-                            <input type="hidden" name="action_type" value="update_profile">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-
-                            <div style="margin-bottom: 18px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Username Signature</label>
-                                <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 18px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Profile Avatar</label>
-                                <?php
-                                    $avatar_presets = ["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"];
-                                    $preset_urls = array_map(fn($p) => "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $p, $avatar_presets);
-                                    $current_pic = $currentUser['profile_pic'] ?? '';
-                                    $is_preset_pic = in_array($current_pic, $preset_urls, true);
-                                ?>
-                                <input type="hidden" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($current_pic ?: $preset_urls[0]) ?>">
-                                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                                    <?php if ($current_pic && !$is_preset_pic): ?>
-                                        <div style="text-align:center;">
-                                            <img src="<?= htmlspecialchars($current_pic) ?>" style="width:34px; height:34px; border-radius:50%; border:2px solid var(--eagle-gold); object-fit:cover;">
-                                            <div style="font-size:8px; color:var(--text-muted); margin-top:2px;">Current</div>
-                                        </div>
-                                    <?php endif; ?>
-                                    <?php foreach ($preset_urls as $purl): $active = ($purl === $current_pic) || (!$current_pic && $purl === $preset_urls[0]); ?>
-                                        <img src="<?= $purl ?>" onclick="selectAvatarPreset('<?= $purl ?>', this)" class="avatar-preset-option" style="width:34px; height:34px; border-radius:50%; cursor:pointer; background:#f3f4f6; border:2px solid <?= $active ? 'var(--mcnp-teal)' : 'var(--border-line)' ?>; transition:all 0.2s;">
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-
-                            <div style="margin-bottom: 22px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:8px;">Appearance</label>
-                                <div class="seg-toggle">
-                                    <button type="button" data-theme="theme-light" onclick="setPortalTheme('theme-light')"><i data-lucide="sun"></i> Light</button>
-                                    <button type="button" data-theme="theme-dark" onclick="setPortalTheme('theme-dark')"><i data-lucide="moon"></i> Dark</button>
-                                </div>
-                            </div>
-
-                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
-                                <i data-lucide="save"></i> Save
-                            </button>
-                        </form>
-                    </div>
-
-                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
-                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Change Password</h3>
-
-                        <form method="POST" id="passwordSettingsForm">
-                            <input type="hidden" name="action_type" value="update_password">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-
-                            <div style="margin-bottom: 15px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Current Password</label>
-                                <input type="password" name="current_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">New Password</label>
-                                <input type="password" name="new_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 22px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Confirm New Password</label>
-                                <input type="password" name="confirm_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
-                                <i data-lucide="save"></i> Save
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
+            <?php // SETTINGS — shared by all three shells (2026-09-29): _staff_settings.php ?>
+            <?php include __DIR__ . '/_staff_settings.php'; ?>
         </main>
 
         <!-- macOS window layer (modules open here as windows) -->
@@ -413,45 +294,11 @@ $recent_activities = $pdo->query("
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Keep the review-queue dock badges live without a manual page refresh — they're only
-        // rendered once at page load otherwise, so counts go stale as items move through review
-        // module windows (opened in iframes, which don't touch this parent shell's PHP output).
-        function refreshNavBadges() {
-            fetch('nav_badge_counts.php').then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
-                if (!data) return;
-                var map = { checklist: 'navBadgeChecklist', payment: 'navBadgePayment', release: 'navBadgeRelease', plag: 'navBadgePlag' };
-                Object.keys(map).forEach(function (key) {
-                    var el = document.getElementById(map[key]);
-                    if (!el) return;
-                    var count = data[key] || 0;
-                    el.textContent = count;
-                    el.style.display = count > 0 ? '' : 'none';
-                });
-            }).catch(function () {});
-        }
-        setInterval(refreshNavBadges, 20000);
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshNavBadges(); });
-
-        // Complete workspace-switcher layout handlers
-        function hideAllDashboards() {
-            document.getElementById('masterDashboard').style.display = 'none';
-            document.getElementById('settingsDashboard').style.display = 'none';
-            PortalWindows.collapseAll();
-        }
-
-        function showMasterDashboard(btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('masterDashboard').style.display = 'block';
-        }
-
-        function showSettingsDashboard(btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('settingsDashboard').style.display = 'block';
-        }
+        // Badges and view switching live in _staff_home.php now; these names stay because other
+        // code still calls them.
+        function hideAllDashboards() { if (window.PortalWindows) PortalWindows.collapseAll(); }
+        function showMasterDashboard() { shShow('home'); }
+        function showSettingsDashboard() { shShow('settingsDashboard'); }
 
         // Open a module as a macOS-style window (state preserved when minimized).
         function openOverlay(url, btn) {
@@ -477,49 +324,6 @@ $recent_activities = $pdo->query("
             setPortalTheme(themeName);
         }
 
-        function updateNavClock() {
-            const timeEl = document.getElementById('navClockTime');
-            if (timeEl) {
-                const now = new Date();
-                const timeString = now.toLocaleString("en-US", {
-                    timeZone: "Asia/Manila",
-                    weekday: 'short',
-                    month: 'short',
-                    day: 'numeric',
-                    hour: '2-digit',
-                    minute: '2-digit',
-                    second: '2-digit'
-                });
-                timeEl.textContent = timeString;
-            }
-        }
-        setInterval(updateNavClock, 1000);
-        updateNavClock();
-
-        // Perform search logic across rows in the workflow track table
-        function performGlobalTableSearch() {
-            const q = document.getElementById('workspaceGlobalSearch').value.toLowerCase().trim();
-            const rows = document.querySelectorAll('table tbody tr');
-            rows.forEach(row => {
-                const text = row.textContent.toLowerCase();
-                if (text.includes(q)) {
-                    row.style.display = '';
-                } else {
-                    row.style.display = 'none';
-                }
-            });
-        }
-
-        // Hotkey trigger: Cmd+Space / Ctrl+Space focuses global search
-        document.addEventListener('keydown', (e) => {
-            if ((e.metaKey || e.ctrlKey) && e.key === ' ') {
-                e.preventDefault();
-                const searchInput = document.getElementById('workspaceGlobalSearch');
-                if (searchInput) {
-                    searchInput.focus();
-                }
-            }
-        });
     </script>
 </body>
 

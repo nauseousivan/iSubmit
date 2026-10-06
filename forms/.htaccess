@@ -1,0 +1,6 @@
+# forms/ — the blank forms the Admin uploads (Admin → System → Forms). Students download them
+# directly, so this folder is public; nothing in it may ever run, and it is never listed.
+Options -Indexes
+<FilesMatch "(?i)\.(php\d?|phtml|phar|pl|py|cgi|sh|asp|aspx|jsp|htaccess)$">
+    Require all denied
+</FilesMatch>

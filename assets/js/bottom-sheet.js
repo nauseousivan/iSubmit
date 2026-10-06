@@ -15,7 +15,16 @@ document.addEventListener('DOMContentLoaded', () => {
     // Constraints relative to the container rather than the fluctuating window height
     const getContainerHeight = () => card.getBoundingClientRect().height;
     const topExpandedY = 80; // 80px from the top of the container when fully expanded
-    let bottomCollapsedY = getContainerHeight() * 0.35; // Starts at 35% down
+
+    // Where the sheet rests: just below the brand sub-line ("Research Digitalization Platform"),
+    // never over it. A fixed 35% covered "iSubmit" on short phones (browser bars eat the height).
+    const restY = () => {
+        const cardTop = card.getBoundingClientRect().top;
+        const sub = document.getElementById('brandSubLead');
+        const below = sub ? sub.getBoundingClientRect().bottom - cardTop + 16 : 0;
+        return Math.max(getContainerHeight() * 0.35, below);
+    };
+    let bottomCollapsedY = restY();
 
     // Initial State: 0 means collapsed (bottom), 1 means expanded (top)
     let currentState = 0;
@@ -111,7 +120,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function snapToCollapsed() {
-        bottomCollapsedY = getContainerHeight() * 0.35; // Recalculate safely
+        bottomCollapsedY = restY(); // Recalculate safely
         sheet.style.transform = `translateY(${bottomCollapsedY}px)`;
         sheet.style.overflowY = 'hidden'; // Lock internal scrolling
         sheet.scrollTop = 0; // Reset scroll
@@ -120,4 +129,19 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Expose to global scope for manual triggering (e.g., when clicking Next Step)
     window.expandBottomSheet = snapToExpanded;
+
+    // Park the resting sheet below the brand now, and again once fonts/images settle or the
+    // phone rotates (the CSS start of 35vh is only the first-frame guess).
+    const park = () => {
+        if (currentState !== 0 || isDragging) return;
+        bottomCollapsedY = restY();
+        sheet.style.transform = `translateY(${bottomCollapsedY}px)`;
+    };
+    park();
+    window.addEventListener('load', park);
+    window.addEventListener('resize', park);
+    if (document.fonts && document.fonts.ready) document.fonts.ready.then(park);
+    // The sub-line becomes the school's name as the email is typed and may wrap to two lines.
+    const subLead = document.getElementById('brandSubLead');
+    if (subLead && window.ResizeObserver) new ResizeObserver(park).observe(subLead);
 });

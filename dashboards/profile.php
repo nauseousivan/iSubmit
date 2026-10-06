@@ -28,6 +28,7 @@ $student_number_error = "";
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     $name = trim($_POST['username']);
     $group = trim($_POST['group_name'] ?? '');
+    $research_title = trim($_POST['research_title'] ?? '');
     $student_number = trim($_POST['student_number'] ?? '');
 
     // Blank stays allowed — accounts predating this field have none yet — but it must be
@@ -98,6 +99,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && $student_number_error !== '') {
         $pdo->prepare("UPDATE users SET research_group_name = ? WHERE user_id = ?")->execute([$group, $effective_user_id]);
     }
 
+    // research_title is the same kind of shared group attribute, so it follows the same
+    // leader-row rule. Registration's "Research Project Title" field actually lands in
+    // research_group_name (auth/register.php), so this is the one place a group can
+    // correct the title on its own without waiting for the statistical treatment form.
+    if ($success && isset($_POST['research_title'])) {
+        $pdo->prepare("UPDATE users SET research_title = ? WHERE user_id = ?")
+            ->execute([$research_title ?: null, $effective_user_id]);
+    }
+
     // The School ID number is the opposite: strictly personal, so it always goes to the
     // caller's own row ($user_id), never the leader's.
     if ($success && isset($_POST['student_number'])) {
@@ -143,7 +153,7 @@ function getSpecificItemProgressForProfile($pdo, $userId, $itemId) {
     return 25;
 }
 
-$p1 = getStageProgressForProfile($pdo, $effective_user_id, [11, 12, 13, 14, 15, 16]); 
+$p1 = getStageProgressForProfile($pdo, $effective_user_id, [17, 11, 12, 13, 14, 15, 16]); 
 $p2 = getSpecificItemProgressForProfile($pdo, $effective_user_id, 5); 
 $p3 = getSpecificItemProgressForProfile($pdo, $effective_user_id, 3); 
 $p4 = getSpecificItemProgressForProfile($pdo, $effective_user_id, 4); 
@@ -162,6 +172,9 @@ else { $rank_title = "Warrior"; $rank_dot = "#94a3b8"; }
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Profile | Full Width</title>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -442,8 +455,16 @@ else { $rank_title = "Warrior"; $rank_dot = "#94a3b8"; }
                         <input type="text" class="minimal-input" value="<?= htmlspecialchars($user['department'] ?? 'Unassigned') ?>" disabled>
                     </div>
                     <div class="field-group full">
+                        <label>Program</label>
+                        <input type="text" class="minimal-input" value="<?= htmlspecialchars($user['program'] ?? 'Unassigned') ?>" disabled>
+                    </div>
+                    <div class="field-group full">
                         <label>Research Group Name</label>
                         <input type="text" class="minimal-input" name="group_name" value="<?= htmlspecialchars($user['research_group_name'] ?? '') ?>">
+                    </div>
+                    <div class="field-group full">
+                        <label>Research Title</label>
+                        <input type="text" class="minimal-input" name="research_title" maxlength="255" placeholder="Your complete research title" value="<?= htmlspecialchars($user['research_title'] ?? '') ?>">
                     </div>
                 <?php else: ?>
                     <div class="field-group full">

@@ -1,0 +1,81 @@
+<?php
+/**
+ * assets/mascot/eagle_svg.php — the MAIN eagle (isubmit-eagle-purple-no-diploma), drawn inline
+ * with its moving parts named, so CSS can move the feathers the way the old bird did (2026-10-05).
+ *
+ *   eagle_plain_svg($p, $attrs) — $p prefixes every id (gradients included), so two copies on one
+ *   page never borrow each other's gradients. Named groups, all animatable by CSS:
+ *     #{p}-body   everything above the feet (tilts on the tiptoe)
+ *     #{p}-wingL  the wing on the viewer's left    — pivot 70px 166px
+ *     #{p}-wingR  the wing on the viewer's right   — pivot 190px 166px (the one that waves)
+ *     #{p}-footL  the left foot                    — pivot 90px 256px (lifts on the tiptoe)
+ *     #{p}-cap    the mortarboard                  — pivot 128px 60px
+ * The static poses (assets/mascot/eagle/*.svg) stay <img>s; only this one moves.
+ */
+function eagle_plain_svg(string $p, string $attrs = ''): string
+{
+    $u = fn($id) => "url(#{$p}-{$id})";
+    return <<<SVG
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 270 280" {$attrs} aria-hidden="true" focusable="false" style="overflow:visible">
+  <defs>
+    <radialGradient id="{$p}-b" cx="0.36" cy="0.28" r="0.9"><stop offset="0" stop-color="#9A8CFA"/><stop offset="0.55" stop-color="#6C5CE7"/><stop offset="1" stop-color="#3A2BA6"/></radialGradient>
+    <radialGradient id="{$p}-h" cx="0.42" cy="0.3" r="0.85"><stop offset="0" stop-color="#FFFFFF"/><stop offset="0.7" stop-color="#F4F0FB"/><stop offset="1" stop-color="#D3C9E8"/></radialGradient>
+    <linearGradient id="{$p}-w" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#6A5AE2"/><stop offset="1" stop-color="#2F2190"/></linearGradient>
+    <linearGradient id="{$p}-k" x1="0" y1="0" x2="0.3" y2="1"><stop offset="0" stop-color="#FFD866"/><stop offset="1" stop-color="#E9920C"/></linearGradient>
+    <radialGradient id="{$p}-i" cx="0.42" cy="0.38" r="0.7"><stop offset="0" stop-color="#FFE08A"/><stop offset="1" stop-color="#D0800A"/></radialGradient>
+    <linearGradient id="{$p}-c" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#6A54E0"/><stop offset="1" stop-color="#2D1873"/></linearGradient>
+    <linearGradient id="{$p}-s" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#F6C33A"/><stop offset="1" stop-color="#D98A0B"/></linearGradient>
+  </defs>
+  <ellipse cx="130" cy="268" rx="64" ry="8" fill="#1E1535" opacity="0.16"/>
+  <g id="{$p}-footL"><path d="M90 250 q-14 0 -16 9 q5 5 11 0 q2 7 9 4 q3 6 9 1 q4 -9 -13 -14 z" fill="{$u('k')}"/></g>
+  <path d="M170 250 q14 0 16 9 q-5 5 -11 0 q-2 7 -9 4 q-3 6 -9 1 q-4 -9 13 -14 z" fill="{$u('k')}"/>
+  <g id="{$p}-body">
+    <path d="M130 108 C184 108 208 154 208 192 C208 238 174 258 130 258 C86 258 52 238 52 192 C52 154 76 108 130 108 Z" fill="{$u('b')}"/>
+    <path d="M130 168 C154 168 168 188 168 210 C168 236 152 250 130 250 C108 250 92 236 92 210 C92 188 106 168 130 168 Z" fill="#C9BEFA" opacity="0.5"/>
+    <path d="M112 196 l6 6 l6 -6 M136 196 l6 6 l6 -6 M124 214 l6 6 l6 -6 M112 230 l6 6 l6 -6 M136 230 l6 6 l6 -6" stroke="#3A2BA6" stroke-width="2.4" fill="none" stroke-linecap="round" stroke-linejoin="round" opacity="0.55"/>
+    <g id="{$p}-wingL">
+      <path d="M58 166 C42 186 38 218 50 244 C55 240 58 233 60 226 C62 236 66 238 70 236 C71 228 72 220 72 214 C75 222 79 224 82 222 C82 200 78 180 70 164 Z" fill="{$u('w')}"/>
+      <path d="M60 176 C54 192 52 208 54 222" stroke="#FFFFFF" stroke-opacity="0.2" stroke-width="3" stroke-linecap="round" fill="none"/>
+    </g>
+    <path d="M78 150 Q130 176 182 150 L184 168 Q130 196 76 168 Z" fill="{$u('s')}"/>
+    <path d="M150 170 L162 216 L150 210 L142 222 L136 176 Z" fill="{$u('s')}"/>
+    <path d="M146 178 L154 206" stroke="#FFFFFF" stroke-opacity="0.3" stroke-width="2"/>
+    <path d="M62 112 C60 74 90 52 130 52 C170 52 200 74 198 112 C197 134 186 148 172 158 L166 151 L160 162 L152 153 L144 164 L136 155 L130 166 L124 155 L116 164 L108 153 L100 162 L94 151 L88 158 C74 148 63 134 62 112 Z" fill="{$u('h')}"/>
+    <path d="M62 104 L48 96 L62 96 Z M198 104 L212 96 L198 96 Z" fill="#E9E3F5"/>
+    <path d="M82 84 C90 68 106 60 126 58" stroke="#FFFFFF" stroke-width="6" stroke-linecap="round" fill="none"/>
+    <ellipse cx="88" cy="132" rx="10" ry="6" fill="#FF9DB5" opacity="0.45"/>
+    <ellipse cx="172" cy="132" rx="10" ry="6" fill="#FF9DB5" opacity="0.45"/>
+    <g id="{$p}-eyes">
+      <ellipse cx="103" cy="110" rx="15" ry="16" fill="{$u('i')}"/>
+      <ellipse cx="157" cy="110" rx="15" ry="16" fill="{$u('i')}"/>
+      <ellipse cx="104" cy="111" rx="8.5" ry="9.5" fill="#1A1030"/>
+      <ellipse cx="156" cy="111" rx="8.5" ry="9.5" fill="#1A1030"/>
+      <circle cx="108.5" cy="105" r="4.4" fill="#FFFFFF"/>
+      <circle cx="160.5" cy="105" r="4.4" fill="#FFFFFF"/>
+      <circle cx="100" cy="116.5" r="2" fill="#FFFFFF" opacity="0.9"/>
+      <circle cx="152" cy="116.5" r="2" fill="#FFFFFF" opacity="0.9"/>
+    </g>
+    <path d="M88 90 Q102 82 118 89" stroke="#7F6FC8" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <path d="M172 90 Q158 82 142 89" stroke="#7F6FC8" stroke-width="5" fill="none" stroke-linecap="round"/>
+    <ellipse cx="130" cy="140" rx="20" ry="7" fill="#C9BEE6" opacity="0.6"/>
+    <path d="M118 137 C122 144 138 144 142 137 C140 144 135 148 130 148 C125 148 120 144 118 137 Z" fill="#E9A63A"/>
+    <path d="M112 126 C112 117 120 113 130 113 C140 113 148 117 148 126 C148 134 142 140 136 143 C134 147 132 151 130 153 C128 151 126 147 124 143 C118 140 112 134 112 126 Z" fill="{$u('k')}"/>
+    <path d="M126 145 C128 149 132 149 134 145 C133 149 131 152 130 153 C129 152 127 149 126 145 Z" fill="#C97406"/>
+    <path d="M118 121 C120 117 124 116 128 116" stroke="#FFFFFF" stroke-opacity="0.75" stroke-width="3" stroke-linecap="round" fill="none"/>
+    <g id="{$p}-wingR">
+      <path d="M202 166 C218 186 222 218 210 244 C205 240 202 233 200 226 C198 236 194 238 190 236 C189 228 188 220 188 214 C185 222 181 224 178 222 C178 200 182 180 190 164 Z" fill="{$u('w')}"/>
+    </g>
+    <g id="{$p}-cap"><g transform="translate(2 4)">
+      <path d="M90 56 Q128 72 166 56 L166 74 Q128 90 90 74 Z" fill="#1A1240"/>
+      <path d="M56 42 L128 68 L200 42 L200 48 L128 74 L56 48 Z" fill="#140D33"/>
+      <path d="M128 16 L200 42 L128 68 L56 42 Z" fill="{$u('c')}"/>
+      <path d="M128 22 L180 42" stroke="#FFFFFF" stroke-opacity="0.22" stroke-width="3" stroke-linecap="round"/>
+      <path d="M128 42 L186 46 L188 82" stroke="#F6C33A" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M182 82 h12 l2 15 h-16 z" fill="#F6C33A"/>
+      <path d="M184 97 v4 M188 97 v5 M192 97 v4" stroke="#E0A010" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="128" cy="42" r="4.5" fill="#F6C33A"/>
+    </g></g>
+  </g>
+</svg>
+SVG;
+}

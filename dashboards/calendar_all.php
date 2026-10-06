@@ -11,15 +11,66 @@ if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') {
     exit();
 }
 
+require_once 'defense_lib.php';
+
 // Admin/staff-scheduled events (same source the mini-calendar uses)
 $cal_stmt = $pdo->query("SELECT title, description, event_date FROM calendar_events ORDER BY event_date ASC");
 $calendar_events = $cal_stmt->fetchAll(PDO::FETCH_ASSOC);
+
+// Defense calendar entries. Under the open-by-default model there is no list of "available"
+// dates to show — every working day is available — so listing them would bury the page in
+// noise. What is worth surfacing is the exceptions plus this group's own defense: the office
+// closures, the days another group has taken, and the student's own confirmed date.
+// These finally supply the "Available"/"Unavailable" categories this page has always had
+// pills and colours for; classify() could only keyword-guess from event titles before.
+$df_effective_id = df_effective_user_id($pdo, $_SESSION['user_id']);
+$df_my_booking = df_get_booking($pdo, $df_effective_id, 'final');
+
+$df_cal_slots = [];
+foreach (df_blackouts($pdo, 'final', df_today(), df_window_end()) as $date => $bo) {
+    $df_cal_slots[] = [
+        'date'  => $date,
+        'title' => 'Research office closed',
+        'desc'  => $bo['reason'] ?: 'The research office is closed on this date.',
+        'cat'   => 'unavailable',
+    ];
+}
+// Capacity is one pool per SCHOOL of DEFENSE_SLOTS_PER_SCHOOL_PER_DAY, shared across both
+// phases, so a date is only "taken" once THIS school's slots are gone — a partly-booked day
+// is still bookable, and the other school's bookings never close it.
+$df_cal_school = df_user_school($pdo, $df_effective_id);
+foreach (df_taken_dates($pdo, 'final', df_today(), df_window_end(), $df_cal_school) as $date => $bk) {
+    if ($bk['count'] < DEFENSE_SLOTS_PER_SCHOOL_PER_DAY) {
+        continue; // still has room; the group's own date is added below with its real status
+    }
+    $df_cal_slots[] = [
+        'date'  => $date,
+        'title' => 'Defense date full',
+        'desc'  => 'All ' . DEFENSE_SLOTS_PER_SCHOOL_PER_DAY . ' of your institution\x27s slots for this date are taken.',
+        'cat'   => 'unavailable',
+    ];
+}
+if ($df_my_booking && !empty($df_my_booking['defense_date'])
+    && in_array($df_my_booking['status'], ['Date Selected', 'Scheduled'], true)) {
+    $confirmed = $df_my_booking['status'] === 'Scheduled';
+    $df_cal_slots[] = [
+        'date'  => $df_my_booking['defense_date'],
+        'title' => $confirmed ? 'Your Final Defense' : 'Your requested defense date',
+        'desc'  => $confirmed
+            ? 'Logged and recorded by the research office.'
+            : 'Waiting for the research office to confirm.',
+        'cat'   => $confirmed ? 'available' : 'event',
+    ];
+}
 ?>
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Events & Holidays | MCNP-ISAP</title>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -352,6 +403,8 @@ $calendar_events = $cal_stmt->fetchAll(PDO::FETCH_ASSOC);
         lucide.createIcons();
 
         const dbEvents = <?= json_encode($calendar_events, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?> || [];
+        // Defense slots arrive pre-categorised, so they skip classify() entirely.
+        const dbSlots = <?= json_encode($df_cal_slots, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT) ?> || [];
         const todayStr = new Date().toISOString().split('T')[0];
         let items = [];
         let activeFilter = 'all';
@@ -376,7 +429,7 @@ $calendar_events = $cal_stmt->fetchAll(PDO::FETCH_ASSOC);
         };
 
         function buildDbItems() {
-            return dbEvents.map(e => {
+            const events = dbEvents.map(e => {
                 const cat = classify(e.title);
                 return {
                     date: e.event_date,
@@ -385,6 +438,7 @@ $calendar_events = $cal_stmt->fetchAll(PDO::FETCH_ASSOC);
                     cat: cat
                 };
             });
+            return events.concat(dbSlots);
         }
 
         async function fetchHolidays(year) {

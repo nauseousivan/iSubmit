@@ -7,6 +7,39 @@
  * NOTE: placeholder parity between Coordinator and Director — to be unified/refactored later.
  */
 
+/**
+ * Which icon an activity row wears.
+ *
+ * Every ordinary event used to get the same generic file-text, so a feed of ten
+ * rows was ten identical glyphs and told you nothing at a glance. A verdict
+ * (approved / sent back) still wins, because that is the most important thing a
+ * row can say; otherwise the icon follows what actually happened.
+ *
+ * Mirrored in JS below (moIcon) — the live poller rebuilds the same markup, and
+ * the two drifting apart is how a feed ends up with two different visual
+ * languages depending on whether you reloaded.
+ */
+function mo_activity_icon(string $cls, string $title): string
+{
+    if ($cls === 'success') return 'circle-check';
+    if ($cls === 'warning') return 'rotate-ccw';
+    $t = strtolower($title);
+    foreach ([
+        'file-up'       => ['submitted', 'uploaded', 'upload', 're-upload'],
+        'calendar-days' => ['defense date', 'schedule', 'scheduled', 'slot', 'endorsed', 'booking'],
+        'banknote'      => ['payment', 'paid', 'fee'],
+        'shield-check'  => ['plagiar', 'turnitin', 'manuscript'],
+        'sigma'         => ['statistic', 'treatment', 'coded data'],
+        'user-plus'     => ['registered', 'account', 'member'],
+        'message-square'=> ['message', 'replied'],
+    ] as $icon => $needles) {
+        foreach ($needles as $needle) {
+            if (strpos($t, $needle) !== false) return $icon;
+        }
+    }
+    return 'file-text';
+}
+
 // --- Data (namespaced with mo_ so it never collides with the host page's variables) ---
 $mo_role = $_SESSION['role'] ?? '';
 $mo_is_statistician = ($mo_role === 'Statistician');
@@ -24,7 +57,7 @@ $mo_terminal_title = $mo_role_titles[$mo_role] ?? 'Staff Terminal';
 // (Previously this read only from `approvals`, so 48 of 52 groups — incl. 12 with real
 // uploads — were invisible in the explorer and undercounted the stat card.)
 $mo_workflow_tracks = $pdo->query("
-    SELECT u.user_id, u.username, u.student_number, u.research_group_name, u.department, u.program, u.profile_pic, u.email,
+    SELECT u.user_id, u.username, u.student_number, u.research_group_name, u.department, u.program, u.year_level, u.profile_pic, u.email,
            COALESCE(ap.coordinator_status, 'Pending')  AS coordinator_status,
            COALESCE(ap.statistician_status, 'Pending') AS statistician_status,
            COALESCE(ap.director_status, 'Pending')     AS director_status,
@@ -57,7 +90,7 @@ if ($mo_is_statistician) {
         INNER JOIN (SELECT user_id, item_id, MAX(uploaded_at) AS md FROM uploads GROUP BY user_id, item_id) l
           ON up.user_id = l.user_id AND up.item_id = l.item_id AND up.uploaded_at = l.md
         WHERE up.verification_status = ?
-          AND up.item_id IN (11,12,13,14,15,16,21,22,23,24,25,26,27,30,31,32,33,34,35,4)");
+          AND up.item_id IN (11,12,13,14,15,16,17,20,22,23,24,25,26,27,30,31,32,33,34,35,4)");
     $mo_act->execute([$mo_action_status]);
     $mo_action_needed = (int) $mo_act->fetchColumn();
     $mo_approved_docs = (int) $pdo->query("
@@ -142,12 +175,12 @@ $mo_message = $message ?? '';
         <div class="selector-header" style="display: flex; gap: 12px; align-items: center; justify-content: space-between; border-bottom: 1.5px solid var(--border-line); padding-bottom: 12px; margin-bottom: 18px; flex-wrap: wrap;">
             <h3 style="margin-bottom: 0;">Interactive Student/Group Explorer</h3>
             <div class="custom-dropdown-container" style="position: relative; width: 100%; max-width: 320px; z-index: 120;">
-                <button type="button" id="customDropdownTrigger" class="custom-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--border-line); font-size: 13px; font-family: inherit; background: #faf9f6; color: var(--text-dark); cursor: pointer; text-align: left; transition: all 0.2s; outline: none; font-weight: 600; box-sizing: border-box;">
+                <button type="button" id="customDropdownTrigger" class="custom-dropdown-trigger" style="display: flex; justify-content: space-between; align-items: center; width: 100%; padding: 10px 14px; border-radius: 10px; border: 1.5px solid var(--border-line); font-size: 13px; font-family: inherit; background: var(--surface-2); color: var(--text-dark); cursor: pointer; text-align: left; transition: all 0.2s; outline: none; font-weight: 600; box-sizing: border-box;">
                     <span id="customDropdownSelectedText">-- Select Student Group --</span>
                     <i data-lucide="chevron-down" style="width: 15px; height: 15px; color: var(--text-muted); margin-left: 8px;"></i>
                 </button>
-                <div id="customDropdownMenu" class="custom-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--bg-white, #ffffff); border: 1.5px solid var(--border-line); border-radius: var(--control-radius); box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden;">
-                    <div style="padding: 8px; border-bottom: 1px solid var(--border-line); background: #faf8f4; display: flex; align-items: center; gap: 8px;">
+                <div id="customDropdownMenu" class="custom-dropdown-menu" style="display: none; position: absolute; top: calc(100% + 6px); left: 0; right: 0; background: var(--surface); border: 1.5px solid var(--border-line); border-radius: var(--control-radius); box-shadow: 0 10px 25px rgba(0,0,0,0.08); overflow: hidden;">
+                    <div style="padding: 8px; border-bottom: 1px solid var(--border-line); background: var(--surface-2); display: flex; align-items: center; gap: 8px;">
                         <i data-lucide="search" style="color: #9ca3af; width: 13px; height: 13px; flex-shrink: 0;"></i>
                         <input type="text" id="customDropdownSearch" placeholder="Type to filter..." style="border: none; background: transparent; outline: none; font-size: 11.5px; font-family: inherit; font-weight: 600; width: 100%; padding: 0; color: var(--text-dark);" oninput="filterCustomDropdownOptions()">
                     </div>
@@ -157,13 +190,13 @@ $mo_message = $message ?? '';
                                  onclick='selectCustomDropdownOption(<?= htmlspecialchars(json_encode($group), ENT_QUOTES, "UTF-8") ?>)'
                                  data-search-term="<?= htmlspecialchars(strtolower($group['research_group_name'] . ' ' . $group['username'] . ' ' . $group['program'] . ' ' . $group['department'] . ' ' . ($group['student_number'] ?? ''))) ?>"
                                  style="padding: 10px 14px; font-size: 12.5px; font-weight: 600; color: var(--text-dark); cursor: pointer; transition: background 0.2s; border-bottom: 1px solid rgba(0,0,0,0.03);<?= $mo_extra ? ' display:none;' : '' ?>"
-                                 onmouseover="this.style.backgroundColor='#faf8f4'" onmouseout="this.style.backgroundColor='transparent'">
+                                 onmouseover="this.style.backgroundColor='var(--surface-2)'" onmouseout="this.style.backgroundColor='transparent'">
                                 <?= htmlspecialchars($group['research_group_name']) ?> <span style="font-weight: normal; color: var(--text-muted); font-size: 11px;">(<?= htmlspecialchars($group['username']) ?><?= !empty($group['student_number']) ? ' &middot; ' . htmlspecialchars($group['student_number']) : '' ?>)</span>
                             </div>
                         <?php endforeach; ?>
                         <div id="customDropdownNoResults" style="display: none; padding: 12px; font-size: 11.5px; color: var(--text-muted); text-align: center;">No groups found</div>
                         <?php if (count($mo_workflow_tracks) > 4): ?>
-                            <button type="button" id="moShowMoreGroups" onclick="window.toggleMoShowMore()" style="width:100%; padding:8px; font-size:11px; font-weight:700; color:var(--mcnp-teal); background:#faf8f4; border:none; border-top:1px solid var(--border-line); cursor:pointer;">
+                            <button type="button" id="moShowMoreGroups" onclick="window.toggleMoShowMore()" style="width:100%; padding:8px; font-size:11px; font-weight:700; color:var(--mcnp-teal); background:var(--surface-2); border:none; border-top:1px solid var(--border-line); cursor:pointer;">
                                 Show all <?= count($mo_workflow_tracks) ?> groups
                             </button>
                         <?php endif; ?>
@@ -201,7 +234,7 @@ $mo_message = $message ?? '';
 
     <!-- GROUP 360 PROFILE MODAL -->
     <div id="groupProfileModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(20,18,15,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
-        <div style="background: var(--bg-white,#ffffff); width: 100%; max-width: 720px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
+        <div style="background: var(--surface); width: 100%; max-width: 720px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
             <div style="padding: 20px 24px; border-bottom: 2.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: var(--surface-2); flex-shrink: 0;">
                 <div style="display: flex; align-items: center; gap: 10px;">
                     <div style="background: var(--mcnp-teal); color: var(--canvas); width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
@@ -247,9 +280,10 @@ $mo_message = $message ?? '';
                     // status_type in the logs is a mix of 'success'/'warning'/'info' and
                     // 'Approved'/'Revision Requested' — normalise so the colour is always right.
                     $st = strtolower(trim($activity['status_type'] ?? ''));
-                    if (in_array($st, ['approved', 'success'], true)) { $ac = 'success'; $ai = 'circle-check'; $al = 'Approved'; }
-                    elseif (in_array($st, ['revision requested', 'warning'], true)) { $ac = 'warning'; $ai = 'rotate-ccw'; $al = 'Revision'; }
-                    else { $ac = 'info'; $ai = 'file-text'; $al = 'Update'; }
+                    if (in_array($st, ['approved', 'success'], true)) { $ac = 'success'; $al = 'Approved'; }
+                    elseif (in_array($st, ['revision requested', 'warning'], true)) { $ac = 'warning'; $al = 'Revision'; }
+                    else { $ac = 'info'; $al = 'Update'; }
+                    $ai = mo_activity_icon($ac, (string)($activity['title'] ?? ''));
                     $mo_i++;
                 ?>
                 <div class="activity-item" onclick="openOverlay('<?= $mo_activity_click_url ?>', document.querySelector('.nav-item-btn[onclick*=\'<?= $mo_activity_click_selector ?>\']'))">
@@ -266,11 +300,11 @@ $mo_message = $message ?? '';
     </div>
 
     <!-- ACTIVITY LOGS MODAL -->
-    <div id="activityLogsModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(20,18,15,0.5); z-index: 200; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
-        <div style="background: var(--bg-white,#ffffff); width: 100%; max-width: 750px; border-radius: var(--card-radius); border: 2px solid var(--border-line); box-shadow: 0 20px 50px rgba(0,0,0,0.15); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
-            <div style="padding: 20px 24px; border-bottom: 2.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: #faf8f4; flex-shrink: 0;">
+    <div id="activityLogsModal" class="fullscreen-modal" style="display: none; position: fixed; inset: 0; background: rgba(46, 16, 101, 0.42); backdrop-filter: blur(3px); z-index: 900; align-items: center; justify-content: center; padding: 20px; box-sizing: border-box;">
+        <div style="background: var(--surface); width: 100%; max-width: 780px; border-radius: 20px; border: 1px solid var(--line); box-shadow: 0 24px 60px -12px rgba(46, 16, 101, .38); display: flex; flex-direction: column; max-height: 90vh; overflow: hidden;">
+            <div style="padding: 18px 22px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: var(--surface-2); flex-shrink: 0;">
                 <div style="display: flex; align-items: center; gap: 10px;">
-                    <div style="background: var(--mcnp-teal); color: white; width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center;">
+                    <div style="background: var(--accent); color: var(--accent-ink); width: 36px; height: 36px; border-radius: 12px; display: flex; align-items: center; justify-content: center;">
                         <i data-lucide="history" style="width: 18px; height: 18px;"></i>
                     </div>
                     <div>
@@ -282,17 +316,17 @@ $mo_message = $message ?? '';
                     <i data-lucide="x" style="width: 22px; height: 22px;"></i>
                 </button>
             </div>
-            <div style="padding: 16px 24px; background: #fdfdfd; border-bottom: 1.5px solid var(--border-line); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; box-sizing: border-box; flex-shrink: 0;">
+            <div style="padding: 14px 22px; background: var(--surface); border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; box-sizing: border-box; flex-shrink: 0;">
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Search Logs</label>
-                    <div style="position: relative; display: flex; align-items: center; background: #faf8f4; border: 1.5px solid var(--border-line); border-radius: 8px; padding: 6px 10px;">
+                    <div style="position: relative; display: flex; align-items: center; background: var(--surface-2); border: 1px solid var(--line); border-radius: 10px; padding: 7px 11px;">
                         <i data-lucide="search" style="color: #9ca3af; width: 12px; height: 12px; margin-right: 6px;"></i>
                         <input type="text" id="modalLogSearch" placeholder="Filter groups / titles..." onkeyup="filterModalLogs()" style="background: transparent; border: none; outline: none; font-size: 11.5px; font-weight: 600; width: 100%; padding: 0; color: var(--text-dark); font-family: var(--ui-sans);">
                     </div>
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Filter Status</label>
-                    <select id="modalLogStatusFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 8px; border: 1.5px solid var(--border-line); font-size: 11.5px; font-weight: 600; outline: none; background: #faf9f6;">
+                    <select id="modalLogStatusFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 11.5px; font-weight: 600; outline: none; background: var(--surface-2); color: var(--ink);">
                         <option value="all">All Statuses</option>
                         <option value="Approved">Approved / Success</option>
                         <option value="Revision Requested">Revision Requested / Warnings</option>
@@ -301,7 +335,7 @@ $mo_message = $message ?? '';
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 4px;">
                     <label style="font-size: 10px; font-weight: 800; color: var(--text-muted); text-transform: uppercase;">Filter File / Form Stage</label>
-                    <select id="modalLogFormFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 8px; border: 1.5px solid var(--border-line); font-size: 11.5px; font-weight: 600; outline: none; background: #faf9f6;">
+                    <select id="modalLogFormFilter" onchange="filterModalLogs()" style="padding: 6px 10px; border-radius: 10px; border: 1px solid var(--line); font-size: 11.5px; font-weight: 600; outline: none; background: var(--surface-2); color: var(--ink);">
                         <option value="all">All Stages</option>
                         <option value="capsule">Capsule Proposal (Form No. 008)</option>
                         <option value="final">Final Defense / Form 5</option>
@@ -311,10 +345,10 @@ $mo_message = $message ?? '';
                     </select>
                 </div>
             </div>
-            <div id="modalLogsContainer" style="padding: 16px 24px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 12px; background: #faf9f6;"></div>
-            <div style="padding: 14px 24px; border-top: 1.5px solid var(--border-line); display: flex; justify-content: space-between; align-items: center; background: #faf8f4; flex-shrink: 0;">
+            <div id="modalLogsContainer" style="padding: 14px 20px; overflow-y: auto; flex: 1; display: flex; flex-direction: column; gap: 10px; background: var(--surface-2);"></div>
+            <div style="padding: 13px 22px; border-top: 1px solid var(--line); display: flex; justify-content: space-between; align-items: center; background: var(--surface); flex-shrink: 0;">
                 <span style="font-size: 11.5px; color: var(--text-muted); font-weight: 600;" id="modalLogCount">Showing 0 of 0 logs</span>
-                <button type="button" onclick="closeActivityLogsModal()" style="padding: 8px 16px; font-size: 11.5px; border: 1.5px solid var(--border-line); background: #fff; border-radius: 8px; cursor: pointer; font-weight: 700; color: var(--mcnp-teal);">Close Portal</button>
+                <button type="button" onclick="closeActivityLogsModal()" style="padding: 8px 16px; font-size: 11.5px; border: 1px solid var(--line); background: var(--surface-2); border-radius: 10px; cursor: pointer; font-weight: 700; color: var(--ink);">Close Portal</button>
             </div>
         </div>
     </div>
@@ -422,6 +456,7 @@ $mo_message = $message ?? '';
             document.getElementById('groupLeader').innerHTML = 'Leader: <strong style="color:var(--mcnp-teal);">' + data.username + '</strong>';
             document.getElementById('groupMail').innerHTML = '<i data-lucide="mail" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> ' + data.email;
             document.getElementById('groupDetails').textContent = data.program + ' • ' + data.department +
+                (data.year_level ? ' • ' + data.year_level : '') +
                 (data.student_number ? ' • ID ' + data.student_number : '');
             document.getElementById('progCoord').textContent = data.coordinator_status;
             document.getElementById('progCoord').className = 'badge-status ' + (data.coordinator_status === 'Approved' ? 'badge-paid' : 'badge-pending');
@@ -434,6 +469,29 @@ $mo_message = $message ?? '';
         };
 
         // Group 360 Profile modal — fetches group_profile_data.php for the currently selected group
+        // Mirrors mo_activity_icon() above. Same rules, same order — the live poller must
+        // not render a different icon from the one the page was built with.
+        function moIcon(cls, title) {
+            if (cls === 'success') return 'circle-check';
+            if (cls === 'warning') return 'rotate-ccw';
+            var t = (title || '').toLowerCase();
+            var map = [
+                ['file-up', ['submitted', 'uploaded', 'upload', 're-upload']],
+                ['calendar-days', ['defense date', 'schedule', 'scheduled', 'slot', 'endorsed', 'booking']],
+                ['banknote', ['payment', 'paid', 'fee']],
+                ['shield-check', ['plagiar', 'turnitin', 'manuscript']],
+                ['sigma', ['statistic', 'treatment', 'coded data']],
+                ['user-plus', ['registered', 'account', 'member']],
+                ['message-square', ['message', 'replied']]
+            ];
+            for (var i = 0; i < map.length; i++) {
+                for (var j = 0; j < map[i][1].length; j++) {
+                    if (t.indexOf(map[i][1][j]) !== -1) return map[i][0];
+                }
+            }
+            return 'file-text';
+        }
+
         window.openGroupProfileModal = function () {
             var uid = window.selectedGroupUserId;
             var modal = document.getElementById('groupProfileModal');
@@ -478,7 +536,7 @@ $mo_message = $message ?? '';
                 ? data.timeline.map(function (a) {
                     var st = (a.status_type || '').toLowerCase();
                     var cls = (st === 'approved' || st === 'success') ? 'success' : ((st === 'revision requested' || st === 'warning') ? 'warning' : 'info');
-                    var icon = cls === 'success' ? 'circle-check' : (cls === 'warning' ? 'rotate-ccw' : 'file-text');
+                    var icon = moIcon(cls, a.title);
                     var label = cls === 'success' ? 'Approved' : (cls === 'warning' ? 'Revision' : 'Update');
                     return '<div class="activity-item" style="cursor:default;">' +
                         '<div class="activity-icon ' + cls + '"><i data-lucide="' + icon + '"></i></div>' +
@@ -500,6 +558,7 @@ $mo_message = $message ?? '';
                 '<h4 style="color:var(--ink); font-size:15px; font-weight:700; margin:0;">' + escapeHtml(g.research_title || 'Untitled Research') + '</h4>' +
                 '<p style="font-weight:600; color:var(--ink-soft); font-size:12.5px; margin:2px 0 0;">Leader: ' + escapeHtml(g.username) + ' &middot; ' + escapeHtml(g.email) + '</p>' +
                 '<p style="font-size:11px; color:var(--text-muted); margin-top:2px;">' + escapeHtml(g.program) + ' &middot; ' + escapeHtml(g.department) +
+                (g.year_level ? ' &middot; ' + escapeHtml(g.year_level) : '') +
                 (g.student_number ? ' &middot; ID ' + escapeHtml(g.student_number) : '') + '</p>' +
                 '</div>' +
                 '</div>' +
@@ -566,7 +625,7 @@ $mo_message = $message ?? '';
                 var mf = (formVal === 'all' || category === formVal);
                 if (ms && mst && mf) {
                     matched++;
-                    var icon = cls === 'success' ? 'circle-check' : (cls === 'warning' ? 'rotate-ccw' : 'file-text');
+                    var icon = moIcon(cls, title);
                     var label = cls === 'success' ? 'Approved' : (cls === 'warning' ? 'Revision' : 'Update');
                     container.insertAdjacentHTML('beforeend',
                         '<div class="activity-item" style="cursor:default; margin-bottom:0;">' +

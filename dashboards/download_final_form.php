@@ -43,7 +43,7 @@ function getSpecificItemProgress($pdo, $userId, $itemId) {
 }
 
 // Calculate overall completion status
-$proposal_progress = getStageProgress($pdo, $user_id, [11, 12, 13, 14, 15, 16]);
+$proposal_progress = getStageProgress($pdo, $user_id, [17, 11, 12, 13, 14, 15, 16]);
 $final_progress    = getSpecificItemProgress($pdo, $user_id, 5);
 $stats_progress    = getSpecificItemProgress($pdo, $user_id, 3);
 $plag_progress     = getSpecificItemProgress($pdo, $user_id, 4);

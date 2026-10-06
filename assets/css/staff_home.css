@@ -1,0 +1,484 @@
+/* ============================================================================
+   Staff home (2026-09-29 redesign) — rail + home + hub pages.
+   Scoped to body.sh-shell so the shells not yet moved over are untouched.
+   Colours come from portal.css tokens only (light + dark); the hero and a "hot"
+   card are the two deliberate exceptions — they are brand purple in both themes.
+   ========================================================================== */
+
+body.sh-shell {
+    --nav-w: 92px;
+    --sh-display: "Outfit", var(--font-ui);
+    --sh-card: var(--surface-3);
+    --sh-card-hover: color-mix(in srgb, var(--accent) 10%, var(--surface-3));
+    --sh-hot-a: #6d28d9;
+    --sh-hot-b: #4c1d95;
+    --sh-hero-a: #2e1065;
+    --sh-hero-b: #4c1d95;
+}
+body.sh-shell.theme-dark {
+    --sh-card: var(--surface-2);
+    --sh-card-hover: var(--surface-3);
+    --sh-hot-a: #7c3aed;
+    --sh-hot-b: #5b21b6;
+    --sh-hero-a: #1f0b45;
+    --sh-hero-b: #3b1a7a;
+}
+body.sh-shell [hidden] { display: none !important; }
+
+/* ---- rail ------------------------------------------------------------------ */
+.sh-rail {
+    width: var(--nav-w); flex-shrink: 0; height: 100vh; z-index: 600;
+    display: flex; flex-direction: column; align-items: center; gap: 4px;
+    padding: 22px 8px 16px; background: var(--surface); border-right: 1px solid var(--line);
+    overflow-y: auto;
+}
+.sh-rail::-webkit-scrollbar { width: 0; }
+.sh-rail-logo { width: 52px; height: 52px; border-radius: 16px; margin-bottom: 14px; flex-shrink: 0;
+    display: grid; place-items: center; background: var(--surface-3); }
+.sh-rail-btn {
+    all: unset; box-sizing: border-box; cursor: pointer; width: 76px; padding: 6px 0 8px;
+    display: flex; flex-direction: column; align-items: center; gap: 5px;
+    color: var(--muted); font-family: var(--font-ui); border-radius: 14px;
+}
+.sh-rail-pill { position: relative; width: 52px; height: 32px; border-radius: 999px; display: grid; place-items: center;
+    transition: background var(--dur-fast) ease; }
+.sh-rail-pill i, .sh-rail-pill svg { width: 20px; height: 20px; }
+.sh-rail-lab { font-size: 11px; font-weight: 600; letter-spacing: -.005em; white-space: nowrap; }
+/* The rail buttons carry .dock-btn (portal.js finds Home by it), so portal.css's side-nav
+   look — row padding, hover fill, the active bar — has to be switched off here. */
+.sh-rail .dock-btn:hover, .sh-rail .dock-btn.active { background: transparent; }
+.sh-rail .dock-btn.active::before { content: none; display: none; }
+.sh-rail .dock-btn i, .sh-rail .dock-btn svg { width: 20px; height: 20px; }
+@media (max-width: 860px) { .sh-rail .dock-btn { padding: 6px 0 8px; gap: 5px; } }
+.sh-rail-btn:hover .sh-rail-pill { background: var(--surface-2); }
+.sh-rail-btn.active { color: var(--ink); }
+.sh-rail-btn.active .sh-rail-pill { background: color-mix(in srgb, var(--accent) 16%, var(--surface)); color: var(--accent); }
+.sh-rail-btn.active .sh-rail-lab { font-weight: 800; }
+.sh-rail-btn:focus-visible .sh-rail-pill { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sh-rail-n { position: absolute; top: -3px; right: 4px; min-width: 17px; height: 17px; padding: 0 5px;
+    border-radius: 999px; background: var(--accent); color: var(--accent-ink);
+    font-size: 10px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--surface); }
+
+/* ---- main + top bar ------------------------------------------------------- */
+.sh-main { padding: 22px 34px 48px !important; }
+.sh-main > *:not(.sh-modal) { max-width: 1240px; margin-left: auto; margin-right: auto; }
+.sh-top { display: flex; align-items: center; justify-content: space-between; gap: 18px; margin-bottom: 18px; }
+.sh-brand { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sh-greet { font-size: 13px; font-weight: 600; color: var(--muted); }
+/* The role IS the title now ("Secretary"), in the brand purple: no wordmark, no divider. */
+.sh-role { font-family: var(--sh-display); font-size: 28px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1;
+    color: var(--accent); white-space: nowrap; }
+.sh-top-right { display: flex; align-items: center; gap: 10px; }
+
+.sh-search { position: relative; display: flex; align-items: center; gap: 9px; width: 340px;
+    background: var(--surface-3); border: 1px solid transparent; border-radius: 999px; padding: 0 16px; height: 44px;
+    transition: border-color var(--dur-fast) ease, background var(--dur-fast) ease; }
+.sh-search:focus-within { border-color: color-mix(in srgb, var(--accent) 45%, transparent); background: var(--surface); }
+.sh-search > i, .sh-search > svg { width: 17px; height: 17px; color: var(--muted); flex-shrink: 0; }
+.sh-search input { all: unset; flex: 1; min-width: 0; font-size: 13.5px; font-weight: 500; color: var(--ink); font-family: var(--font-ui); }
+.sh-search input::placeholder { color: var(--muted); }
+.sh-search-menu { position: absolute; top: calc(100% + 8px); left: 0; right: 0; z-index: 700;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 18px; box-shadow: var(--shadow-3);
+    padding: 6px; max-height: 60vh; overflow-y: auto; }
+.sh-find-row { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 11px;
+    padding: 8px 10px; border-radius: 12px; }
+.sh-find-row:hover, .sh-find-row.on { background: var(--surface-2); }
+.sh-find-row img { width: 34px; height: 34px; border-radius: 50%; object-fit: cover; background: var(--surface-3); flex-shrink: 0; }
+.sh-find-row span { display: flex; flex-direction: column; min-width: 0; }
+.sh-find-row b { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-find-row small { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+.sh-icon-btn { all: unset; box-sizing: border-box; cursor: pointer; width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center; color: var(--ink); flex-shrink: 0; }
+.sh-icon-btn:hover { background: var(--surface-2); }
+.sh-icon-btn i, .sh-icon-btn svg { width: 19px; height: 19px; }
+body.sh-shell:not(.theme-dark) .sh-when-dark, body.sh-shell.theme-dark .sh-when-light { display: none; }
+
+.sh-me { position: relative; }
+.sh-avatar { all: unset; box-sizing: border-box; cursor: pointer; width: 40px; height: 40px; border-radius: 50%;
+    display: grid; place-items: center; background: var(--accent); color: var(--accent-ink);
+    font-size: 13px; font-weight: 800; letter-spacing: .02em; }
+.sh-me-menu { position: absolute; top: calc(100% + 8px); right: 0; left: auto; bottom: auto; min-width: 210px; }
+
+.sh-flash { display: flex; align-items: center; gap: 8px; padding: 11px 16px; margin-bottom: 16px; border-radius: 14px;
+    background: color-mix(in srgb, var(--success) 13%, var(--surface)); color: var(--ink); font-size: 13px; font-weight: 600;
+    transition: opacity .4s ease; }
+.sh-flash i, .sh-flash svg { width: 16px; height: 16px; color: var(--success); }
+
+/* ---- hero ------------------------------------------------------------------- */
+.sh-hero { position: relative; overflow: hidden; display: flex; align-items: center; gap: 26px;
+    padding: 26px 30px; border-radius: 28px; color: #fff; margin-bottom: 26px;
+    background: linear-gradient(115deg, var(--sh-hero-a), var(--sh-hero-b)); }
+.sh-hero::after { content: ''; position: absolute; top: -30%; bottom: -30%; right: -6%; width: 34%;
+    border-radius: 48% 0 0 48%; background: rgba(255, 255, 255, .06); pointer-events: none; }
+/* The login screen's badge: a white circle, the live bird standing in it. */
+.sh-hero-bird { position: relative; z-index: 1; width: 124px; height: 124px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; background: #fff; box-shadow: 0 10px 32px rgba(0, 0, 0, .22);
+    transition: transform .45s var(--spring); }
+.sh-hero-bird:hover { transform: translateY(-3px) scale(1.03); }
+.sh-hero-bird:active { transform: scale(.97); }
+.sh-hero-bird #quill-container { width: 120px; height: 114px; margin-top: 2px; }   /* the eagle (2026-10-05): her pose frame has room for a bubble, so it fills the circle */
+.sh-hero-brand { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+.sh-hero-brand b { font-family: var(--sh-display); font-size: 17px; font-weight: 700; letter-spacing: -.01em; color: #fff; }
+.sh-hero-brand span { font-size: 12.5px; font-weight: 600; color: rgba(255, 255, 255, .7); }
+.sh-hero-copy { flex: 1; min-width: 0; position: relative; z-index: 1; }
+.sh-hero-copy h1 { font-family: var(--sh-display); font-size: 34px; font-weight: 700; letter-spacing: -.02em; line-height: 1.1; color: #fff; }
+.sh-hero-copy p { margin-top: 6px; font-size: 14.5px; color: rgba(255, 255, 255, .78); }
+.sh-hero-pills { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.sh-pill { display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 13px; border-radius: 10px;
+    border: 1px solid rgba(255, 255, 255, .32); font-size: 12.5px; font-weight: 600; color: #fff; background: transparent; font-family: var(--font-ui); }
+.sh-pill i, .sh-pill svg { width: 14px; height: 14px; }
+.sh-pill-go { cursor: pointer; background: #fff; color: var(--sh-hero-b); border-color: #fff; font-weight: 700; }
+.sh-pill-go:hover { background: color-mix(in srgb, var(--sh-hot-a) 12%, #fff); }
+.sh-hero-clock { position: relative; z-index: 1; text-align: right; flex-shrink: 0; padding-left: 10px; }
+.sh-clock-time { font-family: var(--sh-display); font-size: 58px; font-weight: 600; line-height: 1; letter-spacing: -.03em; font-variant-numeric: tabular-nums; }
+.sh-clock-date { margin-top: 6px; font-size: 12.5px; color: rgba(255, 255, 255, .75); }
+
+/* ---- grid: stages/cards left, panels right --------------------------------- */
+.sh-grid { display: grid; grid-template-columns: minmax(0, 1fr) 330px; gap: 26px; align-items: start; }
+.sh-head { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 14px; flex-wrap: wrap; }
+.sh-head h2 { font-family: var(--sh-display); font-size: 21px; font-weight: 600; color: var(--ink); letter-spacing: -.01em; }
+
+.sh-seg { display: inline-flex; border: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); border-radius: 12px; overflow: hidden; }
+.sh-seg-btn { all: unset; box-sizing: border-box; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
+    padding: 8px 14px; font-size: 12.5px; font-weight: 600; color: var(--ink); font-family: var(--font-ui); }
+.sh-seg-btn + .sh-seg-btn { border-left: 1px solid color-mix(in srgb, var(--accent) 30%, var(--line)); }
+.sh-seg-btn:hover { background: var(--surface-2); }
+.sh-seg-btn.active { background: color-mix(in srgb, var(--accent) 14%, var(--surface)); font-weight: 700; }
+.sh-seg-n { min-width: 17px; height: 17px; padding: 0 5px; border-radius: 999px; background: var(--accent); color: var(--accent-ink);
+    font-size: 10px; font-weight: 800; display: inline-grid; place-items: center; }
+
+.sh-cards { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.sh-card { all: unset; box-sizing: border-box; cursor: pointer; position: relative; min-height: 124px;
+    display: flex; flex-direction: column; padding: 16px 18px 18px; border-radius: 22px;
+    background: var(--sh-card); color: var(--ink); font-family: var(--font-ui);
+    transition: transform var(--dur-fast) ease, background var(--dur-fast) ease, box-shadow var(--dur-fast) ease; }
+.sh-card:hover { background: var(--sh-card-hover); transform: translateY(-1px); }
+.sh-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+.sh-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+.sh-card-ico { width: 34px; height: 34px; border-radius: 11px; display: grid; place-items: center; background: var(--surface); color: var(--ink); }
+.sh-card-ico i, .sh-card-ico svg { width: 17px; height: 17px; }
+.sh-card-step { margin-left: auto; font-size: 11.5px; font-weight: 600; color: var(--muted); }
+.sh-card-n { min-width: 24px; height: 24px; padding: 0 8px; border-radius: 999px; display: grid; place-items: center;
+    font-size: 12px; font-weight: 800; background: #fff; color: var(--sh-hero-b); }
+.sh-card-title { font-family: var(--sh-display); font-size: 19px; font-weight: 600; letter-spacing: -.01em; }
+.sh-card-line { margin-top: 5px; font-size: 12.5px; color: var(--muted); line-height: 1.35; }
+/* Work waiting: the card becomes the purple one. */
+.sh-card.is-hot { background: linear-gradient(135deg, var(--sh-hot-a), var(--sh-hot-b)); color: #fff;
+    box-shadow: 0 12px 28px -12px color-mix(in srgb, var(--sh-hot-b) 60%, transparent); }
+.sh-card.is-hot:hover { filter: brightness(1.06); }
+.sh-card.is-hot .sh-card-ico { background: #fff; color: var(--sh-hero-b); }
+.sh-card.is-hot .sh-card-step, .sh-card.is-hot .sh-card-line { color: rgba(255, 255, 255, .85); }
+
+/* ---- side panels ------------------------------------------------------------ */
+.sh-side { display: flex; flex-direction: column; gap: 14px; }
+.sh-panel { background: var(--surface); border: 1px solid var(--line); border-radius: 22px; padding: 16px 14px 12px; }
+.sh-panel-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 6px; }
+.sh-panel-head h3 { font-family: var(--sh-display); font-size: 18px; font-weight: 600; color: var(--ink); }
+.sh-panel-sub { font-size: 12px; color: var(--muted); padding: 2px 6px 8px; }
+.sh-link { all: unset; cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--accent); }
+.sh-link:hover { text-decoration: underline; }
+
+.sh-groups { display: flex; flex-direction: column; gap: 2px; }
+.sh-group { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 11px; padding: 8px; border-radius: 14px; }
+.sh-group:hover { background: var(--surface-2); }
+.sh-group img { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: var(--surface-3); flex-shrink: 0; }
+.sh-group-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sh-group-name { font-size: 13.5px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-group-meta { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-group > i, .sh-group > svg { width: 16px; height: 16px; color: var(--muted); }
+
+.sh-acts { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
+.sh-act { all: unset; box-sizing: border-box; cursor: pointer; display: flex; align-items: center; gap: 11px; padding: 9px 8px; border-radius: 14px; }
+.sh-act:hover { background: var(--surface-2); }
+.sh-act-static { cursor: default; }
+.sh-act-static:hover { background: transparent; }
+.sh-act-ico { width: 36px; height: 36px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 13%, var(--surface)); color: var(--accent); }
+.sh-act-ico.success { background: color-mix(in srgb, var(--success) 16%, var(--surface)); color: color-mix(in srgb, var(--success) 75%, var(--ink)); }
+.sh-act-ico.warning { background: color-mix(in srgb, var(--warning) 20%, var(--surface)); color: color-mix(in srgb, var(--warning) 70%, var(--ink)); }
+.sh-act-ico i, .sh-act-ico svg { width: 16px; height: 16px; }
+.sh-act-body { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.sh-act-title { font-size: 13px; font-weight: 700; color: var(--ink); line-height: 1.3; }
+.sh-act-group { font-size: 11.5px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-act-when { font-size: 11px; color: var(--muted); white-space: nowrap; flex-shrink: 0; align-self: flex-start; padding-top: 2px; }
+.sh-none { text-align: center; color: var(--muted); font-size: 12.5px; padding: 18px 8px; }
+
+/* ---- hub pages -------------------------------------------------------------- */
+.sh-hub-head { margin: 8px 0 22px; }
+.sh-hub-head h1 { font-family: var(--sh-display); font-size: 36px; font-weight: 700; letter-spacing: -.02em; color: var(--ink); line-height: 1.1; }
+.sh-hub-head p { margin-top: 6px; font-size: 14.5px; color: var(--muted); }
+.sh-cards-hub .sh-card { min-height: 150px; }
+.sh-cards-hub .sh-card-title { font-size: 21px; }
+
+/* ---- modals ----------------------------------------------------------------- */
+.sh-modal { position: fixed; inset: 0; z-index: 950; display: flex; align-items: center; justify-content: center; padding: 20px;
+    background: color-mix(in srgb, var(--sh-hero-a) 42%, transparent); backdrop-filter: blur(3px); }
+#groupProfileModal { z-index: 960; }   /* opens on top of the activity modal */
+.sh-modal-box { width: 100%; max-width: 720px; max-height: 90vh; display: flex; flex-direction: column; overflow: hidden;
+    background: var(--surface); border-radius: 24px; border: 1px solid var(--line); box-shadow: var(--shadow-3); }
+.sh-modal-wide { max-width: 800px; }
+.sh-modal-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; padding: 20px 22px 14px; }
+.sh-modal-head h3 { font-family: var(--sh-display); font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.sh-modal-head p { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.sh-modal-body { padding: 4px 22px 22px; overflow-y: auto; flex: 1; }
+.sh-modal-body h5 { font-size: 11px; font-weight: 800; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 20px 0 8px; }
+.sh-modal-tools { display: flex; gap: 8px; padding: 0 22px 12px; flex-wrap: wrap; }
+.sh-modal-tools select { height: 40px; padding: 0 12px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2);
+    color: var(--ink); font-size: 12.5px; font-weight: 600; font-family: var(--font-ui); }
+.sh-search-inline { width: auto; flex: 1; min-width: 200px; height: 40px; }
+.sh-modal-foot { padding: 12px 22px; border-top: 1px solid var(--line); font-size: 12px; font-weight: 600; color: var(--muted); }
+
+.sh-gp-id { display: flex; gap: 14px; align-items: flex-start; }
+.sh-gp-id img { width: 56px; height: 56px; border-radius: 50%; object-fit: cover; background: var(--surface-3); flex-shrink: 0; }
+.sh-gp-id h4 { font-size: 15px; font-weight: 700; color: var(--ink); line-height: 1.35; }
+.sh-gp-id p { font-size: 12.5px; color: var(--ink); margin-top: 3px; }
+.sh-muted { color: var(--muted) !important; font-size: 12px !important; }
+.sh-ms-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 16px; }
+.sh-ms { display: inline-flex; flex-direction: column; padding: 7px 12px; border-radius: 12px; background: var(--surface-2);
+    font-size: 12.5px; font-weight: 700; color: var(--ink); }
+.sh-ms small { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .04em; }
+.sh-ms.ok { background: color-mix(in srgb, var(--success) 14%, var(--surface)); }
+.sh-ms-note { font-size: 12px; color: var(--muted); font-weight: 600; margin-left: auto; }
+.sh-roster-row { display: flex; flex-wrap: wrap; gap: 6px; }
+.sh-roster { padding: 5px 12px; border-radius: 999px; background: var(--surface-2); font-size: 12px; font-weight: 600; color: var(--ink); }
+.sh-none-inline { font-size: 12px; color: var(--muted); }
+.sh-prog-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px 18px; }
+.sh-prog-top { display: flex; justify-content: space-between; font-size: 12.5px; font-weight: 700; color: var(--ink); margin-bottom: 5px; }
+.sh-prog-bar { height: 7px; border-radius: 999px; background: var(--surface-3); overflow: hidden; }
+.sh-prog-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+
+/* ---- responsive ------------------------------------------------------------- */
+@media (max-width: 1120px) {
+    /* minmax(0, …), not 1fr: a bare 1fr track sizes to its widest child and pushed the cards
+       and the phase tabs off the right edge of a phone. */
+    .sh-grid { grid-template-columns: minmax(0, 1fr); }
+    .sh-search { width: 260px; }
+}
+@media (max-width: 760px) {
+    /* The rail becomes a bottom tab bar — the phone-app shape. Module windows stop above it. */
+    body.sh-shell { --nav-w: 0px; }
+    .sh-rail { position: fixed; left: 0; right: 0; bottom: 0; top: auto; width: 100%; height: 66px; flex-direction: row;
+        justify-content: space-around; padding: 4px 2px calc(4px + env(safe-area-inset-bottom)); gap: 0;
+        border-right: none; border-top: 1px solid var(--line); overflow: visible; }
+    .sh-rail-logo { display: none; }
+    .sh-rail .sh-rail-btn { width: auto; min-width: 0; flex: 1 1 0; padding: 4px 0; gap: 3px; }
+    .sh-rail-pill { width: 40px; height: 28px; }
+    .sh-rail-lab { font-size: 9.5px; max-width: 100%; overflow: hidden; text-overflow: clip; }
+    .sh-main, .sh-view, .sh-stages { min-width: 0; max-width: 100%; }
+    body.sh-shell .window-layer { inset: 0 0 66px 0; }
+    .sh-main { padding: 14px 16px 90px !important; }
+    .sh-top { flex-wrap: wrap; gap: 10px; }
+    .sh-top-right { width: 100%; }
+    .sh-search { flex: 1; width: auto; }
+    .sh-hero { flex-wrap: wrap; padding: 20px; gap: 16px; border-radius: 24px; }
+    .sh-hero-bird { width: 84px; height: 84px; }
+    .sh-hero-bird #quill-container { width: 82px; height: 78px; margin-top: 2px; }
+    .sh-role { font-size: 24px; }
+    .sh-hero-copy h1 { font-size: 25px; }
+    .sh-hero-clock { display: none; }
+    .sh-cards { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .sh-card { min-height: 112px; padding: 14px; border-radius: 20px; }
+    .sh-card-title { font-size: 16.5px; }
+    .sh-seg { width: 100%; overflow-x: auto; }
+    .sh-seg-btn { flex: 1; justify-content: center; padding: 8px 8px; }
+    .sh-hub-head h1 { font-size: 28px; }
+    .sh-prog-grid { grid-template-columns: 1fr; }
+    .sh-modal { padding: 0; align-items: flex-end; }
+    .sh-modal-box { max-height: 92vh; border-radius: 24px 24px 0 0; }
+}
+@media (max-width: 380px) {
+    .sh-cards { grid-template-columns: 1fr; }
+}
+
+/* ---- motion: Apple-style entrance ---------------------------------------------------------
+   Blocks rise in with a soft de-blur, staggered by --i, on load and on every view switch
+   (setView() re-adds .sh-enter). One curve, one duration: the student portal's feel. */
+@keyframes shRise {
+    from { opacity: 0; transform: translateY(14px) scale(.985); filter: blur(6px); }
+    to   { opacity: 1; transform: none; filter: none; }
+}
+.sh-enter .sh-anim, .sh-top.sh-enter .sh-anim {
+    animation: shRise .72s cubic-bezier(.16, 1, .3, 1) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+}
+.sh-enter .sh-card { animation: shRise .6s cubic-bezier(.16, 1, .3, 1) both; animation-delay: calc(220ms + var(--c, 0) * 45ms); }
+/* Cards press like buttons on a phone. */
+.sh-card:active { transform: scale(.98); transition-duration: 90ms; }
+@media (prefers-reduced-motion: reduce) {
+    .sh-enter .sh-anim, .sh-enter .sh-card { animation: none; }
+    .sh-hero-bird, .sh-hero-bird:hover { transition: none; transform: none; }
+}
+/* The greeting ("Good morning / Secretary") belongs to Home only — a hub or Settings has its own
+   title. The search, theme toggle and avatar stay, pinned right. */
+.sh-top:not(.is-home) .sh-brand { display: none; }
+.sh-top:not(.is-home) { justify-content: flex-end; }
+@media (max-width: 760px) { .sh-top:not(.is-home) { margin-bottom: 12px; } }
+
+/* ---- the Statistics board ("Every request, at a glance") ------------------------------------ */
+.sb-board { border-radius: 26px; padding: 22px 24px 18px; margin-bottom: 16px; color: #fff; position: relative; overflow: hidden;
+    background: linear-gradient(120deg, var(--sh-hero-a), var(--sh-hero-b)); }
+.sb-board::after { content: ''; position: absolute; right: -8%; top: -40%; width: 36%; height: 140%; border-radius: 50%;
+    background: rgba(255, 255, 255, .06); pointer-events: none; }
+.sb-board > * { position: relative; z-index: 1; }
+.sb-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 14px; margin-bottom: 18px; }
+.sb-top h2 { font-family: var(--sh-display); font-size: 21px; font-weight: 700; color: #fff; }
+.sb-top p { font-size: 12.5px; color: rgba(255, 255, 255, .75); margin-top: 3px; }
+.sb-need { display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; border: 0; cursor: pointer;
+    background: #fff; color: var(--sh-hero-a); font: inherit; font-size: 12.5px; font-weight: 700; white-space: nowrap; }
+.sb-need i, .sb-need svg { width: 14px; height: 14px; }
+.sb-cols { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; position: relative; }
+.sb-cols.sb-cols-4 { grid-template-columns: repeat(4, minmax(0, 1fr)); }   /* the Plagiarism board: four steps */
+.sb-cols::before { content: ''; position: absolute; left: 8%; right: 8%; top: 10px; height: 1px; background: rgba(255, 255, 255, .25); }
+.sb-col { display: flex; flex-direction: column; align-items: center; gap: 6px; min-width: 0; }
+.sb-n { position: relative; width: 22px; height: 22px; border-radius: 50%; display: grid; place-items: center; font-size: 11px; font-weight: 800;
+    background: var(--sh-hero-b); border: 1.5px solid rgba(255, 255, 255, .5); }
+.sb-col > b { font-size: 12.5px; font-weight: 700; }
+.sb-pills { display: flex; flex-direction: column; align-items: center; gap: 5px; width: 100%; }
+.sb-pill { display: inline-flex; align-items: center; gap: 6px; max-width: 100%; padding: 3px 11px 3px 3px; border-radius: 999px; cursor: pointer;
+    font: inherit; font-size: 11.5px; font-weight: 700; border: 1.5px solid transparent; }
+.sb-pill i { width: 18px; height: 18px; border-radius: 50%; flex-shrink: 0; display: grid; place-items: center; font-style: normal; font-size: 10px; font-weight: 800; }
+.sb-pill span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sb-pill.you  { background: #fff; color: var(--sh-hero-a); }
+.sb-pill.you i { background: var(--sh-hero-b); color: #fff; }
+.sb-pill.them { background: transparent; color: #fff; border-color: rgba(255, 255, 255, .55); }
+.sb-pill.them i { background: #fcd34d; color: #78350f; }
+.sb-pill.back { background: rgba(248, 113, 113, .16); color: #fff; border-color: #fca5a5; }
+.sb-pill.back i { background: #fca5a5; color: #7f1d1d; }
+.sb-pill.done { background: #bbf7d0; color: #14532d; }
+.sb-pill.done i { background: #fff; color: #14532d; }
+.sb-pill:hover { filter: brightness(1.07); }
+.sb-more { background: none; border: 0; color: rgba(255, 255, 255, .8); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
+.sb-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; font-size: 11.5px; color: rgba(255, 255, 255, .8); }
+.sb-legend span { display: inline-flex; align-items: center; gap: 6px; }
+.sb-legend i { width: 9px; height: 9px; border-radius: 50%; }
+.sb-legend i.you { background: #fff; }
+.sb-legend i.them { border: 1.5px solid #fcd34d; }
+.sb-legend i.back { background: #fca5a5; }
+.sb-legend i.done { background: #86efac; }
+@media (max-width: 760px) {
+    .sb-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 16px; }
+    .sb-cols.sb-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .sb-cols::before { display: none; }
+    .sb-top { flex-direction: column; }
+}
+/* ---- the History panel on the Statistics page (takes Recent's place) ---------------------- */
+.sh-hist-head { all: unset; box-sizing: border-box; cursor: pointer; width: 100%; display: flex; align-items: center; gap: 12px; padding: 4px 6px 12px; }
+.sh-hist-ico { width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0; display: grid; place-items: center; background: var(--surface-3); color: var(--accent); }
+.sh-hist-ico i, .sh-hist-ico svg { width: 18px; height: 18px; }
+.sh-hist-head b { display: block; font-family: var(--sh-display); font-size: 18px; font-weight: 600; color: var(--ink); }
+.sh-hist-head small { display: block; font-size: 12px; color: var(--muted); }
+.sh-hist-go { margin-left: auto; width: 18px; height: 18px; color: var(--muted); }
+.sh-hist-head:hover .sh-hist-go { color: var(--accent); }
+.sh-hist-nums { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin: 0 4px 8px; }
+.sh-hist-nums span { display: flex; flex-direction: column; padding: 10px 12px; border-radius: 14px; background: var(--surface-2); font-size: 11px; color: var(--muted); }
+.sh-hist-nums b { font-family: var(--sh-display); font-size: 22px; font-weight: 700; line-height: 1.1; }
+.sh-hist-nums .ok b { color: color-mix(in srgb, var(--success) 70%, #14532d); }
+.sh-hist-nums .no b { color: color-mix(in srgb, var(--danger) 80%, #7f1d1d); }
+.sh-hist-nums .rem b { color: var(--accent); }.sh-hist .sh-act-title { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sh-hist-nums span { padding: 10px; }
+/* ---- the Focal Person's shell (2026-10-01) ---------------------------------------------------
+   Her sections board is the third twin of the Statistics and Plagiarism boards (five columns);
+   the pill's disc carries how many groups sit in the room, not an initial. */
+.sb-cols.sb-cols-5 { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.fb-board .sb-pill i { font-size: 9.5px; }
+.sb-legend .fb-legend-n { margin-left: auto; }
+.sb-legend .fb-legend-n b { display: inline-grid; place-items: center; width: 16px; height: 16px; border-radius: 50%;
+    background: rgba(255, 255, 255, .22); font-size: 9.5px; font-weight: 800; }
+.fb-courses { margin-top: 16px; }
+.fb-course .sh-act-ico b { font-size: 9.5px; font-weight: 800; letter-spacing: .04em; }
+.fb-course .sh-act-group { white-space: normal; }
+.fb-bar { display: block; height: 5px; border-radius: 999px; background: var(--surface-3); overflow: hidden; margin-top: 7px; max-width: 320px; }
+.fb-bar span { display: block; height: 100%; border-radius: inherit; background: var(--accent); }
+.fb-need { flex-shrink: 0; align-self: center; padding: 4px 10px; border-radius: 999px; font-size: 11.5px; font-weight: 750;
+    background: color-mix(in srgb, var(--accent) 15%, var(--surface)); color: color-mix(in srgb, var(--accent) 70%, var(--ink)); }
+.fb-go { width: 16px; height: 16px; color: var(--muted); align-self: center; flex-shrink: 0; }
+@media (max-width: 760px) { .sb-cols.sb-cols-5 { grid-template-columns: repeat(3, minmax(0, 1fr)); } .sb-legend .fb-legend-n { margin-left: 0; } }
+
+/* The bell (a host with its own feed sets $sh_bell) and its drawer. */
+.sh-bell { position: relative; }
+.sh-bell-n { position: absolute; top: 3px; right: 2px; min-width: 17px; height: 17px; padding: 0 4px; border-radius: 999px;
+    background: var(--danger); color: #fff; font-size: 10px; font-weight: 800; display: grid; place-items: center; border: 2px solid var(--canvas); }
+.sh-drawer-bg { position: fixed; inset: 0; z-index: 940; background: color-mix(in srgb, var(--sh-hero-a) 30%, transparent);
+    opacity: 0; pointer-events: none; transition: opacity var(--dur) var(--ease); }
+.sh-drawer-bg.on { opacity: 1; pointer-events: auto; }
+.sh-drawer { position: fixed; top: 0; right: 0; bottom: 0; z-index: 945; width: min(400px, 94vw); display: flex; flex-direction: column;
+    background: var(--surface); border-left: 1px solid var(--line); box-shadow: var(--shadow-3);
+    transform: translateX(104%); transition: transform var(--dur) var(--ease); }
+.sh-drawer.on { transform: none; }
+.sh-drawer-head { display: flex; align-items: flex-start; gap: 10px; padding: 22px 20px 12px; }
+.sh-drawer-head div { flex: 1; min-width: 0; }
+.sh-drawer-head h3 { font-family: var(--sh-display); font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; }
+.sh-drawer-head p { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.sh-drawer-body { flex: 1; overflow-y: auto; padding: 0 10px 20px; }
+.sh-drawer .sh-act { align-items: flex-start; }
+.sh-drawer .sh-act-group { white-space: normal; line-height: 1.45; margin-top: 2px; }
+.sh-drawer .sh-act.is-new .sh-act-title::after { content: ''; display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    background: var(--accent); margin-left: 7px; vertical-align: middle; }
+.sh-drawer-empty { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 40px 24px; text-align: center; }
+.sh-drawer-empty b { font-size: 14px; color: var(--ink); }
+.sh-drawer-empty span { font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+@media (max-width: 760px) { .sh-drawer { width: 100%; } }
+
+/* ---- the Focal Person's notifications (2026-10-01): grouped by day, filter tabs, mark read ---- */
+.sh-drawer.nf { width: min(440px, 96vw); background: color-mix(in srgb, var(--accent) 4%, var(--surface)); }
+.nf-head { display: flex; align-items: center; gap: 12px; padding: 22px 18px 14px 20px; }
+.nf-bell { width: 42px; height: 42px; border-radius: 14px; display: grid; place-items: center; flex-shrink: 0;
+    background: linear-gradient(135deg, var(--sh-hot-a), var(--sh-hot-b)); color: #fff; }
+.nf-bell i, .nf-bell svg { width: 20px; height: 20px; }
+.nf-title { flex: 1; min-width: 0; }
+.nf-title h3 { font-family: var(--sh-display); font-size: 22px; font-weight: 700; color: var(--ink); letter-spacing: -.01em; line-height: 1.15; }
+.nf-title p { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+.nf-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 0 18px 12px 20px; }
+.nf-tabs { display: inline-flex; gap: 2px; padding: 3px; border-radius: 999px; background: var(--surface-3); }
+.nf-tabs button { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; padding: 6px 13px; border-radius: 999px;
+    font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.nf-tabs button em { font-style: normal; font-size: 11px; font-weight: 800; opacity: .75; }
+.nf-tabs button.on { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgba(0, 0, 0, .08); }
+.nf-mark { all: unset; cursor: pointer; display: inline-flex; align-items: center; gap: 5px; font-size: 12.5px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+.nf-mark:hover { text-decoration: underline; }
+.nf-mark i, .nf-mark svg { width: 15px; height: 15px; }
+.nf-body { flex: 1; overflow-y: auto; padding: 0 12px 16px; }
+.nf-day + .nf-day { margin-top: 6px; }
+.nf-day h4 { font-size: 11px; font-weight: 800; letter-spacing: .07em; text-transform: uppercase; color: var(--muted); padding: 10px 8px 6px; }
+.nf-row { all: unset; box-sizing: border-box; cursor: pointer; position: relative; width: 100%; display: flex; gap: 12px; align-items: flex-start;
+    padding: 12px; border-radius: 16px; background: var(--surface); margin-bottom: 6px; transition: background var(--dur-fast), transform var(--dur-fast); }
+.nf-row:hover { background: color-mix(in srgb, var(--accent) 7%, var(--surface)); transform: translateX(-2px); }
+.nf-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.nf-row.is-new { box-shadow: inset 3px 0 0 var(--accent); }
+.nf-row.is-new::after { content: ''; position: absolute; top: 14px; right: 12px; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.nf-ico { width: 38px; height: 38px; border-radius: 12px; flex-shrink: 0; display: grid; place-items: center;
+    background: color-mix(in srgb, var(--accent) 13%, var(--surface)); color: var(--accent); }
+.nf-ico i, .nf-ico svg { width: 18px; height: 18px; }
+.nf-ico.t-published { background: color-mix(in srgb, var(--success) 15%, var(--surface)); color: color-mix(in srgb, var(--success) 75%, var(--ink)); }
+.nf-ico.t-back { background: color-mix(in srgb, var(--danger) 13%, var(--surface)); color: var(--danger); }
+.nf-ico.t-confirmed { background: color-mix(in srgb, #f59e0b 18%, var(--surface)); color: color-mix(in srgb, #b45309 85%, var(--ink)); }
+.nf-main { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.nf-top { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding-right: 14px; }
+.nf-top b { font-size: 14px; font-weight: 750; color: var(--ink); }
+.nf-top time { font-size: 11.5px; color: var(--muted); white-space: nowrap; flex-shrink: 0; }
+.nf-where { font-size: 12px; font-weight: 650; color: var(--accent); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.nf-msg { font-size: 13px; color: var(--muted); line-height: 1.45; }
+.nf-none { text-align: center; color: var(--muted); font-size: 13px; padding: 30px 10px; }
+.nf-foot { padding: 12px 20px 16px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--line); }
+
+.sh-avatar.has-pic { background: var(--surface-3); overflow: hidden; padding: 0; }
+.sh-avatar img { width: 100%; height: 100%; object-fit: cover; border-radius: 50%; display: block; }
+
+
+/* ---- the rail's EDGE, softened (2026-10-02, on trial: body.sh-soft, Director only) -------------
+   Same full-height rail; only its edge changes. The hard 1px line becomes rounded right corners
+   and a soft shadow that follows them, so the rail reads as a panel resting beside the page. */
+body.sh-soft .sh-rail {
+    position: relative; border-right: 0; border-radius: 0 30px 30px 0;
+    box-shadow: 1px 0 0 color-mix(in srgb, var(--ink) 5%, transparent), 10px 0 32px -20px color-mix(in srgb, var(--ink) 30%, transparent);
+}
+body.sh-soft.theme-dark .sh-rail {
+    box-shadow: 1px 0 0 rgba(255, 255, 255, .05), 12px 0 34px -18px rgba(0, 0, 0, .75);
+}
+@media (max-width: 760px) {
+    /* on a phone the rail is the bottom bar: round its TOP corners instead */
+    body.sh-soft .sh-rail { border-radius: 26px 26px 0 0; border-top: 0;
+        box-shadow: 0 -1px 0 color-mix(in srgb, var(--ink) 5%, transparent), 0 -10px 30px -20px color-mix(in srgb, var(--ink) 30%, transparent); }
+    body.sh-soft.theme-dark .sh-rail { box-shadow: 0 -1px 0 rgba(255, 255, 255, .05), 0 -12px 30px -18px rgba(0, 0, 0, .75); }
+}

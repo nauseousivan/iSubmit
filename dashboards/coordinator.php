@@ -143,19 +143,43 @@ $workflow_tracks = $pdo->query($pipeline_query)->fetchAll(PDO::FETCH_ASSOC);
 // Stats range includes 36/37 (payment docs): Coordinator has one combined Statistics badge (no
 // separate Payment badge like statistician.php has), so it must cover everything phase=stats
 // shows in its default 'all' view, or pending payment docs would never surface anywhere.
-$pending_counts = $pdo->query("
+// Scoped to her institution, like the checklist it counts (and nav_badge_counts.php).
+require_once __DIR__ . '/admin_accounts_lib.php';
+[$pc_sc_sql, $pc_sc_params] = aa_scope_sql($pdo, $_SESSION['role'], (int)$_SESSION['user_id'], 'u');
+$pending_counts = $pdo->prepare("
     SELECT
-        SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16) THEN 1 ELSE 0 END) as proposal_pending,
-        SUM(CASE WHEN up.item_id IN (21,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
-        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats_pending,
-        SUM(CASE WHEN up.item_id = 4 THEN 1 ELSE 0 END) as plag_pending
+        SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16,17) THEN 1 ELSE 0 END) as proposal_pending,
+        SUM(CASE WHEN up.item_id IN (20,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
+        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats_pending
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date
         FROM uploads GROUP BY user_id, item_id
     ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-    WHERE up.verification_status = 'Pending'
-")->fetch();
+    JOIN users u ON u.user_id = up.user_id
+    WHERE up.verification_status = 'Pending' AND $pc_sc_sql
+");
+$pending_counts->execute($pc_sc_params);
+$pending_counts = $pending_counts->fetch();
+
+// Manuscript's four desks. Pulled out of the uploads query above because item 4's
+// verification_status no longer says which desk a group is at — the phase ladder does.
+// Schedule bundles waiting on THIS role — Coordinator holds step 2, Director also step 3.
+require_once __DIR__ . '/focal_lib.php';
+$nb_school = fp_school_scope($pdo, $_SESSION['role'], (int)$_SESSION['user_id']);
+// Schedule badge — sections this viewer can LOG. The Coordinator signs on Approvals, not here,
+// so this is 0 for her by design. Mirrors director.php; see fp_schedule_badge().
+$pending_counts['schedule_pending']          = fp_schedule_badge($pdo, $_SESSION['role'], 'final', $nb_school);
+$pending_counts['schedule_pending_proposal'] = fp_schedule_badge($pdo, $_SESSION['role'], 'proposal', $nb_school);
+$pending_counts['approvals_proposal'] = fp_approvals_badge($pdo, $_SESSION['role'], 'proposal', $nb_school);
+$pending_counts['approvals_final']    = fp_approvals_badge($pdo, $_SESSION['role'], 'final', $nb_school);
+
+require_once __DIR__ . '/nav_badge_lib.php';
+require_once __DIR__ . '/plag_pipeline_lib.php';   // pp_badge_counts() — the three Plagiarism step badges
+$pp_step_n = pp_badge_counts($pdo, (string)$_SESSION['role'], (int)$_SESSION['user_id']);
+$plag_counts = rd_plag_badge_counts($pdo);
+$pending_counts['plag_pending'] = $plag_counts['review'];
+
 
 // Backward-compatible alias (proposal-only) still referenced elsewhere in the dashboard.
 $pending_uploads_count = (int) ($pending_counts['proposal_pending'] ?? 0);
@@ -168,254 +192,57 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Coordinator Dashboard</title>
     <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@600;700;800;900&family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet">
     <!-- Lucide Icons -->
     <script src="https://unpkg.com/lucide@latest"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="../assets/css/portal.css">
+    <link rel="stylesheet" href="../assets/mascot/mascot.css">
+    <link rel="stylesheet" href="../assets/css/staff_home.css">
     <script src="../assets/js/portal.js"></script>
 </head>
 
-<body>
+<body class="sh-shell">
     <div class="app-dashboard-frame">
-        <nav class="app-dock-navigation" aria-label="Primary navigation">
-            <div class="dock-brand"><i data-lucide="graduation-cap" style="width:22px;height:22px;color:var(--accent);"></i><span class="dock-brand-name">iSubmit</span></div>
-            <ul class="dock-menu-list">
-                <li class="nav-section-label">Overview</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn active" data-view="home" onclick="showMasterDashboard(this)"><i data-lucide="house"></i><span class="dock-label">Dashboard</span></button>
-                </li>
-
-                <li class="nav-section-label">Review</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Proposal" data-win-icon="file-check" onclick="openOverlay('admin_module_dynamic.php?phase=proposal', this)">
-                        <i data-lucide="file-check"></i><span class="dock-label">Proposal</span>
-                        <span class="dock-badge" id="navBadgeProposal" style="<?= $pending_counts['proposal_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['proposal_pending'] ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Final" data-win-icon="graduation-cap" onclick="openOverlay('admin_module_dynamic.php?phase=final', this)">
-                        <i data-lucide="graduation-cap"></i><span class="dock-label">Final</span>
-                        <span class="dock-badge" id="navBadgeFinal" style="<?= $pending_counts['final_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['final_pending'] ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Statistics" data-win-icon="sigma" onclick="openOverlay('admin_module_dynamic.php?phase=stats', this)">
-                        <i data-lucide="sigma"></i><span class="dock-label">Statistics</span>
-                        <span class="dock-badge" id="navBadgeStats" style="<?= $pending_counts['stats_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['stats_pending'] ?></span>
-                    </button>
-                </li>
-                <li class="nav-section-label">Plagiarism</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Review" data-win-icon="shield-alert" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=review', this)">
-                        <i data-lucide="shield-alert"></i><span class="dock-label">Review</span>
-                        <span class="dock-badge" id="navBadgePlag" style="<?= $pending_counts['plag_pending'] > 0 ? '' : 'display:none;' ?>"><?= (int) $pending_counts['plag_pending'] ?></span>
-                    </button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Plagiarism Cleared" data-win-icon="shield-check" onclick="openOverlay('admin_module_dynamic.php?phase=plag&view=cleared', this)"><i data-lucide="shield-check"></i><span class="dock-label">Cleared</span></button>
-                </li>
-
-                <li class="nav-section-label">Workspace</li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Messages" data-win-icon="message-circle" onclick="openOverlay('message.php', this)"><i data-lucide="message-circle"></i><span class="dock-label">Messages</span></button>
-                </li>
-                <li class="dock-item">
-                    <button class="dock-btn nav-item-btn" data-win-title="Analytics" data-win-icon="bar-chart-3" onclick="openOverlay('analytics.php', this)"><i data-lucide="bar-chart-3"></i><span class="dock-label">Analytics</span></button>
-                </li>
-
-                <li class="nav-account">
-                    <div class="nav-section-label">Account</div>
-                    <div class="dock-item">
-                        <button class="dock-btn nav-item-btn" data-view="calendar" onclick="showCalendarDashboard(this)"><i data-lucide="calendar-days"></i><span class="dock-label">Calendar</span></button>
-                    </div>
-                    <div class="dock-item">
-                        <button class="dock-btn nav-item-btn" id="settings-nav-btn" data-view="settings" onclick="showSettingsDashboard(this)"><i data-lucide="settings-2"></i><span class="dock-label">Settings</span></button>
-                    </div>
-                    <div class="dock-item">
-                        <button class="dock-avatar-btn" onclick="toggleDockMenu('dockAvatarMenu', event)" aria-label="Account menu">
-                            <div class="dock-avatar-ring"><img src="<?= htmlspecialchars($current_pfp) ?>" class="dock-avatar-img" onerror="this.onerror=null; this.src='https://api.dicebear.com/9.x/avataaars/svg?seed=<?= urlencode($currentUser['username']) ?>';"></div>
-                            <span class="dock-avatar-name"><?= htmlspecialchars($currentUser['username']) ?></span>
-                        </button>
-                        <div class="dock-dropdown" id="dockAvatarMenu" onclick="event.stopPropagation()">
-                            <div class="dock-dropdown-head">
-                                <div class="dock-dropdown-name"><?= htmlspecialchars($currentUser['username']) ?></div>
-                                <div class="dock-dropdown-role">Coordinator</div>
-                            </div>
-                            <a onclick="showSettingsDashboard(document.getElementById('settings-nav-btn')); toggleDockMenu('dockAvatarMenu')"><i data-lucide="settings-2"></i> Panel Settings</a>
-                            <a href="../auth/logout.php" class="danger"><i data-lucide="log-out"></i> Log out</a>
-                        </div>
-                    </div>
-                    <div class="dock-item">
-                        <button class="dock-btn dock-logout" onclick="window.location.href='../auth/logout.php'"><i data-lucide="log-out"></i><span class="dock-label">Log out</span></button>
-                    </div>
-                </li>
-            </ul>
-        </nav>
-
-        <main class="main-workspace-content">
-            <?php include __DIR__ . "/_master_overview.php"; ?>
+        <?php
+        // The staff home (2026-09-29), same as director.php and statistician.php: the rail, Home
+        // and one hub per phase. Counts use nav_badge_counts.php's keys so the page and the 20s
+        // refresh agree. Her Schedule cards read 0 by design — the Secretary logs, she confirms.
+        $sh_counts = [
+            'approvals_proposal' => (int)$pending_counts['approvals_proposal'],
+            'approvals_final'    => (int)$pending_counts['approvals_final'],
+            'schedule_proposal'  => (int)$pending_counts['schedule_pending_proposal'],
+            'schedule'           => (int)$pending_counts['schedule_pending'],
+            'proposal'           => (int)($pending_counts['proposal_pending'] ?? 0),
+            'final'              => (int)($pending_counts['final_pending'] ?? 0),
+            'stats'              => (int)($pending_counts['stats_pending'] ?? 0),
+            'plag'               => (int)$plag_counts['review'],
+            'plag_release'       => (int)$plag_counts['release'],
+            'plag_pay'           => (int)$plag_counts['payment'],
+            'plag_cleared'       => (int)$plag_counts['verdict'],
+            'plag_manu'          => $pp_step_n['manuscript'],   // plag_pipeline_lib.php
+            'plag_log'           => $pp_step_n['payment'],
+            'plag_check'         => $pp_step_n['result'],
+        ];
+        // One coordinator per institution — say which one is signed in.
+        require_once __DIR__ . '/admin_accounts_lib.php';
+        $sh_role_label = 'Research Coordinator' . (!empty($currentUser['department']) ? ' · ' . aa_school_tag($currentUser['department']) : '');
+        ?>
+        <script>window.SH_SHELL_VIEWS = ['settingsDashboard'];</script>
+        <?php include __DIR__ . '/_staff_home.php'; ?>
 
             <!-- PANEL SETTINGS DASHBOARD -->
-            <div class="container" id="settingsDashboard" style="display: none;">
-                <div class="header">
-                    <div class="header-title">
-                        <h1>Panel Settings</h1>
-                        <p>Customize your administrative profile, credentials, and appearance.</p>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 24px; max-width: 900px; margin: 0 auto;">
-                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
-                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Profile Information</h3>
-
-                        <form method="POST" id="profileSettingsForm">
-                            <input type="hidden" name="action_type" value="update_profile">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-
-                            <div style="margin-bottom: 18px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Username Signature</label>
-                                <input type="text" name="username" value="<?= htmlspecialchars($currentUser['username']) ?>" required style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 18px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Profile Avatar</label>
-                                <?php
-                                    $avatar_presets = ["Adonis", "Buster", "Luna", "Zoey", "Chloe", "Rocky"];
-                                    $preset_urls = array_map(fn($p) => "https://api.dicebear.com/9.x/avataaars/svg?seed=" . $p, $avatar_presets);
-                                    $current_pic = $currentUser['profile_pic'] ?? '';
-                                    $is_preset_pic = in_array($current_pic, $preset_urls, true);
-                                ?>
-                                <input type="hidden" name="profile_pic" id="pfp_selector" value="<?= htmlspecialchars($current_pic ?: $preset_urls[0]) ?>">
-                                <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center;">
-                                    <?php if ($current_pic && !$is_preset_pic): ?>
-                                        <div style="text-align:center;">
-                                            <img src="<?= htmlspecialchars($current_pic) ?>" style="width:34px; height:34px; border-radius:50%; border:2px solid var(--eagle-gold); object-fit:cover;">
-                                            <div style="font-size:8px; color:var(--text-muted); margin-top:2px;">Current</div>
-                                        </div>
-                                    <?php endif; ?>
-                                    <?php foreach ($preset_urls as $purl): $active = ($purl === $current_pic) || (!$current_pic && $purl === $preset_urls[0]); ?>
-                                        <img src="<?= $purl ?>" onclick="selectAvatarPreset('<?= $purl ?>', this)" class="avatar-preset-option" style="width:34px; height:34px; border-radius:50%; cursor:pointer; background:#f3f4f6; border:2px solid <?= $active ? 'var(--mcnp-teal)' : 'var(--border-line)' ?>; transition:all 0.2s;">
-                                    <?php endforeach; ?>
-                                </div>
-                            </div>
-
-                            <div style="margin-bottom: 22px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:8px;">Appearance</label>
-                                <div class="seg-toggle">
-                                    <button type="button" data-theme="theme-light" onclick="setPortalTheme('theme-light')"><i data-lucide="sun"></i> Light</button>
-                                    <button type="button" data-theme="theme-dark" onclick="setPortalTheme('theme-dark')"><i data-lucide="moon"></i> Dark</button>
-                                </div>
-                            </div>
-
-                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
-                                <i data-lucide="save"></i> Save
-                            </button>
-                        </form>
-                    </div>
-
-                    <div class="section" style="margin-bottom: 0; background: var(--bg-white, #ffffff); padding: 24px; border-radius: var(--card-radius); border: 1.5px solid var(--border-line);">
-                        <h3 style="margin-bottom: 18px; font-family:'Cinzel', serif; color: var(--mcnp-teal); border-bottom: 1.5px solid var(--border-line); padding-bottom: 10px; font-size: 15px;">Change Password</h3>
-
-                        <form method="POST" id="passwordSettingsForm">
-                            <input type="hidden" name="action_type" value="update_password">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-
-                            <div style="margin-bottom: 15px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Current Password</label>
-                                <input type="password" name="current_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 15px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">New Password</label>
-                                <input type="password" name="new_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <div style="margin-bottom: 22px;">
-                                <label style="display:block; font-weight:600; font-size:12px; margin-bottom:6px;">Confirm New Password</label>
-                                <input type="password" name="confirm_password" style="width:100%; padding:9px 12px; border-radius:var(--control-radius); border:1.5px solid var(--border-line); font-size:13px; background:transparent; color:inherit;">
-                            </div>
-
-                            <button type="submit" class="btn btn-primary" style="padding:10px 24px; border-radius:var(--control-radius); font-weight:700; font-size:13px;">
-                                <i data-lucide="save"></i> Save
-                            </button>
-                        </form>
-                    </div>
-                </div>
-            </div>
+            <?php // SETTINGS — shared by all three shells (2026-09-29): _staff_settings.php ?>
+            <?php include __DIR__ . '/_staff_settings.php'; ?>
 
             <!-- CALENDAR DASHBOARD -->
-            <div class="container" id="calendarDashboard" style="display: none;">
-                <div class="header">
-                    <div class="header-title">
-                        <h1>Institutional Calendar & Availability</h1>
-                        <p>Manage unavailability dates like holidays or school events so students know when the office is closed.</p>
-                    </div>
-                </div>
-
-                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 24px;">
-                    <div class="section" style="margin-bottom:0;">
-                        <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="calendar-plus"></i> Add Event</h3>
-                        <form method="POST" action="calendar_handler.php" style="display:flex; flex-direction:column; gap:12px;">
-                            <input type="hidden" name="action" value="add">
-                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-                            <div>
-                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Event Title</label>
-                                <input type="text" name="title" required placeholder="e.g. Foundation Day" style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid var(--border-line); outline: none;">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Date</label>
-                                <input type="date" name="event_date" required style="width: 100%; padding: 10px; border-radius: 8px; border: 1.5px solid var(--border-line); outline: none;">
-                            </div>
-                            <div>
-                                <label style="display:block; font-size:11px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-bottom:4px;">Description (Optional)</label>
-                                <textarea name="description" rows="2" placeholder="e.g. Staff will not be available..."></textarea>
-                            </div>
-                            <button type="submit" class="btn btn-primary" style="align-self:flex-start;"><i data-lucide="plus-circle" style="width:14px;height:14px;"></i> Save Event</button>
-                        </form>
-                    </div>
-
-                    <div class="section" style="margin-bottom:0;">
-                        <h3 style="font-family:'Cinzel', serif; color:var(--mcnp-teal); font-size:15px; margin-bottom:15px;"><i data-lucide="list"></i> Upcoming Custom Events</h3>
-                        <?php if (empty($calendar_events)): ?>
-                            <div style="text-align:center; color:var(--text-muted); padding: 30px;">
-                                <i data-lucide="calendar-x" style="width:26px; height:26px; display:block; margin: 0 auto 10px; opacity:0.5;"></i>
-                                No upcoming events scheduled.
-                            </div>
-                        <?php else: ?>
-                            <div>
-                                <?php foreach ($calendar_events as $ce):
-                                    $is_past = strtotime($ce['event_date']) < strtotime(date('Y-m-d'));
-                                ?>
-                                    <div class="activity-item" style="cursor:default; <?= $is_past ? 'opacity:0.55;' : '' ?>">
-                                        <div class="activity-icon info" style="flex-direction:column; line-height:1.2; gap:0;">
-                                            <span style="font-size:8px; font-weight:800; text-transform:uppercase;"><?= date('M', strtotime($ce['event_date'])) ?></span>
-                                            <span style="font-size:14px; font-weight:800;"><?= date('d', strtotime($ce['event_date'])) ?></span>
-                                        </div>
-                                        <div class="activity-content">
-                                            <div class="activity-title">
-                                                <?= htmlspecialchars($ce['title']) ?>
-                                                <?php if ($is_past): ?><span style="font-size:9px; font-weight:800; color:var(--text-muted); text-transform:uppercase; margin-left:6px;">Past</span><?php endif; ?>
-                                            </div>
-                                            <?php if (!empty($ce['description'])): ?>
-                                                <div class="activity-desc"><?= htmlspecialchars($ce['description']) ?></div>
-                                            <?php endif; ?>
-                                        </div>
-                                        <form method="POST" action="calendar_handler.php" onsubmit="return confirm('Are you sure you want to delete this event?');" style="align-self:center;">
-                                            <input type="hidden" name="action" value="delete">
-                                            <input type="hidden" name="event_id" value="<?= $ce['event_id'] ?>">
-                                            <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-                                            <button type="submit" class="btn btn-secondary" style="padding:6px 10px; color:#dc2626;" title="Delete event"><i data-lucide="trash" style="width:14px;height:14px;"></i></button>
-                                        </form>
-                                    </div>
-                                <?php endforeach; ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-            </div>
+            <?php // CALENDAR moved to office_calendar.php (a module window, 2026-09-29). ?>
         </main>
 
         <!-- macOS window layer (modules open here as windows) -->
@@ -453,87 +280,12 @@ $calendar_events = $pdo->query("SELECT * FROM calendar_events ORDER BY event_dat
         setInterval(updateClock, 1000);
         updateClock();
 
-        // Keep the review-queue dock badges live without a manual page refresh — they're only
-        // rendered once at page load otherwise, so counts go stale as items move through review
-        // module windows (opened in iframes, which don't touch this parent shell's PHP output).
-        function refreshNavBadges() {
-            fetch('nav_badge_counts.php').then(function (r) { return r.ok ? r.json() : null; }).then(function (data) {
-                if (!data) return;
-                var map = { proposal: 'navBadgeProposal', final: 'navBadgeFinal', stats: 'navBadgeStats', plag: 'navBadgePlag' };
-                Object.keys(map).forEach(function (key) {
-                    var el = document.getElementById(map[key]);
-                    if (!el) return;
-                    var count = data[key] || 0;
-                    el.textContent = count;
-                    el.style.display = count > 0 ? '' : 'none';
-                });
-            }).catch(function () {});
-        }
-        setInterval(refreshNavBadges, 20000);
-        document.addEventListener('visibilitychange', function () { if (!document.hidden) refreshNavBadges(); });
-
-        function loadSelectedGroupProfile() {
-            const selector = document.getElementById('groupSelector');
-            const dataStr = selector.value;
-            if (!dataStr) return;
-
-            try {
-                const data = JSON.parse(dataStr);
-                const card = document.getElementById('selectedGroupProfile');
-                card.style.display = 'block';
-
-                const pfpUrl = data.profile_pic || 'https://api.dicebear.com/9.x/bottts/svg?seed=' + encodeURIComponent(data.username);
-                document.getElementById('groupPfp').src = pfpUrl;
-                document.getElementById('groupName').textContent = data.research_group_name;
-                document.getElementById('groupLeader').innerHTML = `Leader: <strong style="color:var(--mcnp-teal);">${data.username}</strong>`;
-                document.getElementById('groupMail').innerHTML = `<i data-lucide="mail" style="width:12px; height:12px; display:inline-block; vertical-align:middle; margin-right:4px;"></i> ${data.email}`;
-                document.getElementById('groupDetails').textContent = `${data.program} • ${data.department}`;
-
-                // Populate tracking labels
-                document.getElementById('progCoord').textContent = data.coordinator_status;
-                document.getElementById('progCoord').className = 'badge-status ' + (data.coordinator_status === 'Approved' ? 'badge-paid' : 'badge-pending');
-
-                document.getElementById('progStats').textContent = data.statistician_status;
-                document.getElementById('progStats').className = 'badge-status ' + (data.statistician_status === 'Approved' ? 'badge-paid' : 'badge-pending');
-
-                document.getElementById('progPay').textContent = data.payment_status;
-                document.getElementById('progPay').className = 'badge-status ' + (data.payment_status === 'Paid' ? 'badge-paid' : 'badge-unpaid');
-
-                lucide.createIcons();
-            } catch (e) {
-                console.error("Error loading group", e);
-            }
-        }
-
-        // Complete workspace-switcher layout handlers
-        function hideAllDashboards() {
-            document.getElementById('masterDashboard').style.display = 'none';
-            document.getElementById('settingsDashboard').style.display = 'none';
-            document.getElementById('calendarDashboard').style.display = 'none';
-            PortalWindows.collapseAll();
-        }
-
-        function showMasterDashboard(btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('masterDashboard').style.display = 'block';
-        }
-
-        function showSettingsDashboard(btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('settingsDashboard').style.display = 'block';
-        }
-
-        function showCalendarDashboard(btn) {
-            document.querySelectorAll('.nav-item-btn').forEach(b => b.classList.remove('active'));
-            btn.classList.add('active');
-            hideAllDashboards();
-            document.getElementById('calendarDashboard').style.display = 'block';
-        }
-
+        // Badges and view switching live in _staff_home.php now (one fetch paints the rail, the
+        // cards and the hero). These names stay because other code still calls them.
+        function hideAllDashboards() { if (window.PortalWindows) PortalWindows.collapseAll(); }
+        function showMasterDashboard() { shShow('home'); }
+        function showSettingsDashboard() { shShow('settingsDashboard'); }
+        function showCalendarDashboard() { openOverlay('office_calendar.php', { dataset: { winTitle: 'Office calendar', winIcon: 'calendar-days' } }); }
         // Open a module as a macOS-style window (state preserved when minimized).
         function openOverlay(url, btn) {
             const title = (btn && btn.dataset.winTitle) || 'Module';

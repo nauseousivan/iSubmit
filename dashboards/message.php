@@ -6,6 +6,11 @@ if (!isset($_SESSION['user_id'])) { header("Location: ../auth/login.php"); exit(
 
 $user_id = $_SESSION['user_id'];
 $me_role = $_SESSION['role'];
+// Staff have their own inbox (staff_messages.php, 2026-09-29). This screen stays the students'.
+if (in_array($me_role, ['Research Coordinator', 'Research Director', 'Statistician'], true)) {
+    header('Location: staff_messages.php' . (isset($_GET['chat_context']) ? '?g=' . (int)preg_replace('/\D/', '', (string)$_GET['chat_context']) : ''));
+    exit();
+}
 
 function timeAgo($datetime) {
     if (!$datetime) return '';
@@ -184,6 +189,9 @@ $normal_contacts = array_filter($contacts, fn($c) => $c['id'] !== 'group_chat');
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Research Messenger</title>
     <script src="https://unpkg.com/lucide@latest"></script>

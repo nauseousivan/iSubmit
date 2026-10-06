@@ -5,6 +5,7 @@ if (session_status() === PHP_SESSION_NONE) {
 }
 
 require_once '../config/db.php';
+require_once 'defense_lib.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') {
     header("Location: ../auth/login.php");
@@ -45,14 +46,6 @@ if (isset($_GET['ajax'])) {
 
 $group_name = $_SESSION['research_group_name'] ?? 'MCNP-ISAP Research Group';
 $account_holder = $_SESSION['username'] ?? 'User';
-
-// Mobile header greeting. There is no separate first-name column — derive it the same way
-// the mascot bubble does. The hour is read in Asia/Manila explicitly rather than via
-// date_default_timezone_set() so the rest of this file's timestamp handling is untouched.
-// This is only the no-flash initial paint; the client clock overwrites #liveGreeting on load.
-$first_name = explode(' ', trim($account_holder))[0] ?: $account_holder;
-$greeting_hour = (int) (new DateTime('now', new DateTimeZone('Asia/Manila')))->format('G');
-$greeting = $greeting_hour < 12 ? 'Good morning' : ($greeting_hour < 18 ? 'Good afternoon' : 'Good evening');
 
 // Fetch group department and program directly from the effective group leader to ensure consistency for all members
 $stmt_leader_info = $pdo->prepare("SELECT department, program FROM users WHERE user_id = ?");
@@ -172,8 +165,8 @@ function getStatsPhaseStatus($pdo, $userId)
     ];
 }
 
-$proposal_progress = getStageProgress($pdo, $effective_user_id, [11, 12, 13, 14, 15, 16]);
-$final_progress    = getStageProgress($pdo, $effective_user_id, [21, 22, 23, 24, 25, 26, 27]);
+$proposal_progress = getStageProgress($pdo, $effective_user_id, [17, 11, 12, 13, 14, 15, 16]);
+$final_progress    = getStageProgress($pdo, $effective_user_id, [20, 22, 23, 24, 25, 26, 27]);
 $stats_phase = getStatsPhaseStatus($pdo, $effective_user_id);
 // Statistics runs off form_stat_treatment's 7-phase workflow. Each phase maps to a MONOTONIC ring %
 // (progress climbs in workflow order and never regresses — a rejection/revision HOLDS the ring at the
@@ -203,7 +196,37 @@ $stats_footer_full  = $sm[5];
 $stats_footer_short = $sm[6];
 // Ring fill colour follows the chip's semantic state (approved/review), else the neutral default.
 $stats_ring_class   = $stats_chip_class === 'chip-approved' ? 'approved' : ($stats_chip_class === 'chip-review' ? 'review' : '');
-$plag_progress  = getSpecificItemProgress($pdo, $effective_user_id, 4);
+// PLAGIARISM CARD — phase-driven, like Statistics' (2026-09-29). It used to read item 4's upload
+// status, so the moment the office RECEIVED the manuscript (item 4 = Approved) the ring said 100%
+// and "Completed" while the group was only at step 2, paying — and $overall_complete fired too.
+// Monotonic in workflow order; a send-back holds the level and only the chip turns red.
+// [pct, chip class, chip icon, chip label, footer tone, footer full, footer short]
+$plag_phase_meta = [
+    'Phase 1: Pending Manuscript'   => [0,   '',              '',               '',             'tone-default',  'Upload your final manuscript',      'Upload file'],
+    'Phase 1: Manuscript Review'    => [15,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Manuscript under review',           'Under review'],
+    'Phase 1: Manuscript Returned'  => [15,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Re-send your manuscript',           'Re-send file'],
+    'Phase 2: Form Download'        => [30,  'chip-pending',  'clock',          'Pending',      'tone-default',  'Pay the scan fee and upload proof', 'Submit payment'],
+    'Phase 3: Payment Verification' => [50,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Payment under review',              'Under review'],
+    'Phase 4: Registered'           => [70,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Turnitin check running',            'Processing'],
+    'Phase 5: Revision Requested'   => [70,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise and re-send your manuscript', 'Revise file'],
+    'Phase 5: Cleared'              => [100, 'chip-approved', 'check-circle-2', 'Completed',    'tone-approved', 'Cleared — ready to bookbind',       'Cleared'],
+];
+require_once __DIR__ . '/plag_pipeline_lib.php';   // pp_round_start() — a revision is a new, paid round
+$plag_status_now = $pdo->prepare("SELECT status FROM plagiarism_checks WHERE user_id = ?");
+$plag_status_now->execute([$effective_user_id]);
+$plag_status_now = $plag_status_now->fetchColumn() ?: 'Phase 1: Pending Manuscript';
+$pm = $plag_phase_meta[$plag_status_now] ?? $plag_phase_meta['Phase 1: Pending Manuscript'];
+$plag_progress      = $pm[0];
+// A paid-again round starts at "manuscript" again, but the ring never goes backwards (the same
+// hold-steady rule as Statistics): it stays where the last scan got them; the chip says the rest.
+if ($plag_progress < 100 && pp_round_start($pdo, (int)$effective_user_id) !== null) $plag_progress = max($plag_progress, 70);
+$plag_chip_class    = $pm[1];
+$plag_chip_icon     = $pm[2];
+$plag_chip_label    = $pm[3];
+$plag_footer_tone   = $pm[4];
+$plag_footer_full   = $pm[5];
+$plag_footer_short  = $pm[6];
+$plag_ring_class    = $plag_chip_class === 'chip-approved' ? 'approved' : ($plag_chip_class === 'chip-review' ? 'review' : '');
 
 // Fetch dynamic asset validation status rows
 $stmt = $pdo->prepare("SELECT item_id, verification_status, remarks, file_path, uploaded_at FROM uploads WHERE user_id = ? ORDER BY uploaded_at ASC");
@@ -268,8 +291,8 @@ function getStageCardMeta($pdo, $latestByItem, $itemIds, $cascadedIds = [])
     return ['updated' => formatRelativeDate($lastTs), 'next_full' => $nextFull, 'next_short' => $nextShort];
 }
 
-$proposal_meta = getStageCardMeta($pdo, $latest_by_item, [11, 12, 13, 14, 15, 16], [13, 15, 16]);
-$final_meta    = getStageCardMeta($pdo, $latest_by_item, [21, 22, 23, 24, 25, 26, 27]);
+$proposal_meta = getStageCardMeta($pdo, $latest_by_item, [17, 11, 12, 13, 14, 15, 16], [13, 15, 16]);
+$final_meta    = getStageCardMeta($pdo, $latest_by_item, [20, 22, 23, 24, 25, 26, 27]);
 
 // Statistics card: phase status (form_stat_treatment) drives the ring/chip and the "updated" meta date.
 // Chip/footer/ring values are all computed above from $stats_phase_meta (monotonic % + semantic state).
@@ -277,10 +300,9 @@ $stats_updated = formatRelativeDate($stats_phase['date_submitted'] ? strtotime($
 
 // Plagiarism card: item 4 drives the ring/chip and the "updated" meta date
 $plag_updated = formatRelativeDate(!empty($latest_by_item[4]['uploaded_at']) ? strtotime($latest_by_item[4]['uploaded_at']) : 0);
-$plag_next_full_map  = [50 => 'Revise manuscript', 25 => 'Awaiting review', 0 => 'Upload manuscript to begin'];
-$plag_next_short_map = [50 => 'Revise file', 25 => 'Awaiting review', 0 => 'Upload file'];
-$plag_next_full  = $plag_next_full_map[$plag_progress] ?? 'Awaiting review';
-$plag_next_short = $plag_next_short_map[$plag_progress] ?? 'Awaiting review';
+// The "what next" line comes from $plag_phase_meta (see above), like Statistics'.
+$plag_next_full  = $plag_footer_full;
+$plag_next_short = $plag_footer_short;
 
 // ── STAGE PEEK DATA (desktop hover-preview on the 4 milestone cards) ──────────────────────
 // Read-only projection of data already fetched above ($latest_by_item, $stats_progress, the
@@ -288,7 +310,7 @@ $plag_next_short = $plag_next_short_map[$plag_progress] ?? 'Awaiting review';
 // it mirrors what each module already shows, so the preview can never disagree with the module.
 $peek_item_names = [];
 $peek_rows = $pdo->query(
-    "SELECT item_id, item_name FROM checklist_items WHERE item_id IN (4,11,12,13,14,15,16,21,22,23,24,25,26,27,40)"
+    "SELECT item_id, item_name FROM checklist_items WHERE item_id IN (4,11,12,13,14,15,16,17,20,22,23,24,25,26,27,40)"
 )->fetchAll();
 foreach ($peek_rows as $r) $peek_item_names[(int)$r['item_id']] = $r['item_name'];
 
@@ -313,20 +335,131 @@ function peekItemRow($itemId, $names, $latestByItem, $statusMap, $note = null)
     ];
 }
 
-// Proposal display order mirrors module_proposal.php's ORDER BY (12 first, cascaded 13/15/16
+// Proposal display order mirrors module_proposal.php's ORDER BY (the Form 002 application 17
+// leads, then the adviser pair 11/12, cascaded 13/15/16
 // tucked under their parent 14) so the peek lists requirements in the same sequence as the module.
 $peek_proposal = [];
-foreach ([12, 11, 14] as $id) $peek_proposal[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
+foreach ([17, 11, 12, 14] as $id) $peek_proposal[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
 foreach ([13, 15, 16] as $id) $peek_proposal[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map, 'Follows Capsule Proposal');
 
-$peek_final = [];
-foreach ([21, 22, 23, 24, 25, 26, 27] as $id) $peek_final[] = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
+// The Final card's front stage (apply -> schedule) comes before any requirement, so the peek
+// leads with it. While it is unresolved the requirements below read "Locked" rather than
+// "Not uploaded", which would otherwise invite a student to try something they cannot do yet.
+$df_booking_peek  = df_get_booking($pdo, $effective_user_id, 'final');
+// Pass whether the requirements are cleared: with no booking, that is what decides between
+// "finish your requirements" and "waiting for your date" (the default would claim cleared).
+$df_stage_peek    = df_stage_meta($df_booking_peek, 'final', df_phase1_cleared($pdo, $effective_user_id, 'final'));
+$df_unlocked_peek = df_requirements_unlocked($df_booking_peek);
 
-$peek_plag = [
-    peekItemRow(4,  $peek_item_names, $latest_by_item, $peek_status_map),
-    peekItemRow(40, $peek_item_names, $latest_by_item, $peek_status_map, 'Uploaded by staff'),
+// Proposal runs the other way round: requirements first, then the defense application. Its
+// stage is what GATES the rest of the journey — the Minutes that Final asks for only exists
+// once the proposal defense has been scheduled and heard.
+$prop_booking_peek = df_get_booking($pdo, $effective_user_id, 'proposal');
+$prop_stage_peek   = df_stage_meta($prop_booking_peek, 'proposal', df_phase1_cleared($pdo, $effective_user_id, 'proposal'));
+$prop_scheduled    = df_requirements_unlocked($prop_booking_peek);
+
+// Stage gates for the four cards, in the order the office actually works: Proposal -> Statistics
+// -> Final -> Plagiarism. Proposal is always open — it is where everyone starts.
+$unlock_proposal = true;
+// Statistics opens once the proposal is COMPLETE overall. A Scheduled booking is that proof: the
+// Focal Person can only endorse a group whose requirements are all approved, so Scheduled implies
+// cleared. Data collection begins here.
+$unlock_stats    = $prop_scheduled;
+// FINAL WAITS FOR STATISTICS (2026-09-25, confirmed with the office). You cannot defend Chapter 4
+// without the numbers, so the face-to-face final defense must come after the statistician has
+// released the results — 'Phase 7: Completed' is the one terminal state of that ladder
+// (form_stat_treatment.status; see $stats_phase_meta, where it is the only 100%).
+$stats_complete  = ($stats_phase['status'] === 'Phase 7: Completed');
+$unlock_final    = $stats_complete;
+
+// The final defense happens face to face, so the system cannot tell it went ahead. The research
+// office says so from the Manuscript screen, and THAT is what opens the Plagiarism card.
+$manuscript_released = df_manuscript_released($pdo, $effective_user_id);
+// Which plagiarism phase they are in, so the billboard can keep pace with them.
+$plag_phase_peek = $pdo->prepare("SELECT status FROM plagiarism_checks WHERE user_id = ?");
+$plag_phase_peek->execute([$effective_user_id]);
+$plag_phase_peek = $plag_phase_peek->fetchColumn() ?: 'Phase 1: Pending Manuscript';
+// Has each phase cleared its own phase 1? The billboard promotes "book your defense" the
+// moment a group earns it, not only once they have already applied.
+$prop_p1_peek  = df_phase1_cleared($pdo, $effective_user_id, 'proposal');
+$final_p1_peek = df_phase1_cleared($pdo, $effective_user_id, 'final');
+// Turnitin runs on the finished manuscript, which is a post-final-defense step (poster 3).
+// Having defended is necessary but not sufficient — the office has to release them.
+$unlock_plag     = ($manuscript_released !== null);
+
+$lock_reason_next = 'Opens once your proposal defense is scheduled';
+// Final's wait is a different one and must say so, or a group with a scheduled proposal reads
+// "opens once your proposal defense is scheduled" on a card that is already past that.
+$lock_reason_final = 'Opens once your statistics results are released';
+// Two different waits, so two different explanations: before the defense there is nothing to do
+// yet; after it, they are waiting on the office rather than on themselves.
+$lock_reason_plag = df_defense_done($df_booking_peek)
+    ? 'Waiting for the research office to open this'
+    : 'Opens after your final defense';
+
+// Final reads in journey order: the one phase-1 requirement, then the booking stage, then the
+// six documents that travel with it. The phase-2 rows stay locked until the office clears
+// Form 002, because that approval is what opens the panel they live in.
+$peek_final = [peekItemRow(20, $peek_item_names, $latest_by_item, $peek_status_map)];
+$final_p1_cleared = (($latest_by_item[20]['verification_status'] ?? '') === 'Approved');
+$peek_final[] = [
+    'name'  => 'Application & Schedule',
+    'label' => $final_p1_cleared ? $df_stage_peek['label'] : 'Locked',
+    'tone'  => $final_p1_cleared ? $df_stage_peek['tone'] : 'empty',
+    'note'  => $df_unlocked_peek && !empty($df_booking_peek['defense_date'])
+        ? date('M j, Y', strtotime($df_booking_peek['defense_date']))
+        . ($df_booking_peek['slot_no'] ? ' · Slot ' . (int)$df_booking_peek['slot_no'] : '')
+        : ($final_p1_cleared ? null : 'Opens once Form 002 is approved'),
+];
+foreach ([22, 23, 24, 25, 26, 27] as $id) {
+    $row = peekItemRow($id, $peek_item_names, $latest_by_item, $peek_status_map);
+    if (!$final_p1_cleared) {
+        $row['label'] = 'Locked';
+        $row['tone']  = 'empty';
+        $row['note']  = 'Opens once Form 002 is approved';
+    }
+    $peek_final[] = $row;
+}
+
+// Proposal's own stage sits at the END of its peek: unlike Final, it comes after the
+// requirements rather than before them.
+$peek_proposal[] = [
+    'name'  => 'Defense Schedule',
+    'label' => $proposal_progress >= 100 ? $prop_stage_peek['label'] : 'Locked',
+    'tone'  => $proposal_progress >= 100 ? $prop_stage_peek['tone'] : 'empty',
+    'note'  => ($prop_scheduled && !empty($prop_booking_peek['defense_date']))
+        ? date('M j, Y', strtotime($prop_booking_peek['defense_date']))
+        . ($prop_booking_peek['slot_no'] ? ' · Slot ' . (int)$prop_booking_peek['slot_no'] : '')
+        : ($proposal_progress >= 100 ? null : 'Opens at 100%'),
 ];
 
+// A locked card still shows what is inside, but every row says so rather than inviting a
+// student to try something the system will refuse.
+$lockPeek = function (array $rows, string $why): array {
+    foreach ($rows as &$r) {
+        $r['label'] = 'Locked';
+        $r['tone']  = 'empty';
+        $r['note']  = $why;
+    }
+    return $rows;
+};
+if (!$unlock_final) $peek_final = $lockPeek($peek_final, $lock_reason_final);
+
+// Plagiarism runs off plagiarism_checks' phase ladder now, same shape as Statistics: each step is
+// done/current against the SAME % the ring uses, so the peek and the card cannot disagree.
+$peek_plag = [];
+$peek_plag_current_used = false;
+foreach ([[15, 'Manuscript sent'], [30, 'Manuscript received'], [50, 'Payment submitted'], [70, 'Registered'], [100, 'Turnitin cleared']] as [$pct, $name]) {
+    if ($plag_progress >= $pct) {
+        $peek_plag[] = ['name' => $name, 'label' => 'Done', 'tone' => 'ok', 'note' => null];
+    } elseif (!$peek_plag_current_used) {
+        $peek_plag_current_used = true;
+        $peek_plag[] = ['name' => $name, 'label' => $plag_chip_label ?: 'Not started',
+                        'tone' => $plag_chip_class === 'chip-revision' ? 'revision' : ($plag_chip_class === 'chip-review' ? 'review' : ($plag_chip_class ? 'pending' : 'empty')), 'note' => null];
+    } else {
+        $peek_plag[] = ['name' => $name, 'label' => 'Not started', 'tone' => 'empty', 'note' => null];
+    }
+}
 // Statistics has no checklist rows — it runs off form_stat_treatment's phase ladder. Steps are
 // marked done/current against the SAME monotonic % the ring uses ($stats_progress), so the peek
 // and the card can never disagree. See $stats_phase_meta for where these pcts come from.
@@ -353,6 +486,8 @@ foreach ($peek_stats_ladder as [$pct, $name]) {
     }
     $peek_stats[] = $row;
 }
+if (!$unlock_stats) $peek_stats = $lockPeek($peek_stats, $lock_reason_next);
+if (!$unlock_plag)  $peek_plag  = $lockPeek($peek_plag, $lock_reason_plag);
 
 // Chip + ring tone mirror the small card's own logic (see the .stage-card-tab markup) so the
 // blown-up preview always reads the same state as the card it grew out of.
@@ -379,31 +514,37 @@ $stage_peek_data = [
         'pct' => $proposal_progress, 'updated' => $proposal_meta['updated'],
         'next' => $proposal_progress >= 100 ? 'Download clearing form' : $proposal_meta['next_full'],
         'heading' => 'Requirements', 'items' => $peek_proposal,
-    ],
-    'final' => [
-        'num' => 2, 'title' => 'Final Defense', 'open' => 'zoom-final', 'url' => 'module_final.php',
-        'chip' => peekChip($final_progress)[0], 'chipLabel' => peekChip($final_progress)[1],
-        'ring' => peekRingTone($final_progress),
-        'pct' => $final_progress, 'updated' => $final_meta['updated'],
-        'next' => $final_progress >= 100 ? 'Download approval form' : $final_meta['next_full'],
-        'heading' => 'Requirements', 'items' => $peek_final,
+        'locked' => !$unlock_proposal, 'lockWhy' => '',
     ],
     'stats' => [
-        'num' => 3, 'title' => 'Statistics Review', 'open' => 'zoom-stats', 'url' => 'module_statistics.php',
+        'num' => 2, 'title' => 'Statistics Review', 'open' => 'zoom-stats', 'url' => 'module_statistics.php',
         // Stats chip/ring are phase-driven, not %-threshold-driven — reuse the card's own values.
         'chip' => $stats_chip_class, 'chipLabel' => $stats_chip_label,
         'ring' => $stats_ring_class,
         'pct' => $stats_progress, 'updated' => $stats_updated,
         'next' => $stats_footer_full,
         'heading' => 'Phases', 'items' => $peek_stats,
+        'locked' => !$unlock_stats, 'lockWhy' => $lock_reason_next,
+    ],
+    'final' => [
+        'num' => 3, 'title' => 'Final Defense', 'open' => 'zoom-final', 'url' => 'module_final.php',
+        'chip' => peekChip($final_progress)[0], 'chipLabel' => peekChip($final_progress)[1],
+        'ring' => peekRingTone($final_progress),
+        'pct' => $final_progress, 'updated' => $final_meta['updated'],
+        'next' => !$df_unlocked_peek
+            ? $df_stage_peek['headline']
+            : ($final_progress >= 100 ? 'Download approval form' : $final_meta['next_full']),
+        'heading' => 'Requirements', 'items' => $peek_final,
+        'locked' => !$unlock_final, 'lockWhy' => $lock_reason_final,
     ],
     'plag' => [
         'num' => 4, 'title' => 'Plagiarism Test', 'open' => 'zoom-plag', 'url' => 'module_plagiarism.php',
-        'chip' => peekChip($plag_progress)[0], 'chipLabel' => peekChip($plag_progress)[1],
-        'ring' => peekRingTone($plag_progress),
+        'chip' => $plag_chip_class, 'chipLabel' => $plag_chip_label,
+        'ring' => $plag_ring_class,
         'pct' => $plag_progress, 'updated' => $plag_updated,
         'next' => $plag_next_full,
-        'heading' => 'Documents', 'items' => $peek_plag,
+        'heading' => 'Phases', 'items' => $peek_plag,
+        'locked' => !$unlock_plag, 'lockWhy' => $lock_reason_plag,
     ],
 ];
 
@@ -436,6 +577,50 @@ $recent_activities = $act_stmt->fetchAll();
 
 $cal_stmt = $pdo->query("SELECT title, description, event_date FROM calendar_events ORDER BY event_date ASC");
 $calendar_events = $cal_stmt->fetchAll();
+
+// Fold the defense calendar into the mini-calendar. The renderer derives busy/available by
+// keyword-matching event titles, so matching that vocabulary colours the dates with no change
+// to the calendar JS at all. Only exceptions and genuinely full days are worth a marker —
+// under the open-by-default model every other working day still has slots.
+// The group's live booking is whichever defense is in front of them right now.
+$df_mini_booking = $prop_booking_peek && !in_array($prop_booking_peek['status'], ['Scheduled', 'Cancelled', 'Rejected'], true)
+    ? $prop_booking_peek
+    : ($df_booking_peek ?: $prop_booking_peek);
+foreach (['proposal', 'final'] as $df_ph) {
+    foreach (df_blackouts($pdo, $df_ph, df_today(), df_window_end()) as $df_date => $df_bo) {
+        $calendar_events[] = [
+            'title' => 'Research office closed — not available',
+            'description' => $df_bo['reason'] ?: 'The research office is closed on this date.',
+            'event_date' => $df_date,
+        ];
+    }
+}
+// Capacity is one pool per SCHOOL, shared across both phases, so this reads the same for
+// either card. Scoped to the group's own school — the other school filling a day is none of
+// their business. Only a day with no slots left is "not available"; partly booked is open.
+$df_mini_school = df_user_school($pdo, $effective_user_id);
+$df_mini_taken  = df_mark_mine(df_taken_dates($pdo, 'final', df_today(), df_window_end(), $df_mini_school), $effective_user_id, 'final');
+foreach ($df_mini_taken as $df_date => $df_bk) {
+    if ($df_bk['count'] < DEFENSE_SLOTS_PER_SCHOOL_PER_DAY) {
+        continue;
+    }
+    $calendar_events[] = [
+        'title' => 'Defense date not available',
+        'description' => 'All ' . DEFENSE_SLOTS_PER_SCHOOL_PER_DAY . ' of your institution\x27s slots for this date are taken.',
+        'event_date' => $df_date,
+    ];
+}
+if ($df_mini_booking && !empty($df_mini_booking['defense_date'])
+    && in_array($df_mini_booking['status'], ['Date Selected', 'Scheduled'], true)) {
+    $df_confirmed = $df_mini_booking['status'] === 'Scheduled';
+    $calendar_events[] = [
+        'title' => $df_confirmed ? 'Your Final Defense — date available' : 'Your requested defense date',
+        'description' => $df_confirmed
+            ? 'Logged and recorded by the research office.'
+            : 'Waiting for the research office to confirm.',
+        'event_date' => $df_mini_booking['defense_date'],
+    ];
+}
 
 // Notification bell badge: epoch timestamps of the review-outcome logs shown in the drawer.
 // JS compares these against a per-browser "last read" marker to render the unread count.
@@ -477,6 +662,9 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Workspace | MCNP-ISAP Institutional Portal</title>
     <!-- Fonts - Inter as primary, Cinzel on brand only, JetBrains Mono for stats & times -->
@@ -686,6 +874,18 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             z-index: 10;
         }
 
+        /* Dock selection tokens — the tray behind a selected item is neutral gray on
+           purpose; the accent colour belongs to the glyph, never the whole button. */
+        :root {
+            --dock-tray: rgba(15, 23, 42, 0.06);
+            --dock-tray-hover: rgba(15, 23, 42, 0.035);
+        }
+
+        body.theme-dark {
+            --dock-tray: rgba(255, 255, 255, 0.10);
+            --dock-tray-hover: rgba(255, 255, 255, 0.055);
+        }
+
         /* FLUTTER-STYLE BOTTOM NAVIGATION DOCK */
         .app-dock-navigation {
             position: fixed;
@@ -694,12 +894,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             transform: translateX(-50%);
             width: auto;
             height: 68px;
-            background: rgba(255, 255, 255, 0.94);
-            backdrop-filter: blur(20px) saturate(160%);
-            -webkit-backdrop-filter: blur(20px) saturate(160%);
-            border: 1px solid rgba(15, 23, 42, 0.06);
-            border-radius: 22px;
-            box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.12), 0 2px 8px -2px rgba(15, 23, 42, 0.06);
+            background: rgba(255, 255, 255, 0.76);
+            backdrop-filter: blur(30px) saturate(180%);
+            -webkit-backdrop-filter: blur(30px) saturate(180%);
+            border: 1px solid rgba(15, 23, 42, 0.035);
+            border-radius: 26px;
+            box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.14), 0 1px 2px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.6);
             display: flex;
             flex-direction: row;
             align-items: center;
@@ -711,9 +911,9 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         }
 
         body.theme-dark .app-dock-navigation {
-            background: rgba(21, 28, 36, 0.92);
-            border-color: rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.4), 0 2px 8px -2px rgba(0, 0, 0, 0.2);
+            background: rgba(21, 28, 36, 0.72);
+            border-color: rgba(255, 255, 255, 0.055);
+            box-shadow: 0 10px 30px -18px rgba(0, 0, 0, 0.55), 0 1px 2px rgba(0, 0, 0, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.05);
         }
 
         /* macOS Window Traffic Lights */
@@ -855,8 +1055,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         .dock-btn:hover {
             color: #0f172a;
-            background-color: rgba(15, 23, 42, 0.06);
-            transform: scale(1.08) translateY(-2px);
+            background-color: var(--dock-tray-hover);
+            transform: scale(1.06) translateY(-2px);
         }
 
         body.theme-dark .dock-btn {
@@ -865,18 +1065,27 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         body.theme-dark .dock-btn:hover {
             color: #f8fafc;
-            background-color: rgba(255, 255, 255, 0.08);
+            background-color: var(--dock-tray-hover);
         }
 
         .dock-btn:hover svg {
             transform: scale(1.05);
         }
 
-        /* Active — purple accent only when selected */
+        /* Active — neutral gray tray, accent lives on the glyph only */
         .dock-btn.active {
             color: var(--active-accent);
-            background-color: var(--active-glow);
+            background-color: var(--dock-tray);
             box-shadow: none;
+        }
+
+        .dock-btn.active svg {
+            stroke-width: 2.4px;
+        }
+
+        .dock-btn.active:hover {
+            background-color: var(--dock-tray);
+            color: var(--active-accent);
         }
 
         .dock-btn.active::after {
@@ -975,8 +1184,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 padding-bottom: 110px;
             }
 
-            .header-title-container h1 {
-                font-size: 28px;
+            .brand-name {
+                font-size: 27px;
+            }
+
+            .brand-mascot {
+                height: 64px;
             }
 
             .stage-tabs-row {
@@ -1030,38 +1243,99 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         }
 
         /* NAVIGATION HEADER BAR */
+        /* One row: the iSubmit brand lockup on the left, the action cluster on the right. */
         .workspace-header-block {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            border-bottom: 1px solid var(--border-subtle);
-            padding-bottom: 18px;
+            gap: 12px;
         }
 
         .header-left-cluster {
             display: flex;
             align-items: center;
             gap: 16px;
+            min-width: 0;
         }
 
-        .header-title-container h1 {
-            font-family: 'Inter', sans-serif;
-            font-size: 24px;
-            font-weight: 800;
-            color: var(--text-primary);
-            letter-spacing: -0.5px;
-            line-height: 1.2;
-        }
-
-        .header-title-container p {
-            font-family: 'Inter', sans-serif;
-            font-size: 13px;
-            color: var(--text-secondary);
-            font-weight: 500;
-            margin-top: 3px;
+        /* ── Brand lockup: mascot tile + wordmark ── */
+        .brand-lockup {
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 12px;
+            min-width: 0;
+        }
+
+        /* No tile — the mascot floats on the page. drop-shadow (not box-shadow) follows the
+           PNG's alpha silhouette, which is what reads as 3D rather than as a card. */
+        .brand-mascot {
+            height: 58px;
+            width: auto;
+            flex-shrink: 0;
+            display: block;
+            filter: drop-shadow(0 7px 10px rgba(15, 23, 42, 0.22)) drop-shadow(0 2px 3px rgba(15, 23, 42, 0.12));
+            animation: brandMascotFloat 4.5s ease-in-out infinite;
+            transition: transform 0.35s var(--spring), filter 0.35s var(--smooth);
+        }
+
+        /* Dark canvas + a near-black graduation cap would swallow the silhouette, so the
+           lift shadow is joined by a soft accent halo that separates it from the surface. */
+        body.theme-dark .brand-mascot {
+            filter: drop-shadow(0 7px 12px rgba(0, 0, 0, 0.55)) drop-shadow(0 0 9px rgba(139, 92, 246, 0.45));
+        }
+
+        @keyframes brandMascotFloat {
+
+            0%,
+            100% {
+                transform: translateY(0);
+            }
+
+            50% {
+                transform: translateY(-4px);
+            }
+        }
+
+        .brand-lockup:hover .brand-mascot {
+            transform: translateY(-5px) scale(1.06) rotate(-3deg);
+            animation-play-state: paused;
+            filter: drop-shadow(0 12px 16px rgba(15, 23, 42, 0.26)) drop-shadow(0 3px 4px rgba(15, 23, 42, 0.14));
+        }
+
+        body.theme-dark .brand-lockup:hover .brand-mascot {
+            filter: drop-shadow(0 12px 18px rgba(0, 0, 0, 0.6)) drop-shadow(0 0 13px rgba(139, 92, 246, 0.6));
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            .brand-mascot {
+                animation: none;
+            }
+        }
+
+        .brand-text {
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+        }
+
+        .brand-name {
+            font-family: 'Inter', sans-serif;
+            font-size: 25px;
+            font-weight: 800;
+            color: var(--text-primary);
+            letter-spacing: -0.7px;
+            line-height: 1.1;
+        }
+
+        .brand-tagline {
+            font-family: 'Inter', sans-serif;
+            font-size: 13px;
+            font-weight: 500;
+            color: var(--text-secondary);
+            letter-spacing: -0.1px;
+            line-height: 1.25;
+            margin-top: 2px;
+            white-space: nowrap;
         }
 
         .program-pomp-dot {
@@ -1076,11 +1350,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             display: flex;
             align-items: center;
             gap: 12px;
-        }
-
-        /* Live Greeting + Weather Box */
-        #liveGreeting {
-            text-align: left;
         }
 
         .head-action-btn {
@@ -1190,6 +1459,44 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             background: color-mix(in srgb, var(--active-accent) 10%, #151c24);
             border-color: rgba(255, 255, 255, 0.07);
         }
+
+        /* The "not yet" pill. Deliberately not the corner toast: no dismiss ×, no slide-in from
+           off-screen — it appears over the card that was tapped and leaves on its own. */
+        .lock-pill {
+            position: fixed; z-index: 1400; pointer-events: none;
+            transform: translate(-50%, -50%) scale(.94);
+            display: flex; align-items: center; gap: 9px;
+            max-width: min(300px, 86vw);
+            padding: 11px 15px; border-radius: 14px;
+            background: rgba(15, 23, 42, .93);
+            -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
+            color: #f1f5f9; font-family: 'Inter', system-ui, sans-serif;
+            font-size: 12.5px; font-weight: 650; line-height: 1.4; text-align: left;
+            box-shadow: 0 16px 34px -14px rgba(15, 23, 42, .6);
+            opacity: 0; transition: opacity .22s ease, transform .28s cubic-bezier(.2, .9, .3, 1.1);
+        }
+        .lock-pill.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+        .lock-pill svg { width: 15px; height: 15px; flex-shrink: 0; opacity: .8; }
+        @media (prefers-reduced-motion: reduce) { .lock-pill { transition: opacity .15s linear; } }
+
+        /* Locked stage. The card still shows its name and its hover-peek — a student should be
+           able to see what is coming — but it cannot be opened, and tapping it says why. */
+        .stage-card-tab.card-locked {
+            cursor: not-allowed;
+            background: #f8fafc;
+            border-color: #e2e8f0;
+        }
+        .stage-card-tab.card-locked .card-content-wrap,
+        .stage-card-tab.card-locked .card-ghost-num { opacity: .45; filter: grayscale(.9); }
+        .stage-card-tab.card-locked:hover { transform: none; box-shadow: none; border-color: #e2e8f0; }
+        .stage-card-lock {
+            position: absolute; top: 12px; right: 12px; z-index: 3;
+            width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: #e2e8f0; color: #64748b;
+        }
+        body.theme-dark .stage-card-tab.card-locked { background: rgba(148, 163, 184, .06); border-color: rgba(255, 255, 255, .07); }
+        body.theme-dark .stage-card-lock { background: rgba(255, 255, 255, .1); color: #94a3b8; }
 
         /* Completed stage gets a subtle green tint; everything else gets a low-saturation purple */
         .stage-card-tab.card-completed {
@@ -2037,6 +2344,23 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             overflow: hidden;
         }
 
+        /* the eagle celebrating every milestone cleared (2026-10-05) */
+        .celebrate-eagle {
+            display: block;
+            width: 132px;
+            height: 124px;
+            margin: -6px auto 2px;
+            object-fit: contain;
+            transform-origin: 50% 90%;
+            animation: celebrateHop 1.8s cubic-bezier(.34, 1.56, .64, 1) infinite;
+        }
+        @keyframes celebrateHop {
+            0%, 60%, 100% { transform: translateY(0) rotate(0); }
+            20% { transform: translateY(-10px) rotate(-3deg); }
+            40% { transform: translateY(0) rotate(2deg); }
+        }
+        @media (prefers-reduced-motion: reduce) { .celebrate-eagle { animation: none; } }
+
         .celebration-banner-card h3 {
             font-family: 'Cinzel', serif;
             color: var(--color-approved);
@@ -2394,69 +2718,64 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         }
 
         /* TOAST NOTIFICATION SYSTEM */
+        /* A dark pill that rises from the bottom, matching .lock-pill so every transient message
+           in the portal reads as one thing. The old version was a white box pinned top-right
+           with a coloured left bar and a dismiss × — the shape of a 2010s alert. */
         .toast-notif {
-            background: var(--bg-card);
-            border: 1px solid var(--border-subtle);
-            border-left: 4px solid var(--active-accent);
-            padding: 14px 18px;
-            border-radius: 12px;
-            box-shadow: var(--shadow-lg);
             display: flex;
             align-items: center;
-            justify-content: space-between;
-            gap: 12px;
-            min-width: 280px;
-            max-width: 380px;
-            transform: translateX(120%);
-            transition: transform 0.35s var(--spring), opacity 0.35s var(--smooth);
+            gap: 10px;
+            padding: 12px 18px;
+            border-radius: 999px;
+            background: rgba(15, 23, 42, .94);
+            -webkit-backdrop-filter: blur(10px);
+            backdrop-filter: blur(10px);
+            color: #f1f5f9;
+            box-shadow: 0 16px 34px -14px rgba(15, 23, 42, .6);
+            transform: translateY(14px) scale(.96);
+            transition: transform .3s cubic-bezier(.2, .9, .3, 1.1), opacity .25s ease;
             opacity: 0;
         }
 
         .toast-notif.visible {
-            transform: translateX(0);
+            transform: translateY(0) scale(1);
             opacity: 1;
         }
 
-        .toast-body {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
         .toast-icon {
-            width: 18px;
-            height: 18px;
+            width: 17px;
+            height: 17px;
             flex-shrink: 0;
         }
 
+        /* the eagle in the toast: a little face for the mood, popping in with the pill */
+        .toast-eagle {
+            width: 38px;
+            height: 38px;
+            margin: -8px -4px -8px -10px;
+            flex-shrink: 0;
+            object-fit: contain;
+            transform: scale(.6);
+            transition: transform .45s cubic-bezier(.34, 1.56, .64, 1) .08s;
+        }
+        .toast-notif.visible .toast-eagle { transform: scale(1); }
+
         .toast-message {
             font-size: 13px;
-            font-weight: 600;
-            color: var(--text-primary);
+            font-weight: 650;
+            line-height: 1.4;
         }
 
-        .toast-close {
-            background: none;
-            border: none;
-            font-size: 16px;
-            cursor: pointer;
-            color: var(--text-muted);
-        }
+        /* Only the icon carries the status colour — a whole coloured panel for "file received"
+           is louder than the event deserves. */
+        .toast-success .toast-icon { color: #34d399; }
+        .toast-error   .toast-icon { color: #f87171; }
+        .toast-warning .toast-icon { color: #fbbf24; }
+        .toast-info    .toast-icon { color: #a78bfa; }
 
-        .toast-success {
-            border-left-color: var(--color-approved);
-        }
-
-        .toast-error {
-            border-left-color: var(--color-revision);
-        }
-
-        .toast-warning {
-            border-left-color: var(--color-review);
-        }
-
-        .toast-info {
-            border-left-color: var(--active-accent);
+        @media (prefers-reduced-motion: reduce) {
+            .toast-notif { transition: opacity .2s linear; transform: none; }
+            .toast-notif.visible { transform: none; }
         }
 
         /* AVATAR DROPDOWN MENU */
@@ -2564,8 +2883,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 justify-content: space-around;
                 gap: 6px;
                 padding: 10px 18px;
-                border-radius: 24px;
-                box-shadow: 0 8px 32px -8px rgba(15, 23, 42, 0.14);
+                border-radius: 28px;
+                box-shadow: 0 10px 30px -18px rgba(15, 23, 42, 0.16), 0 1px 2px rgba(15, 23, 42, 0.03), inset 0 1px 0 rgba(255, 255, 255, 0.6);
             }
 
             .dock-traffic-lights {
@@ -2651,8 +2970,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 gap: 16px;
             }
 
-            .header-title-container h1 {
-                font-size: 20px;
+            .brand-name {
+                font-size: 21px;
+            }
+
+            .brand-mascot {
+                height: 50px;
             }
         }
 
@@ -2731,138 +3054,39 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             /* ── COMPACT MOBILE HEADER ── */
+            /* Same two-row structure as desktop, just tuned down. Only sizes change here —
+               the layout itself lives in the base rules. */
 
-            /* Hide weather + subtitle on mobile — they eat too much space */
+            /* Hide weather on mobile — it eats too much space */
             #weatherWidget {
                 display: none !important;
             }
 
-            .header-title-container p {
-                display: none !important;
+            .workspace-top-stack {
+                gap: 10px;
             }
 
-            /* Slim the whole header row. No divider rule on mobile — the greeting reads as
-               an app header, and the card grid below provides its own separation. */
             .workspace-header-block {
-                padding-bottom: 4px;
-                border-bottom: none;
                 align-items: center;
                 gap: 8px;
             }
 
-            /* Anchor for the tap-to-reveal identity popover */
-            .header-title-container {
-                position: relative;
+            .brand-lockup {
+                gap: 9px;
             }
 
-            /* ── Greeting (replaces the clipped title) ── */
-            .header-greeting {
-                display: flex;
-                flex-direction: column;
-                align-items: flex-start;
-                gap: 1px;
-                padding: 0;
-                border: none;
-                background: transparent;
-                text-align: left;
-                cursor: pointer;
-                font-family: 'Inter', sans-serif;
-                -webkit-tap-highlight-color: transparent;
-                transition: opacity 0.18s var(--smooth);
+            .brand-mascot {
+                height: 46px;
             }
 
-            .header-greeting:active {
-                opacity: 0.6;
-            }
-
-            .hg-line {
-                font-size: 11px;
-                font-weight: 600;
-                color: var(--text-secondary);
-                letter-spacing: 0.2px;
-                line-height: 1.1;
-            }
-
-            .hg-name-row {
-                display: flex;
-                align-items: center;
-                gap: 4px;
-            }
-
-            .hg-name {
+            .brand-name {
                 font-size: 19px;
-                font-weight: 800;
-                color: var(--text-primary);
-                letter-spacing: -0.4px;
-                line-height: 1.15;
+                letter-spacing: -0.5px;
             }
 
-            .hg-chevron {
-                width: 13px;
-                height: 13px;
-                color: var(--text-secondary);
-                transition: transform 0.28s var(--smooth);
-            }
-
-            .header-greeting.open .hg-chevron {
-                transform: rotate(180deg);
-            }
-
-            /* ── Identity popover: full group name, free to wrap, never clipped ── */
-            /* visibility+opacity (NOT display:none) so the transition actually fires */
-            .header-identity-pop {
-                position: absolute;
-                top: calc(100% + 8px);
-                left: 0;
-                z-index: 60;
-                /* width:max-content is required — the absolute box would otherwise
-                   shrink-to-fit the narrow .header-title-container, not the max-width */
-                width: max-content;
-                max-width: min(78vw, 320px);
-                padding: 13px 15px;
-                background: var(--bg-card);
-                border: 1px solid var(--border-subtle);
-                border-radius: 18px;
-                box-shadow: var(--shadow-xl);
-                opacity: 0;
-                visibility: hidden;
-                pointer-events: none;
-                transform: translateY(-6px);
-                transition: opacity 0.24s var(--smooth), visibility 0.24s var(--smooth), transform 0.28s var(--spring);
-            }
-
-            .header-identity-pop.open {
-                opacity: 1;
-                visibility: visible;
-                pointer-events: auto;
-                transform: translateY(0);
-            }
-
-            .hip-name {
-                font-family: 'Inter', sans-serif;
-                font-size: 14px;
-                font-weight: 700;
-                color: var(--text-primary);
-                letter-spacing: -0.2px;
-                line-height: 1.35;
-            }
-
-            .hip-sub {
-                display: flex;
-                align-items: flex-start;
-                gap: 6px;
-                margin-top: 6px;
-                font-family: 'Inter', sans-serif;
-                font-size: 11.5px;
-                font-weight: 500;
-                color: var(--text-secondary);
-                line-height: 1.3;
-            }
-
-            /* Align the dot to the first line, not the middle of a wrapped block */
-            .hip-sub .program-pomp-dot {
-                flex-shrink: 0;
-                margin-top: 5px;
+            .brand-tagline {
+                font-size: 10px;
+                margin-top: 1px;
             }
 
             /* Shrink action buttons */
@@ -2929,9 +3153,13 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             .dock-btn.active {
-                width: 78px;
-                background-color: var(--active-accent);
-                color: #ffffff;
+                width: 66px;
+                background-color: var(--dock-tray);
+                color: var(--active-accent);
+            }
+
+            .dock-btn.active svg {
+                stroke-width: 2.7px;
             }
 
             .dock-avatar-wrapper {
@@ -3144,6 +3372,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 </head>
 
 <body class="theme-purple">
+<?php include __DIR__ . '/components/announcement.php'; /* 2026-10-01: the Admin's banner */ ?>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('rd-portal-theme');
@@ -3154,7 +3383,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
     </script>
 
     <!-- Global Toast Container -->
-    <div id="toastContainer" style="position: fixed; top: 24px; right: 24px; z-index: 1000000; display: flex; flex-direction: column; gap: 10px; pointer-events: none;"></div>
+    <div id="toastContainer" style="position: fixed; left: 50%; bottom: 96px; transform: translateX(-50%); z-index: 1000000; display: flex; flex-direction: column; align-items: center; gap: 10px; pointer-events: none; width: max-content; max-width: min(420px, 92vw);"></div>
 
     <div class="app-dashboard-frame">
 
@@ -3254,29 +3483,14 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
             <div class="workspace-header-block">
                 <div class="header-left-cluster">
-                    <div class="header-title-container">
-                        <h1 class="mobile-hidden"><?= htmlspecialchars($group_name) ?></h1>
-                        <p><span class="program-pomp-dot"></span><?= htmlspecialchars($institutional_subtitle) ?></p>
-
-                        <!-- Mobile-only app-style greeting. Replaces the group title below 641px,
-                             where a long title could only ever render as an ellipsis. Tap reveals
-                             the full group identity in #headerIdentityPop. -->
-                        <button type="button" class="header-greeting desktop-hidden"
-                            id="headerGreetingBtn" onclick="toggleHeaderIdentity(event)"
-                            aria-expanded="false" aria-controls="headerIdentityPop"
-                            aria-label="Show research group details">
-                            <span class="hg-line" id="liveGreeting"><?= htmlspecialchars($greeting) ?></span>
-                            <span class="hg-name-row">
-                                <span class="hg-name"><?= htmlspecialchars($first_name) ?></span>
-                                <svg class="hg-chevron" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
-                                    <polyline points="6 9 12 15 18 9" />
-                                </svg>
-                            </span>
-                        </button>
-
-                        <div class="header-identity-pop desktop-hidden" id="headerIdentityPop" role="dialog" aria-label="Research group details">
-                            <div class="hip-name"><?= htmlspecialchars($group_name) ?></div>
-                            <div class="hip-sub"><span class="program-pomp-dot"></span><?= htmlspecialchars($institutional_subtitle) ?></div>
+                    <!-- Brand lockup: the mascot + wordmark are the page's identity at every
+                         breakpoint. The research group's own name and program live on
+                         profile.php, not here. -->
+                    <div class="brand-lockup">
+                        <img src="../assets/images/mascot.png" alt="" aria-hidden="true" class="brand-mascot">
+                        <div class="brand-text">
+                            <span class="brand-name">iSubmit</span>
+                            <span class="brand-tagline">Research Digitalization Platform</span>
                         </div>
                     </div>
                 </div>
@@ -3314,6 +3528,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     </button>
                 </div>
             </div>
+
 
             <!-- CARDS MILESTONE ROW -->
             <?php
@@ -3390,62 +3605,13 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     </div>
                 </div>
 
-                <!-- Final Defense Card -->
-                <div class="stage-card-tab <?= $final_progress == 100 ? 'card-completed' : '' ?>"
-                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
-                    data-peek="final"
-                    onclick="pushView('zoom-final','module_final.php',this)">
-                    <div class="card-ghost-num">2</div>
-                    <button class="card-dot-btn" onclick="openCardModal(event,'final')" title="What to do">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
-                            <circle cx="12" cy="5" r=".6" fill="currentColor" />
-                            <circle cx="12" cy="12" r=".6" fill="currentColor" />
-                            <circle cx="12" cy="19" r=".6" fill="currentColor" />
-                        </svg>
-                    </button>
-                    <div class="card-content-wrap">
-                        <div class="card-top-row">
-                            <?php
-                            if ($final_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                            elseif ($final_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                            elseif ($final_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                            elseif ($final_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
-                            else                               echo '<span></span>';
-                            ?>
-                        </div>
-                        <div class="card-mid-row">
-                            <div class="cp-ring-wrap">
-                                <svg class="cp-svg" viewBox="0 0 72 72">
-                                    <circle class="cp-track" cx="36" cy="36" r="28" />
-                                    <circle class="cp-fill <?= $final_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
-                                        data-pct="<?= $final_progress ?>" />
-                                </svg>
-                                <div class="cp-center-label">
-                                    <span class="cp-pct"><?= $final_progress ?>%</span>
-                                </div>
-                            </div>
-                            <div class="card-mid-text">
-                                <h4>Final Defense</h4>
-                                <?php if ($final_meta['updated']): ?>
-                                    <span class="card-meta-line"><?= $final_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($final_meta['updated']) ?></span>
-                                <?php endif; ?>
-                            </div>
-                        </div>
-                        <?php if ($final_progress > 0): ?>
-                            <div class="card-footer-row">
-                                <?= cardFooterHTML($final_progress, 'Download approval form', 'Download form', $final_meta['next_full'], $final_meta['next_short']) ?>
-                                <?= $footerArrowSvg ?>
-                            </div>
-                        <?php endif; ?>
-                    </div>
-                </div>
-
                 <!-- Statistics Card -->
-                <div class="stage-card-tab <?= $stats_progress == 100 ? 'card-completed' : '' ?>"
+                <div class="stage-card-tab <?= $stats_progress == 100 ? 'card-completed' : '' ?><?= $unlock_stats ? '' : ' card-locked' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     data-peek="stats"
-                    onclick="pushView('zoom-stats','module_statistics.php',this)">
-                    <div class="card-ghost-num">3</div>
+                    <?php if ($unlock_stats): ?>onclick="pushView('zoom-stats','module_statistics.php',this)"<?php else: ?>onclick="lockedCardNote(<?= htmlspecialchars(json_encode($lock_reason_next), ENT_QUOTES) ?>, this)"<?php endif; ?>>
+                    <div class="card-ghost-num">2</div>
+                    <?php if (!$unlock_stats): ?><span class="stage-card-lock"><i data-lucide="lock" style="width:13px;height:13px;"></i></span><?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'stats')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -3490,12 +3656,83 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     </div>
                 </div>
 
+                <!-- Final Defense Card -->
+                <div class="stage-card-tab <?= $final_progress == 100 ? 'card-completed' : '' ?><?= $unlock_final ? '' : ' card-locked' ?>"
+                    style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
+                    data-peek="final"
+                    <?php if ($unlock_final): ?>onclick="pushView('zoom-final','module_final.php',this)"<?php else: ?>onclick="lockedCardNote(<?= htmlspecialchars(json_encode($lock_reason_final), ENT_QUOTES) ?>, this)"<?php endif; ?>>
+                    <div class="card-ghost-num">3</div>
+                    <?php if (!$unlock_final): ?><span class="stage-card-lock"><i data-lucide="lock" style="width:13px;height:13px;"></i></span><?php endif; ?>
+                    <button class="card-dot-btn" onclick="openCardModal(event,'final')" title="What to do">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <circle cx="12" cy="5" r=".6" fill="currentColor" />
+                            <circle cx="12" cy="12" r=".6" fill="currentColor" />
+                            <circle cx="12" cy="19" r=".6" fill="currentColor" />
+                        </svg>
+                    </button>
+                    <div class="card-content-wrap">
+                        <div class="card-top-row">
+                            <?php
+                            if ($final_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
+                            elseif ($final_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
+                            elseif ($final_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
+                            elseif ($final_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
+                            else                               echo '<span></span>';
+                            ?>
+                        </div>
+                        <div class="card-mid-row">
+                            <div class="cp-ring-wrap">
+                                <svg class="cp-svg" viewBox="0 0 72 72">
+                                    <circle class="cp-track" cx="36" cy="36" r="28" />
+                                    <circle class="cp-fill <?= $final_progress == 100 ? 'approved' : '' ?>" cx="36" cy="36" r="28"
+                                        data-pct="<?= $final_progress ?>" />
+                                </svg>
+                                <div class="cp-center-label">
+                                    <span class="cp-pct"><?= $final_progress ?>%</span>
+                                </div>
+                            </div>
+                            <div class="card-mid-text">
+                                <h4>Final Defense</h4>
+                                <?php if ($final_meta['updated']): ?>
+                                    <span class="card-meta-line"><?= $final_progress >= 100 ? 'Cleared' : 'Updated' ?> <?= htmlspecialchars($final_meta['updated']) ?></span>
+                                <?php endif; ?>
+                            </div>
+                        </div>
+                        <?php if (!$df_unlocked_peek): ?>
+                            <?php
+                            // Zero-progress cards normally hide the footer because there is nothing
+                            // specific to say. The front stage changes that: 0% now carries a real
+                            // next action, so it earns a line. Short/full variants per breakpoint,
+                            // never a truncated single string.
+                            // Students never apply or pick a date any more, so the words come from
+                            // df_stage_meta() — short = its label, full = its headline — rather
+                            // than a second copy here that drifted ("Apply now", "Pick a date").
+                            $df_foot = [$df_stage_peek['label'], $df_stage_peek['headline']];
+                            // Only tone-default / tone-review / tone-approved exist; revision states
+                            // fall back to tone-default, same as the stats phase ladder above.
+                            $df_foot_tone = $df_stage_peek['tone'] === 'review' ? 'tone-review' : 'tone-default';
+                            ?>
+                            <div class="card-footer-row">
+                                <span class="card-footer-text <?= $df_foot_tone ?> desktop-hidden"><?= htmlspecialchars($df_foot[0]) ?></span>
+                                <span class="card-footer-text <?= $df_foot_tone ?> mobile-hidden"><?= htmlspecialchars($df_foot[1]) ?></span>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php elseif ($final_progress > 0): ?>
+                            <div class="card-footer-row">
+                                <?= cardFooterHTML($final_progress, 'Download approval form', 'Download form', $final_meta['next_full'], $final_meta['next_short']) ?>
+                                <?= $footerArrowSvg ?>
+                            </div>
+                        <?php endif; ?>
+                    </div>
+                </div>
+
                 <!-- Plagiarism Card -->
-                <div class="stage-card-tab <?= $plag_progress == 100 ? 'card-completed' : '' ?>"
+                <div class="stage-card-tab <?= $plag_progress == 100 ? 'card-completed' : '' ?><?= $unlock_plag ? '' : ' card-locked' ?>"
                     style="--active-accent:#7c3aed; --active-glow:rgba(124,58,237,0.15);"
                     data-peek="plag"
-                    onclick="pushView('zoom-plag','module_plagiarism.php',this)">
+                    <?php if ($unlock_plag): ?>onclick="pushView('zoom-plag','module_plagiarism.php',this)"<?php else: ?>onclick="lockedCardNote(<?= htmlspecialchars(json_encode($lock_reason_plag), ENT_QUOTES) ?>, this)"<?php endif; ?>>
                     <div class="card-ghost-num">4</div>
+                    <?php if (!$unlock_plag): ?><span class="stage-card-lock"><i data-lucide="lock" style="width:13px;height:13px;"></i></span><?php endif; ?>
                     <button class="card-dot-btn" onclick="openCardModal(event,'plag')" title="What to do">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor">
                             <circle cx="12" cy="5" r=".6" fill="currentColor" />
@@ -3506,18 +3743,16 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     <div class="card-content-wrap">
                         <div class="card-top-row">
                             <?php
-                            if ($plag_progress == 100)      echo '<span class="status-chip chip-approved"><i data-lucide="check-circle-2"></i> Completed</span>';
-                            elseif ($plag_progress >= 75)   echo '<span class="status-chip chip-review"><i data-lucide="beaker"></i> Reviewed</span>';
-                            elseif ($plag_progress >= 50)   echo '<span class="status-chip chip-revision"><i data-lucide="alert-circle"></i> Revision</span>';
-                            elseif ($plag_progress > 0)     echo '<span class="status-chip chip-pending"><i data-lucide="clock"></i> Pending</span>';
-                            else                               echo '<span></span>';
+                            // Chip is phase-driven (see $plag_phase_meta) — NOT a threshold on the % ring.
+                            if ($plag_chip_class) echo '<span class="status-chip ' . $plag_chip_class . '"><i data-lucide="' . $plag_chip_icon . '"></i> ' . $plag_chip_label . '</span>';
+                            else                  echo '<span></span>';
                             ?>
                         </div>
                         <div class="card-mid-row">
                             <div class="cp-ring-wrap">
                                 <svg class="cp-svg" viewBox="0 0 72 72">
                                     <circle class="cp-track" cx="36" cy="36" r="28" />
-                                    <circle class="cp-fill <?= $plag_progress == 100 ? 'approved' : ($plag_progress == 75 ? 'review' : '') ?>" cx="36" cy="36" r="28"
+                                    <circle class="cp-fill <?= $plag_ring_class ?>" cx="36" cy="36" r="28"
                                         data-pct="<?= $plag_progress ?>" />
                                 </svg>
                                 <div class="cp-center-label">
@@ -3533,13 +3768,17 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                         </div>
                         <?php if ($plag_progress > 0): ?>
                             <div class="card-footer-row">
-                                <?= cardFooterHTML($plag_progress, 'Manuscript cleared', 'Cleared', $plag_next_full, $plag_next_short) ?>
+                                <?php // Footer tone + text are phase-driven (see $plag_phase_meta), not %-threshold-driven. ?>
+                                <span class="card-footer-text <?= $plag_footer_tone ?> desktop-hidden"><?= htmlspecialchars($plag_footer_short) ?></span>
+                                <span class="card-footer-text <?= $plag_footer_tone ?> mobile-hidden"><?= htmlspecialchars($plag_footer_full) ?></span>
                                 <?= $footerArrowSvg ?>
                             </div>
                         <?php endif; ?>
                     </div>
                 </div>
             </section>
+
+            <?php include 'components/dashboard_billboards.php'; ?>
 
             <!-- SIDE BY SIDE BENTO INFO GRID -->
             <div class="workspace-core-grid">
@@ -3617,6 +3856,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
                 <?php if ($overall_complete): ?>
                     <div class="celebration-banner-card">
+                        <img src="../assets/mascot/eagle/celebrating.svg" alt="" aria-hidden="true" class="celebrate-eagle" draggable="false">
                         <h3><i data-lucide="trophy" style="width: 24px; height: 24px; color: #fbbf24; vertical-align: middle; display: inline-block; margin-right: 8px;"></i>Congratulations! All Milestones Cleared</h3>
                         <p>All your research stages have been verified by coordinators and administrators. You may now generate your formal digital clearing credentials below.</p>
                         <a href="download_final_form.php" class="btn-download-final-form">
@@ -4417,12 +4657,15 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             if (type === 'warning') iconName = 'alert-triangle';
             if (type === 'info') iconName = 'info';
 
+            // No dismiss × — it leaves on its own, and a close button on a 5-second
+            // notice is exactly what made this read as an old-style alert box.
+            // The eagle carries the mood (2026-10-05): happy when something went through, worried
+            // when it did not, a wink for a tip. The status colour stays on a dot beside her.
+            const pose = { success: 'happy', error: 'oops', warning: 'oops', info: 'wink' }[type] || 'happy';
             toast.innerHTML = `
-                <div class="toast-body">
-                    <i data-lucide="${iconName}" class="toast-icon"></i>
-                    <span class="toast-message">${message}</span>
-                </div>
-                <button class="toast-close" onclick="this.parentElement.remove()">&times;</button>
+                <img src="../assets/mascot/eagle/${pose}.svg" alt="" aria-hidden="true" class="toast-eagle">
+                <i data-lucide="${iconName}" class="toast-icon"></i>
+                <span class="toast-message">${message}</span>
             `;
 
             container.appendChild(toast);
@@ -4676,11 +4919,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             if (e.target.id === 'cardInfoModal') closeCardModalNow();
         }
 
-        // ESC key closes modal + the mobile header identity popover
+        // ESC key closes the card modal
         document.addEventListener('keydown', function(e) {
             if (e.key === 'Escape') {
                 closeCardModalNow();
-                if (typeof closeHeaderIdentity === 'function') closeHeaderIdentity();
             }
         });
 
@@ -4715,6 +4957,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ESC_MAP[c]);
 
             const ARROW = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>`;
+            // Inline, like ARROW, so a locked panel needs no lucide rescan on hover.
+            const LOCKGLYPH = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>`;
 
             function buildHTML(d) {
                 const done = d.items.filter((i) => i.tone === 'ok').length;
@@ -4757,10 +5001,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                         </div>
                         <div class="peek-list">${rows}</div>
                         <div class="peek-foot">
-                            <button type="button" class="peek-cta">${ARROW} Open ${esc(d.title)}</button>
+                            <button type="button" class="peek-cta">${d.locked ? LOCKGLYPH + ' Locked' : ARROW + ' Open ' + esc(d.title)}</button>
                             <button type="button" class="peek-steps-btn" data-peek-steps="1">What to do</button>
                         </div>
-                        <p class="peek-hint">Click to open · move away or press Esc to dismiss</p>
+                        <p class="peek-hint">${d.locked ? esc(d.lockWhy) : 'Click to open · move away or press Esc to dismiss'}</p>
                     </div>`;
             }
 
@@ -4859,7 +5103,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     openCardModal(e, key);
                     return;
                 }
-                closePeek(); // anywhere else inside the panel → enter the module as normal
+                closePeek();
+                // A locked stage is locked here too: the panel is a preview of the card, so it
+                // must obey the same gate rather than offering a way around it.
+                if (d.locked) { lockedCardNote(d.lockWhy); return; }
                 pushView(d.open, d.url);
             });
 
@@ -4878,16 +5125,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         })();
 
         // Initialize elements
-        // Re-derive the mobile header greeting from the device clock — that is the student's
-        // real local time. PHP already rendered an Asia/Manila value so there is no flash;
-        // this only corrects it, and keeps it correct across a midday/evening rollover.
-        function refreshLiveGreeting() {
-            const el = document.getElementById('liveGreeting');
-            if (!el) return;
-            const h = new Date().getHours();
-            el.textContent = h < 12 ? 'Good morning' : (h < 18 ? 'Good afternoon' : 'Good evening');
-        }
-
         document.addEventListener("DOMContentLoaded", function() {
             lucide.createIcons();
             fetchWeatherWidget();
@@ -4895,8 +5132,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             staggerRevealCards();
             updateRelativeTimestamps();
             setInterval(updateRelativeTimestamps, 30000);
-            refreshLiveGreeting();
-            setInterval(refreshLiveGreeting, 300000);
         });
 
         // ── Notification unread counter ──────────────────────────────────────
@@ -4955,48 +5190,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             const menu = document.getElementById('avatarDropdownMenu');
             if (!menu) return;
             menu.classList.toggle('active');
-            // Never leave both header popovers open at once
-            if (menu.classList.contains('active')) closeHeaderIdentity();
         }
-
-        // ── Mobile header identity popover ──────────────────────────────────────────────
-        // Tapping the greeting reveals the full research group name + dept • program.
-        // Presentation only: no navigation, no state written anywhere.
-        function closeHeaderIdentity() {
-            const pop = document.getElementById('headerIdentityPop');
-            const btn = document.getElementById('headerGreetingBtn');
-            if (pop) pop.classList.remove('open');
-            if (btn) {
-                btn.classList.remove('open');
-                btn.setAttribute('aria-expanded', 'false');
-            }
-        }
-
-        function toggleHeaderIdentity(event) {
-            event.stopPropagation();
-            const pop = document.getElementById('headerIdentityPop');
-            const btn = document.getElementById('headerGreetingBtn');
-            if (!pop || !btn) return;
-            const open = pop.classList.toggle('open');
-            btn.classList.toggle('open', open);
-            btn.setAttribute('aria-expanded', open ? 'true' : 'false');
-            // Never leave both header popovers open at once
-            if (open) {
-                const menu = document.getElementById('avatarDropdownMenu');
-                if (menu) menu.classList.remove('active');
-            }
-        }
-
-        // A popover left open across a route change or rotation is stale state.
-        // Guard on width: mobile browsers fire resize every time the URL bar collapses
-        // on scroll, which would otherwise snap the popover shut the moment it opens.
-        window.addEventListener('popstate', closeHeaderIdentity);
-        let hgLastWidth = window.innerWidth;
-        window.addEventListener('resize', function() {
-            if (window.innerWidth === hgLastWidth) return;
-            hgLastWidth = window.innerWidth;
-            closeHeaderIdentity();
-        });
 
         document.addEventListener('click', function(e) {
             const menu = document.getElementById('avatarDropdownMenu');
@@ -5006,12 +5200,6 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 if ((!wrapper || !wrapper.contains(e.target)) && (!profile || !profile.contains(e.target))) {
                     menu.classList.remove('active');
                 }
-            }
-
-            const pop = document.getElementById('headerIdentityPop');
-            if (pop && pop.classList.contains('open')) {
-                const container = document.querySelector('.header-title-container');
-                if (!container || !container.contains(e.target)) closeHeaderIdentity();
             }
         });
 
@@ -5042,6 +5230,41 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         }
 
         // Launch zoom dynamic modules
+        // Tapping a locked stage card. Says why instead of doing nothing, which would read as a
+        // broken card — but deliberately NOT through showToast(): that toast carries a dismiss ×
+        // and slides in from the corner, which is far too heavy for "not yet". This is a small
+        // lock pill that fades in over the card itself and leaves on its own.
+        function lockedCardNote(reason, el, ms) {
+            var card = el || (window.event && window.event.currentTarget) || null;
+            var pill = document.getElementById('lockPill');
+            if (!pill) {
+                pill = document.createElement('div');
+                pill.id = 'lockPill';
+                pill.className = 'lock-pill';
+                document.body.appendChild(pill);
+            }
+            pill.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" ' +
+                'stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2"/>' +
+                '<path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg><span></span>';
+            pill.querySelector('span').textContent = reason;
+
+            // Sit it over the card that was tapped; fall back to centre-screen on phones where
+            // the card may be under the thumb.
+            pill.classList.remove('show');
+            void pill.offsetWidth;
+            if (card && card.getBoundingClientRect) {
+                var r = card.getBoundingClientRect();
+                pill.style.left = Math.round(r.left + r.width / 2) + 'px';
+                pill.style.top = Math.round(r.top + r.height / 2) + 'px';
+            } else {
+                pill.style.left = '50%';
+                pill.style.top = '42%';
+            }
+            pill.classList.add('show');
+            clearTimeout(window.__lockPill);
+            window.__lockPill = setTimeout(function () { pill.classList.remove('show'); }, ms || 2600);
+        }
+
         function pushView(panelId, url = null, triggerEl = null) {
             const moduleName = panelId.replace("zoom-", "");
             history.pushState({
@@ -5457,11 +5680,12 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             if (!greeter || !mascotSub) return;
 
             let message = '';
+            let pose = 'happy';                       // the eagle's face for this message
 
             if (dayOfWeek === 0) {
-                message = "The research office is closed on Sundays! 🛋️";
+                message = "The research office is closed on Sundays! 🛋️"; pose = 'sleeping';
             } else if (holiday) {
-                message = `It's ${holiday.name}! The office is closed for the holiday. 🎉`;
+                message = `It's ${holiday.name}! The office is closed for the holiday. 🎉`; pose = 'sleeping';
             }
 
             if (dbEvents.length > 0) {
@@ -5471,7 +5695,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     if (st.includes('available')) {
                         texts.push(`Available: ${e.title}`);
                     } else if (st.includes('quota') || st.includes('not available') || st.includes('closed')) {
-                        texts.push(`Closed: ${e.title}`);
+                        texts.push(`Closed: ${e.title}`); pose = 'sleeping';
                     } else {
                         texts.push(`Event: ${e.title}`);
                     }
@@ -5480,7 +5704,7 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             if (dayOfWeek === 6 && dbEvents.length === 0 && !holiday) {
-                message = "It's Saturday! Staff is only available until 1:00 PM. ⏰";
+                message = "It's Saturday! Staff is only available until 1:00 PM. ⏰"; pose = 'wink';
             }
 
             if (message === '') {
@@ -5488,6 +5712,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             mascotSub.innerText = message;
+            const eagle = document.getElementById('mascotSVG');
+            if (eagle && eagle.tagName === 'IMG') eagle.src = '../assets/mascot/eagle/' + pose + '.svg';
 
             // Pop the mascot in
             greeter.classList.remove('mascot-out');
@@ -5589,6 +5815,18 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
         document.addEventListener("DOMContentLoaded", function() {
             const params = new URLSearchParams(window.location.search);
+
+            // The handlers (upload_handler.php, reset_handler.php, ...) all redirect back
+            // here with ?msg=&type=, but nothing was reading them, so every one of those
+            // toasts was being dropped. Read it before the ?module= branch below, which
+            // wipes the querystring with replaceState().
+            if (params.get('msg')) {
+                const toastType = params.get('type') || 'success';
+                setTimeout(() => showToast(params.get('msg'), toastType), 400);
+                window.history.replaceState({}, document.title,
+                    window.location.pathname + (params.get('module') ? '?module=' + encodeURIComponent(params.get('module')) : ''));
+            }
+
             const overallComplete = <?= json_encode($overall_complete) ?>;
             if (overallComplete && !sessionStorage.getItem('mcnp_clearing_confetti')) {
                 sessionStorage.setItem('mcnp_clearing_confetti', 'done');
@@ -5639,8 +5877,26 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                     'chat': 'message.php'
                 };
 
-                if (moduleMap[moduleName]) {
-                    pushView('zoom-' + moduleName, moduleMap[moduleName]);
+                // 2026-10-01: the same locks as the cards. A printed phase-card QR (admin_qr.php)
+                // lands here after sign-in; a stage the group has not reached says why, as a tap
+                // on its locked card does, instead of opening. null = open.
+                const moduleLocks = <?= json_encode([
+                    'proposal' => $unlock_proposal ? null : 'Not open yet',
+                    'stats'    => $unlock_stats ? null : $lock_reason_next,
+                    'final'    => $unlock_final ? null : $lock_reason_final,
+                    'plag'     => $unlock_plag ? null : $lock_reason_plag,
+                ]) ?>;
+                if (moduleLocks[moduleName]) {
+                    lockedCardNote(moduleLocks[moduleName], null, 7000);
+                    window.history.replaceState({}, document.title, window.location.pathname);
+                } else if (moduleMap[moduleName]) {
+                    // Carry ?view= through to the module. The defense handlers redirect with
+                    // view=schedule so an upload or a date pick lands back INSIDE the schedule
+                    // sheet instead of dropping the group on the requirement list every time.
+                    let target = moduleMap[moduleName];
+                    const view = params.get('view');
+                    if (view) target += (target.indexOf('?') > -1 ? '&' : '?') + 'view=' + encodeURIComponent(view);
+                    pushView('zoom-' + moduleName, target);
                     window.history.replaceState({}, document.title, window.location.pathname);
                 }
             }
@@ -5656,50 +5912,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             <span id="mascotMsg">Hi, <?= htmlspecialchars(explode(' ', $account_holder)[0]) ?>! 👋</span>
             <span class="mascot-sub">Ready to crush your research?</span>
         </div>
-        <!-- Animated owl SVG mascot -->
+        <!-- The iSubmit eagle (assets/mascot/eagle). Waving with a wink for the greeting; showEvent()
+             changes the pose to match the calendar message (closed: sleeping, open: happy). -->
         <div id="mascotBody">
-            <svg viewBox="0 0 120 140" xmlns="http://www.w3.org/2000/svg" id="mascotSVG">
-                <!-- Graduation cap -->
-                <rect x="28" y="24" width="64" height="10" rx="3" fill="#1e1b4b" />
-                <polygon points="60,10 90,26 60,30 30,26" fill="#312e81" />
-                <line x1="90" y1="26" x2="96" y2="46" stroke="#312e81" stroke-width="2" />
-                <circle cx="96" cy="48" r="4" fill="#a78bfa" />
-
-                <!-- Body -->
-                <ellipse cx="60" cy="90" rx="34" ry="42" fill="#7c3aed" />
-                <!-- Chest / belly -->
-                <ellipse cx="60" cy="96" rx="20" ry="26" fill="#ede9fe" />
-
-                <!-- Eyes group — blink via CSS -->
-                <g id="mascotEyes">
-                    <circle cx="44" cy="72" r="11" fill="white" />
-                    <circle cx="76" cy="72" r="11" fill="white" />
-                    <circle cx="46" cy="73" r="6" fill="#1e1b4b" />
-                    <circle cx="78" cy="73" r="6" fill="#1e1b4b" />
-                    <!-- Shine -->
-                    <circle cx="48" cy="70" r="2.5" fill="white" />
-                    <circle cx="80" cy="70" r="2.5" fill="white" />
-                    <!-- Blink bars (hidden by default, shown in blink keyframe) -->
-                    <rect id="blinkL" x="33" y="70" width="22" height="6" rx="3" fill="#7c3aed" opacity="0" />
-                    <rect id="blinkR" x="65" y="70" width="22" height="6" rx="3" fill="#7c3aed" opacity="0" />
-                </g>
-
-                <!-- Beak -->
-                <polygon points="60,78 53,86 67,86" fill="#f59e0b" />
-
-                <!-- Left wing (static) -->
-                <ellipse cx="27" cy="98" rx="12" ry="20" fill="#6d28d9" transform="rotate(-15,27,98)" />
-
-                <!-- Right wing — waves -->
-                <g id="mascotWing" style="transform-origin: 88px 85px;">
-                    <ellipse cx="93" cy="98" rx="12" ry="20" fill="#6d28d9" transform="rotate(15,93,98)" />
-                    <ellipse cx="97" cy="80" rx="8" ry="14" fill="#8b5cf6" transform="rotate(10,97,80)" />
-                </g>
-
-                <!-- Feet -->
-                <ellipse cx="46" cy="130" rx="10" ry="5" fill="#6d28d9" />
-                <ellipse cx="74" cy="130" rx="10" ry="5" fill="#6d28d9" />
-            </svg>
+            <img src="../assets/mascot/eagle/wink.svg" alt="" aria-hidden="true" draggable="false" id="mascotSVG" data-pose="wink">
         </div>
     </div>
 
@@ -5763,20 +5979,23 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             }
 
             #mascotBody {
-                width: 72px;
+                width: 86px;
             }
         }
 
         #mascotBody {
-            width: 90px;
+            width: 108px;
             flex-shrink: 0;
             filter: drop-shadow(0 12px 24px rgba(109, 40, 217, 0.35));
             animation: mascotBob 2.2s ease-in-out infinite;
         }
 
-        #mascotBody svg {
+        #mascotBody svg, #mascotBody img {
             width: 100%;
             height: auto;
+            display: block;
+            user-select: none;
+            -webkit-user-drag: none;
         }
 
         /* Bob up/down */

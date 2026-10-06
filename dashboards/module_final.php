@@ -3,6 +3,7 @@ require_once '../config/db.php';
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+require_once 'defense_lib.php';
 
 if (!isset($_SESSION['user_id']) || $_SESSION['role'] !== 'Student') {
     exit("Access Denied");
@@ -15,10 +16,37 @@ $stmt_leader_check->execute([$user_id]);
 $leader_id_for_current_user = $stmt_leader_check->fetchColumn();
 $effective_user_id = $leader_id_for_current_user ?? $user_id; // Use leader_id if exists, otherwise current user_id
 
-// Fetch all checklist items for the Final Defense (form_id = 2). No cascaded items, no Form 008.
-$checklist_stmt = $pdo->prepare("SELECT * FROM checklist_items WHERE item_id IN (21,22,23,24,25,26,27) ORDER BY item_id ASC");
+// The 7 Final Defense requirements, all collected at once — the same flow as Proposal (the
+// office asked for exactly that, 2026-09-25). Form 002 (20) used to be a separate PHASE 1
+// reviewed before a Schedule panel opened carrying 22-27; there is no phase split any more, and
+// no application stage. The Focal Person schedules the section once all seven are approved.
+$checklist_stmt = $pdo->prepare("SELECT * FROM checklist_items WHERE item_id IN (20,22,23,24,25,26,27) ORDER BY item_id ASC");
 $checklist_stmt->execute();
 $checklist_items = $checklist_stmt->fetchAll();
+
+// Apply -> Schedule stage (RDC's application flow, steps 1-3).
+$df_phase   = 'final';
+$df_bundle  = df_stage_bundle($pdo, $effective_user_id, $df_phase);
+$df_booking = $df_bundle['booking'];
+$df_stage   = $df_bundle['stage'];
+$df_unlocked = $df_bundle['unlocked'];
+// The Schedule panel is live once the office approves Form 002; before that it renders as a
+// greyed-out preview, exactly like Proposal's does below 100%.
+$df_phase1  = $df_bundle['phase1'];
+// A confirmed booking is itself proof the group cleared phase 1 — the office could not have
+// logged the date otherwise. Without this, anything that removes the Form 002 upload later (a
+// reset, a re-upload mid-flight) would drop a scheduled group back into the greyed-out preview
+// and take their ticket with it.
+$df_readonly = !($df_phase1 || $df_unlocked);
+$df_csrf    = $df_bundle['csrf'];
+$df_soonest = $df_bundle['soonest'];
+$df_cal     = $df_bundle['cal'];
+$df_app_docs = $df_bundle['app_docs'];
+// Has the office said the face-to-face defense went ahead? Drives the ticket's
+// "I'm ready — send my final manuscript" CTA. Null until they flip it.
+$df_released = df_manuscript_released($pdo, $effective_user_id);
+$df_group_name = $df_bundle['group_name'];
+$df_uid     = $df_bundle['uid'];        // the group, for its own schedule status
 
 // Prepare an array to hold the latest status and remarks for each item
 $item_statuses = [];
@@ -82,6 +110,9 @@ $message_type = $_GET['type'] ?? '';
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="../assets/css/dashboard-cards.css">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -165,17 +196,38 @@ $message_type = $_GET['type'] ?? '';
             $nsb_action = '<span style="font-size:13px; line-height:1.4; display:block;">Keep going — review each requirement below.</span>';
         }
     }
+
+    // Once Form 002 is cleared the one requirement on this page is done, so the banner must point
+    // at the Schedule panel — the actual next job — instead of naming a card with nothing left to do.
+    if ($df_phase1 && !$df_unlocked) {
+        $nsb_class = $df_stage['tone'] === 'revision' ? 'revision' : ($df_stage['tone'] === 'review' ? 'review' : '');
+        $nsb_icon = $df_stage['key'] === 'waiting' ? 'clock' : ($df_stage['key'] === 'rejected' ? 'alert-triangle' : ($df_stage['key'] === 'pick' ? 'calendar' : 'file-text'));
+        $nsb_icon_bg = $df_stage['tone'] === 'revision' ? '#fef2f2' : ($df_stage['tone'] === 'review' ? '#fffbeb' : '#f5f3ff');
+        $nsb_icon_color = $df_stage['tone'] === 'revision' ? '#dc2626' : ($df_stage['tone'] === 'review' ? '#d97706' : '#7c3aed');
+        $nsb_title_color = '#1e293b';
+        $nsb_text_color = '#475569';
+        $nsb_action = '<strong style="font-size:13px; line-height:1.3; display:block;">' . htmlspecialchars($df_stage['headline']) . '</strong>';
+    }
     ?>
 
     <div class="proposal-hero-stack">
-        <?php if ($overall_final_status === 'Approved'): ?>
+        <?php // A Scheduled booking IS full clearance: the Focal Person can only endorse a group
+              // whose seven requirements are all approved (fp_readiness -> df_phase1_items). ?>
+        <?php if ($df_unlocked): ?>
             <div class="next-step-banner-compact" style="display:flex; flex-direction:column; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:16px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box;">
                 <div style="display:flex; align-items:center; gap:8px; width:100%;">
                     <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
-                    <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">FINAL DEFENSE CLEARED!</strong>
+                    <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">CONGRATULATIONS — YOU'RE CLEARED!</strong>
                 </div>
-                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Your Final Defense Stage is fully evaluated and cleared. You may now download your completion card.</p>
+                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.35;">Your documents are all approved and your defense date is logged. Download your forms below, complete and sign them, then bring them with you on the day. Good luck on your final defense!</p>
                 <button onclick="openDownloadModal('../final_done_card.png', 'Final Defense Completion Card')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Completion Card</button>
+                <!-- The adviser endorsement (Form 006) is the last thing a cleared group
+                     collects, not a requirement they upload: the signature happens at the
+                     defense itself, which is outside this system. -->
+                <div style="display:flex; gap:8px;">
+                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'final_cleared', (int)$effective_user_id) ?>', 'Defense Checklist (Form 005)')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="clipboard-check" style="width:14px;height:14px;"></i> Form 005</button>
+                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'endorsement') ?>', 'Adviser Endorsement (Form 006)')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="file-signature" style="width:14px;height:14px;"></i> Form 006</button>
+                </div>
             </div>
         <?php else: ?>
             <div class="next-step-banner-compact <?= $nsb_class ?>" style="display:flex; align-items:center; gap:10px; background:<?= $nsb_bg ?>; border: 1px solid <?= $nsb_border ?>; border-radius:16px; padding:10px 16px; box-shadow: <?= $nsb_shadow ?>; box-sizing: border-box;">
@@ -189,31 +241,76 @@ $message_type = $_GET['type'] ?? '';
             </div>
         <?php endif; ?>
 
-        <div class="status-filter-tabs">
-            <button type="button" class="status-filter-tab active" data-filter="all">All <span class="tab-count"><?= $total_items ?></span></button>
-            <button type="button" class="status-filter-tab" data-filter="needs-you">Needs you <span class="tab-count"><?= $needs_you_items ?></span></button>
-            <button type="button" class="status-filter-tab" data-filter="cleared">Cleared <span class="tab-count"><?= $approved_items ?></span></button>
+        <?php // Same row Proposal uses: the filter pills, with the stage pill as their sibling (it
+              // filters nothing, so it must not sit inside that control group). The pill has three
+              // states — a locked preview until all seven are approved, then the schedule status
+              // panel, then the ticket. ?>
+        <div class="df-tabs-row">
+            <div class="status-filter-tabs">
+                <button type="button" class="status-filter-tab active" data-filter="all">All <span class="tab-count"><?= $total_items ?></span></button>
+                <button type="button" class="status-filter-tab" data-filter="needs-you">Needs you <span class="tab-count"><?= $needs_you_items ?></span></button>
+                <button type="button" class="status-filter-tab" data-filter="cleared">Cleared <span class="tab-count"><?= $approved_items ?></span></button>
+            </div>
+            <button type="button"
+                    class="df-view-pill<?= $df_unlocked ? ' is-ticket' : ($df_phase1 ? ' is-ready' : ' is-soon') ?>"
+                    onclick="<?= $df_unlocked ? 'dfOpenTicketStage()' : 'dfOpenStage()' ?>"
+                    title="<?= $df_unlocked ? 'Your final defense ticket' : ($df_phase1 ? 'Your section is ready for a defense date' : 'Opens once all seven requirements are approved') ?>">
+                <i data-lucide="<?= $df_unlocked ? 'ticket' : ($df_phase1 ? 'calendar-plus' : 'lock') ?>" style="width:15px;height:15px;"></i>
+                <?= $df_unlocked ? 'Ticket' : 'Schedule' ?>
+            </button>
+        </div>
+    </div>
+
+    <?php // The panel lives in a full-screen sheet, exactly like Proposal's — so the requirement
+          // card stays put underneath and Back is always a close, never a navigation. ?>
+    <div class="prop-stage-overlay" id="propStageOverlay" onclick="if (event.target === this) dfCloseStage()">
+        <div class="prop-stage-sheet">
+            <div class="prop-stage-bar">
+                <button type="button" class="prop-stage-back" onclick="dfCloseStage()">
+                    <i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Requirements
+                </button>
+                <span class="prop-stage-title">Final Defense Schedule</span>
+            </div>
+            <div class="prop-stage-body">
+                <?php include 'components/defense_scheduler.php'; ?>
+            </div>
         </div>
     </div>
 
     <div class="mobile-stack-hint">
-        <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap any card to manage
+        <i data-lucide="hand-pointer" style="width:14px;height:14px;"></i> Tap the card to manage
     </div>
 
     <?php
-    // Numbered "how-to" steps shown on the form-based requirement cards (mirrors Proposal's step lists).
-    // Items 25/26/27 (Manuscript / Sample Data Gathering / General Stat Tables) have no downloadable form
-    // and are prepared+uploaded directly, so they intentionally get no step list.
+    // Numbered "how-to" per requirement. 22-27 came back out of the Schedule panel when Final
+    // flattened to one grid, so these are the same lists defense_lib.php used to render there.
     $item_steps = [
-        21 => ['Download the blank form below', 'Hand to adviser for signature', 'Capture photo or scan', 'Upload using the button below'],
-        22 => ['Download the form below', 'Adviser processes the minutes', 'Adviser sends it back to you', 'Upload it here for review'],
-        23 => ['Download the form below', 'Secure approval signatures', 'Capture photo or scan', 'Upload using the button below'],
-        24 => ['Download the checklist below', 'Complete your self-assessment', 'Upload using the button below'],
-        25 => ['Prepare your full manuscript', 'Include Chapters 1-5 and References', 'Upload the file below'],
-        26 => ['Prepare your data gathering tool', 'Save it as a document or scan', 'Upload the file below'],
-        27 => ['Compile your statistical tables', 'Save them in a single file', 'Upload the file below'],
+        20 => ['Download the blank form below', 'Fill it out completely',
+               'Have it signed by your research teacher and adviser',
+               'Capture a photo or scan it', 'Upload it using the button below'],
+        22 => ['Present and defend your proposal first', 'Your teacher writes the minutes during it',
+               'Ask your adviser for the copy — they keep it', 'Upload it using the button below'],
+        23 => ['Prepare your letter of communication', 'Have it approved and signed',
+               'Capture a photo or scan it', 'Upload it using the button below'],
+        24 => ['Go through the checklist item by item', 'Fill it out honestly — it is your own check',
+               'Capture a photo or scan it', 'Upload it using the button below'],
+        25 => ['Assemble Title Page, Preliminary Pages, Chapters 1-5 and References',
+               'Save the whole thing as one PDF', 'Upload it using the button below'],
+        26 => ['Take the tool you actually used to gather data',
+               'Save a clean sample copy as PDF', 'Upload it using the button below'],
+        27 => ['Collect the general statistical tables from your data',
+               'Save them as one PDF', 'Upload it using the button below'],
+    ];
+    // Only the two the OFFICE issues a blank for. 23-27 the group produces itself, so they get
+    // no download button — one used to point at placeholder.pdf, which was a copy of the adviser
+    // endorsement form.
+    $item_forms = [
+        20 => [df_application_form($pdo, (int)$effective_user_id), 'Application for Research Defense (Form 002)'],   // MCNP or ISAP's own
+        22 => [rd_form_url($pdo, 'mom', (int)$effective_user_id), 'Minutes of the Proposal Defense'],
     ];
     ?>
+    <?php // Every requirement is open from the start; the Schedule pill stays a greyed-out
+          // preview until all seven are approved and the Focal Person puts the section on a day. ?>
     <div class="items-grid">
         <?php
         $card_index = 0;
@@ -300,41 +397,23 @@ $message_type = $_GET['type'] ?? '';
                         <?php endif; ?>
 
                         <!-- Download button -->
-                        <?php if (in_array($item['item_id'], [21, 22, 23, 24])): ?>
+                        <?php if (isset($item_forms[$item['item_id']])): [$ff_path, $ff_label] = $item_forms[$item['item_id']]; ?>
                             <div style="margin-bottom:14px;">
-                                <?php if ($item['item_id'] === 21): ?>
-                                    <button onclick="openDownloadModal('../endorsement.pdf', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
-                                <?php elseif ($item['item_id'] === 22): ?>
-                                    <button onclick="openDownloadModal('../mom.pdf', 'Minutes of the Proposal Defense')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Form</button>
-                                <?php elseif ($item['item_id'] === 23): ?>
-                                    <button onclick="openDownloadModal('../placeholder.pdf', 'Approved Communication Letter')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Form</button>
-                                <?php elseif ($item['item_id'] === 24): ?>
-                                    <button onclick="openDownloadModal('../placeholder.pdf', 'Self-Assessment Checklist')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Form</button>
-                                <?php endif; ?>
+                                <button onclick="openDownloadModal('<?= htmlspecialchars($ff_path) ?>', '<?= htmlspecialchars($ff_label) ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
                             </div>
                         <?php endif; ?>
 
-                        <!-- Upload actions -->
+                        <!-- Upload actions. Nothing here is ever locked — all seven are open from
+                             the start, exactly as Proposal's are. -->
                         <?php if ($current_status !== 'Approved'): ?>
                             <form action="upload_handler.php" method="POST" enctype="multipart/form-data" target="_parent" onsubmit="handleUploadStart(this)" style="display:flex;flex-direction:column;gap:0;">
                                 <input type="hidden" name="module_context" value="final">
                                 <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token']) ?>">
                                 <input type="hidden" name="item_id" value="<?= $item['item_id'] ?>">
                                 <input type="file" name="research_file" id="file-input-<?= $item['item_id'] ?>" style="display:none;" accept="image/*,.jpg,.jpeg,.png,.pdf,.doc,.docx" onchange="handleFileChange(this)">
-                                <?php if ($item['item_id'] == 21): ?>
-                                    <div style="display:flex; gap:12px; margin-top:4px;">
-                                        <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="flex:1;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
-                                            <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
-                                        </button>
-                                        <button type="button" id="cam-btn-<?= $item['item_id'] ?>" class="btn btn-outline" style="width:60px; flex-shrink:0;" onclick="triggerCamera(<?= $item['item_id'] ?>)">
-                                            <i data-lucide="camera" style="width:18px;height:18px;"></i>
-                                        </button>
-                                    </div>
-                                <?php else: ?>
-                                    <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="margin-top:4px;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
-                                        <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
-                                    </button>
-                                <?php endif; ?>
+                                <button type="button" id="file-btn-<?= $item['item_id'] ?>" class="btn btn-primary" style="margin-top:4px;" onclick="triggerFilePicker(<?= $item['item_id'] ?>)">
+                                    <i data-lucide="upload" style="width:18px;height:18px;"></i> Upload File
+                                </button>
                             </form>
                         <?php endif; ?>
 
@@ -381,10 +460,10 @@ $message_type = $_GET['type'] ?? '';
 
     <!-- Web only: the items-grid becomes a horizontal scroller at ≥1025px (see dashboard-cards.css) -->
     <div class="items-scroll-nav">
-        <button type="button" class="items-scroll-btn" id="itemsScrollPrev" title="Previous">
+        <button type="button" class="items-scroll-btn scroll-prev" id="itemsScrollPrev" title="Previous">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
-        <button type="button" class="items-scroll-btn" id="itemsScrollNext" title="Next">
+        <button type="button" class="items-scroll-btn scroll-next" id="itemsScrollNext" title="Next">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
         </button>
     </div>
@@ -472,7 +551,7 @@ $message_type = $_GET['type'] ?? '';
                 tab.classList.add('active');
                 var filter = tab.getAttribute('data-filter');
                 var firstVisible = null;
-                document.querySelectorAll('.item-card').forEach(function(card) {
+                document.querySelectorAll('.items-grid:not(.df-items) .item-card').forEach(function(card) {
                     var show = (filter === 'all' || card.getAttribute('data-filter') === filter);
                     card.style.display = show ? '' : 'none';
                     // Reset any previous override — the mobile wallet stack only cancels the
@@ -486,35 +565,38 @@ $message_type = $_GET['type'] ?? '';
             });
         });
 
-        // Web-only horizontal scroller nav (items-grid becomes a single scrollable row at ≥1025px)
-        (function() {
-            var grid = document.querySelector('.items-grid');
-            var prevBtn = document.getElementById('itemsScrollPrev');
-            var nextBtn = document.getElementById('itemsScrollNext');
-            if (!grid || !prevBtn || !nextBtn) return;
+        // Web-only horizontal scroller nav (items-grid becomes a single scrollable row at ≥1025px).
+        // There is more than one grid on this page — the requirement grid here and the document
+        // grid inside the schedule sheet — so each nav drives the grid it sits directly after
+        // rather than every nav driving the first grid on the page.
+        document.querySelectorAll('.items-scroll-nav').forEach(function(nav) {
+            var grid = nav.previousElementSibling;
+            if (!grid || !grid.classList.contains('items-grid')) return;
+            var prevBtn = nav.querySelector('.scroll-prev') || nav.querySelector('#itemsScrollPrev');
+            var nextBtn = nav.querySelector('.scroll-next') || nav.querySelector('#itemsScrollNext');
+            if (!prevBtn || !nextBtn) return;
             var scrollAmount = 304;
 
             prevBtn.addEventListener('click', function() {
-                grid.scrollBy({
-                    left: -scrollAmount,
-                    behavior: 'smooth'
-                });
+                grid.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
             });
             nextBtn.addEventListener('click', function() {
-                grid.scrollBy({
-                    left: scrollAmount,
-                    behavior: 'smooth'
-                });
+                grid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
             });
 
             function updateScrollNavState() {
                 prevBtn.disabled = grid.scrollLeft <= 4;
                 nextBtn.disabled = grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 4);
+                // Nothing to scroll (one card, or the sheet closed) — hide the controls entirely
+                // rather than showing two dead buttons.
+                nav.style.visibility = (grid.scrollWidth > grid.clientWidth + 4) ? '' : 'hidden';
             }
             grid.addEventListener('scroll', updateScrollNavState);
             window.addEventListener('resize', updateScrollNavState);
             updateScrollNavState();
-        })();
+            // The sheet's grid has no size until the sheet opens, so re-measure then.
+            document.addEventListener('click', function() { setTimeout(updateScrollNavState, 260); });
+        });
     </script>
     <script src="../assets/js/dashboard-cards.js"></script>
 

@@ -86,15 +86,17 @@ if ($action === 'get_contacts') {
         
     } else if (in_array($me_role, ['Research Coordinator', 'Statistician', 'Research Director'])) {
         // Admins see a list of student groups they have conversations with
+        require_once __DIR__ . '/admin_accounts_lib.php';   // institution scope, as staff_messages.php
+        [$gc_sql, $gc_params] = aa_scope_sql($pdo, $me_role, (int)$user_id, 'u');
         $stmt = $pdo->prepare("
             SELECT sc.conversation_id, sc.group_leader_id, sc.status, sc.updated_at, 
                    u.research_group_name 
             FROM staff_conversations sc
             JOIN users u ON sc.group_leader_id = u.user_id
-            WHERE sc.staff_role = ?
+            WHERE sc.staff_role = ? AND $gc_sql
             ORDER BY sc.updated_at DESC
         ");
-        $stmt->execute([$me_role]);
+        $stmt->execute(array_merge([$me_role], $gc_params));
         $convs = $stmt->fetchAll();
         
         $contacts = [];
@@ -126,6 +128,17 @@ if ($action === 'get_contacts') {
 else if ($action === 'get_messages') {
     $target_role = $_POST['target_role'] ?? '';
     $target_group = $_POST['target_group'] ?? '';
+    // Staff: only a group inside the viewer's institution (the inbox lists the same set via
+    // aa_scope_sql). Both coordinators hold the same ROLE, so without this the ISAP coordinator
+    // could read and answer MCNP's threads by id.
+    if ($me_role !== 'Student') {
+        require_once __DIR__ . '/admin_accounts_lib.php';
+        $tg = (int)$target_group;
+        if ($tg <= 0 || !aa_may_touch_student($pdo, $me_role, (int)$user_id, $tg)) {
+            echo json_encode(['status' => 'error', 'message' => 'This group is outside your institution.']);
+            exit();
+        }
+    }
     
     $conversation_id = null;
     $contact_name = '';
@@ -166,7 +179,7 @@ else if ($action === 'get_messages') {
     
     // Fetch messages
     $stmt_msg = $pdo->prepare("
-        SELECT sm.*, u.username, u.role, u.profile_pic 
+        SELECT sm.*, UNIX_TIMESTAMP(sm.created_at) AS ts, u.username, u.role, u.profile_pic 
         FROM staff_messages sm
         JOIN users u ON sm.sender_id = u.user_id
         WHERE sm.conversation_id = ?
@@ -198,6 +211,17 @@ else if ($action === 'get_messages') {
 else if ($action === 'send_message') {
     $target_role = $_POST['target_role'] ?? '';
     $target_group = $_POST['target_group'] ?? '';
+    // Staff: only a group inside the viewer's institution (the inbox lists the same set via
+    // aa_scope_sql). Both coordinators hold the same ROLE, so without this the ISAP coordinator
+    // could read and answer MCNP's threads by id.
+    if ($me_role !== 'Student') {
+        require_once __DIR__ . '/admin_accounts_lib.php';
+        $tg = (int)$target_group;
+        if ($tg <= 0 || !aa_may_touch_student($pdo, $me_role, (int)$user_id, $tg)) {
+            echo json_encode(['status' => 'error', 'message' => 'This group is outside your institution.']);
+            exit();
+        }
+    }
     $message_text = trim($_POST['message_text'] ?? '');
     
     if (empty($message_text)) {

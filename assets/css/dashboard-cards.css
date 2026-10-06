@@ -1206,6 +1206,13 @@
                 display: none;
             }
 
+            /* A stage with exactly one requirement (Final's Form 002) would otherwise leave that
+               card pinned to the far left with three empty columns beside it. Nothing to scroll,
+               so centre it. Only safe because there is no overflow in this case. */
+            .items-grid.is-single {
+                justify-content: center;
+            }
+
             /* calc(25% - 12px) reproduces exactly what the old 4-column grid rendered (4 cards *
                cardWidth + 3 gaps of 16px = container width) — so cards 1-4 stay their original
                size, unchanged, and 5/6 just inherit that same width instead of a shrunk fixed one. */

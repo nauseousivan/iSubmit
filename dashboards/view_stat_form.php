@@ -17,6 +17,9 @@ $proponents = json_decode($form['proponents'], true) ?? [];
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
         :root { 
             --mcnp-teal: #0c343d; 
             --text-main: #1e293b; 

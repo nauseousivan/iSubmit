@@ -15,10 +15,40 @@ $stmt_leader_check->execute([$user_id]);
 $leader_id_for_current_user = $stmt_leader_check->fetchColumn();
 $effective_user_id = $leader_id_for_current_user ?? $user_id; // Use leader_id if exists, otherwise current user_id
 
-// Fetch all checklist items for the Proposal Defense (form_id = 1), grouping cascaded items under Capsule Proposal (14)
-$checklist_stmt = $pdo->prepare("SELECT * FROM checklist_items WHERE form_id = 1 ORDER BY CASE WHEN item_id = 12 THEN 10.5 WHEN item_id = 13 THEN 14.1 WHEN item_id = 15 THEN 14.2 WHEN item_id = 16 THEN 14.3 ELSE item_id END ASC");
+require_once 'defense_lib.php';
+
+// The 7 Proposal Defense requirements, cascaded items grouped under Capsule Proposal (14).
+// Item 17 (Application for Research Defense, Form 002) leads: applying is what opens the
+// defense, so it is card 01. It is a SEPARATE row from the Final defense's copy (item 20) —
+// uploads are keyed by item_id, so sharing one row would let a proposal approval clear
+// Final's phase-1 gate. See database/migrations/2026-09-25_proposal_form002.sql.
+// Item 12 (Endorsement From the Adviser) IS one of them now. It used to sit outside this grid
+// as a separate "application" step — clearing the others earned it, and re-uploading it signed
+// was how a group applied for a date. Students no longer apply (the Focal Person schedules the
+// section), so that stage had nothing left to do but add a step. Sorted last (99) because it is
+// second in the list, right after Assigned Adviser: both are the adviser's paperwork, and the
+// office reads them as a pair before any of the capsule work.
+$checklist_stmt = $pdo->prepare("SELECT * FROM checklist_items WHERE item_id IN (11,12,13,14,15,16,17) ORDER BY CASE WHEN item_id = 17 THEN 10 WHEN item_id = 13 THEN 14.1 WHEN item_id = 15 THEN 14.2 WHEN item_id = 16 THEN 14.3 ELSE item_id END ASC");
 $checklist_stmt->execute();
 $checklist_items = $checklist_stmt->fetchAll();
+
+// Phase 2 — Apply -> Schedule. Unlike Final (where the office's date unlocks the requirements),
+// Proposal runs the other way round: the requirements come first and clearing them unlocks the
+// application. Until then the stage still renders, greyed out, so the group can see what is coming.
+$df_phase   = 'proposal';
+$df_bundle  = df_stage_bundle($pdo, $effective_user_id, $df_phase);
+$df_booking = $df_bundle['booking'];
+$df_stage   = $df_bundle['stage'];
+$df_csrf    = $df_bundle['csrf'];
+$df_soonest = $df_bundle['soonest'];
+$df_cal     = $df_bundle['cal'];
+$df_app_docs = $df_bundle['app_docs'];
+$df_group_name = $df_bundle['group_name'];
+$df_uid     = $df_bundle['uid'];        // the group, for its own schedule status
+$df_scheduled = $df_bundle['unlocked'];   // proposal defense confirmed by the office
+
+// Phase 2 opens once all seven requirements are Approved. $overall_prop_status is computed
+// below from the same statuses, so this is resolved after that block.
 
 // Prepare an array to hold the latest status and remarks for each item, including Form 008 data
 $item_statuses = [];
@@ -75,6 +105,11 @@ if ($all_approved) {
     $overall_prop_status = 'Under Review';
 }
 
+// The gate for phase 2: all five requirements cleared. Below that the stage still renders,
+// as a greyed-out preview, so the group can read the steps before they qualify.
+$prop_stage_unlocked = ($overall_prop_status === 'Approved');
+$df_readonly = !$prop_stage_unlocked;
+
 // Handle messages
 $message = $_GET['msg'] ?? '';
 $message_type = $_GET['type'] ?? '';
@@ -85,6 +120,9 @@ $message_type = $_GET['type'] ?? '';
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="stylesheet" href="../assets/css/dashboard-cards.css">
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -178,10 +216,12 @@ $message_type = $_GET['type'] ?? '';
             <div class="next-step-banner-compact" style="display:flex; flex-direction:column; gap:6px; background:linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%); border: 1px solid #10b981; border-radius:16px; padding:12px 16px; box-shadow: 0 8px 16px -4px rgba(0, 0, 0, 0.05); box-sizing: border-box;">
                 <div style="display:flex; align-items:center; gap:8px; width:100%;">
                     <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
-                    <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">INSTITUTIONAL CLEARANCE OBTAINED!</strong>
+                    <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">PHASE 1 COMPLETE!</strong>
                 </div>
-                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Your Capsule Proposal Stage is fully evaluated and cleared. You may now download your form.</p>
-                <button onclick="openDownloadModal('../proposal_cleared.pdf', 'Proposal Clearing Form')" class="btn" style="width: 100%; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Download Form</button>
+                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Every requirement for your proposal defense has been checked and approved. Download your clearing form below, then hit <strong>Schedule</strong> to book your defense date.</p>
+                <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
+                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_cleared', (int)$effective_user_id) ?>', 'Proposal Clearing Form')" class="btn" style="flex:1; min-width:140px; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Clearing Form</button>
+                </div>
             </div>
         <?php else: ?>
             <div class="next-step-banner-compact <?= $nsb_class ?>" style="display:flex; align-items:center; gap:10px; background:<?= $nsb_bg ?>; border: 1px solid <?= $nsb_border ?>; border-radius:16px; padding:10px 16px; box-shadow: <?= $nsb_shadow ?>; box-sizing: border-box;">
@@ -195,10 +235,29 @@ $message_type = $_GET['type'] ?? '';
             </div>
         <?php endif; ?>
 
-        <div class="status-filter-tabs">
-            <button type="button" class="status-filter-tab active" data-filter="all">All <span class="tab-count"><?= $total_items ?></span></button>
-            <button type="button" class="status-filter-tab" data-filter="needs-you">Needs you <span class="tab-count"><?= $needs_you_items ?></span></button>
-            <button type="button" class="status-filter-tab" data-filter="cleared">Cleared <span class="tab-count"><?= $approved_items ?></span></button>
+        <?php // Phase 2 lives behind this pill rather than on the page, so the requirement cards
+        // never disappear — going Back always returns to them. It is a sibling of the filter
+        // pills, not one of them: it filters nothing, so it must not sit inside that group
+        // (same reasoning as module_final's ticket opener). ?>
+        <div class="df-tabs-row">
+            <div class="status-filter-tabs">
+                <button type="button" class="status-filter-tab active" data-filter="all">All <span class="tab-count"><?= $total_items ?></span></button>
+                <button type="button" class="status-filter-tab" data-filter="needs-you">Needs you <span class="tab-count"><?= $needs_you_items ?></span></button>
+                <button type="button" class="status-filter-tab" data-filter="cleared">Cleared <span class="tab-count"><?= $approved_items ?></span></button>
+            </div>
+            <?php // Three states, and the colour carries the meaning: purple = the stage exists
+            // but is not yours yet, purple = ready to act, green + a slow pulse = you hold a
+            // ticket and the next move is out in the real world. ?>
+            <?php // Once scheduled the component renders ONLY the ticket modal — the stage panel
+            // is gone, so opening the overlay would show an empty sheet. Go straight to the
+            // ticket, which is what "Ticket" promises anyway. ?>
+            <button type="button"
+                class="df-view-pill<?= $df_scheduled ? ' is-ticket' : ($prop_stage_unlocked ? ' is-ready' : ' is-soon') ?>"
+                onclick="<?= $df_scheduled ? 'dfOpenTicketStage()' : 'dfOpenStage()' ?>"
+                title="<?= $df_scheduled ? 'Your proposal defense ticket' : ($prop_stage_unlocked ? 'Where your proposal defense date stands' : 'Opens once all seven requirements are approved') ?>">
+                <i data-lucide="<?= $df_scheduled ? 'ticket' : ($prop_stage_unlocked ? 'calendar-plus' : 'lock') ?>" style="width:15px;height:15px;"></i>
+                <?= $df_scheduled ? 'Ticket' : 'Schedule' ?>
+            </button>
         </div>
     </div>
 
@@ -244,7 +303,7 @@ $message_type = $_GET['type'] ?? '';
                 $filter_bucket = 'needs-you';
             }
         ?>
-            <div class="item-card <?= $status_class ?>" data-filter="<?= $filter_bucket ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
+            <div class="item-card <?= $status_class ?>" id="req-item-<?= $item['item_id'] ?>" data-filter="<?= $filter_bucket ?>" onclick="expandWalletCard(this, event)" style="z-index: <?= $card_index ?>;">
                 <div class="card-inner-bg">
 
 
@@ -273,8 +332,27 @@ $message_type = $_GET['type'] ?? '';
                         </div>
 
                         <!-- Workflow steps -->
-                        <?php if ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
-                            <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                        <?php if ($item['item_id'] == 17): ?>
+                            <div class="card-steps" style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
+                                    Download the blank form below
+                                </div>
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
+                                    Fill it out completely
+                                </div>
+                                <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
+                                    Have it signed by your research teacher and adviser
+                                </div>
+                                <div style="padding: 10px 0; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
+                                    <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">4</div>
+                                    Upload the signed copy below
+                                </div>
+                            </div>
+                        <?php elseif ($item['item_id'] == 11 || $item['item_id'] == 12): ?>
+                            <div class="card-steps" style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
                                 <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
                                     <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
                                     Download the blank form below
@@ -293,7 +371,7 @@ $message_type = $_GET['type'] ?? '';
                                 </div>
                             </div>
                         <?php elseif ($item['item_id'] == 14): ?>
-                            <div style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
+                            <div class="card-steps" style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
                                 <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
                                     <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
                                     Download template below
@@ -326,16 +404,18 @@ $message_type = $_GET['type'] ?? '';
                         <?php endif; ?>
 
                         <!-- Download button -->
-                        <?php if (in_array($item['item_id'], [11, 12, 13, 14])): ?>
+                        <?php if (in_array($item['item_id'], [11, 12, 13, 14, 17])): ?>
                             <div style="margin-bottom:14px;">
-                                <?php if ($item['item_id'] === 11): ?>
-                                    <button onclick="openDownloadModal('../assigned_adviser.pdf', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                <?php if ($item['item_id'] === 17): ?>
+                                    <button onclick="openDownloadModal('<?= df_application_form($pdo, (int)$effective_user_id) ?>', 'Application for Research Defense (Form 002)')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                <?php elseif ($item['item_id'] === 11): ?>
+                                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'assigned_adviser') ?>', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
                                 <?php elseif ($item['item_id'] === 12): ?>
-                                    <button onclick="openDownloadModal('../endorsement.pdf', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'endorsement') ?>', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
                                 <?php elseif ($item['item_id'] === 13): ?>
-                                    <button onclick="openDownloadModal('../proposal_review.pdf', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
+                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_review', (int)$effective_user_id) ?>', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
                                 <?php elseif ($item['item_id'] === 14): ?>
-                                    <button onclick="openDownloadModal('../capsule_form.pdf', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
+                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'capsule_form', (int)$effective_user_id) ?>', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>
@@ -412,10 +492,10 @@ $message_type = $_GET['type'] ?? '';
 
     <!-- Web only: the items-grid becomes a horizontal scroller at ≥1025px (see dashboard-cards.css) -->
     <div class="items-scroll-nav">
-        <button type="button" class="items-scroll-btn" id="itemsScrollPrev" title="Previous">
+        <button type="button" class="items-scroll-btn scroll-prev" id="itemsScrollPrev" title="Previous">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6" /></svg>
         </button>
-        <button type="button" class="items-scroll-btn" id="itemsScrollNext" title="Next">
+        <button type="button" class="items-scroll-btn scroll-next" id="itemsScrollNext" title="Next">
             <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
         </button>
     </div>
@@ -427,6 +507,27 @@ $message_type = $_GET['type'] ?? '';
             <?= htmlspecialchars($message) ?>
         </div>
     <?php endif; ?>
+
+    <?php // ── PHASE 2: apply -> pick a date -> ticket ───────────────────────────────────────
+    // Kept in an overlay rather than on the page so the requirement cards and their progress
+    // stay put underneath: "Back" is always a close, never a navigation. Below 100% the same
+    // panel renders with $df_readonly, greyed out and inert. ?>
+    <div class="prop-stage-overlay" id="propStageOverlay" onclick="if(event.target===this)dfCloseStage()">
+        <div class="prop-stage-sheet">
+            <div class="prop-stage-bar">
+                <button type="button" class="prop-stage-back" onclick="dfCloseStage()">
+                    <i data-lucide="arrow-left" style="width:16px;height:16px;"></i> Requirements
+                </button>
+                <span class="prop-stage-title">Proposal Defense Schedule</span>
+            </div>
+            <div class="prop-stage-body">
+                <?php include 'components/defense_scheduler.php'; ?>
+            </div>
+        </div>
+    </div>
+
+    <?php // The stage sheet and the pill's three states are shared with module_final.php, so both
+          // the CSS and the JS below live in components/defense_scheduler.php, which both include. ?>
 
     <!-- Download Preview Modal -->
     <div id="download-modal" class="dl-modal-overlay" onclick="if(event.target===this)closeDlModal(false)">
@@ -503,7 +604,7 @@ $message_type = $_GET['type'] ?? '';
                 tab.classList.add('active');
                 var filter = tab.getAttribute('data-filter');
                 var firstVisible = null;
-                document.querySelectorAll('.item-card').forEach(function(card) {
+                document.querySelectorAll('.items-grid:not(.df-items) .item-card').forEach(function(card) {
                     var show = (filter === 'all' || card.getAttribute('data-filter') === filter);
                     card.style.display = show ? '' : 'none';
                     // Reset any previous override — the mobile wallet stack only cancels the
@@ -517,38 +618,73 @@ $message_type = $_GET['type'] ?? '';
             });
         });
 
-        // Web-only horizontal scroller nav (items-grid becomes a single scrollable row at ≥1025px)
-        (function() {
-            var grid = document.querySelector('.items-grid');
-            var prevBtn = document.getElementById('itemsScrollPrev');
-            var nextBtn = document.getElementById('itemsScrollNext');
-            if (!grid || !prevBtn || !nextBtn) return;
+        // Web-only horizontal scroller nav (items-grid becomes a single scrollable row at ≥1025px).
+        // There is more than one grid on this page — the requirement grid here and the document
+        // grid inside the schedule sheet — so each nav drives the grid it sits directly after
+        // rather than every nav driving the first grid on the page.
+        document.querySelectorAll('.items-scroll-nav').forEach(function(nav) {
+            var grid = nav.previousElementSibling;
+            if (!grid || !grid.classList.contains('items-grid')) return;
+            var prevBtn = nav.querySelector('.scroll-prev') || nav.querySelector('#itemsScrollPrev');
+            var nextBtn = nav.querySelector('.scroll-next') || nav.querySelector('#itemsScrollNext');
+            if (!prevBtn || !nextBtn) return;
             var scrollAmount = 304;
 
             prevBtn.addEventListener('click', function() {
-                grid.scrollBy({
-                    left: -scrollAmount,
-                    behavior: 'smooth'
-                });
+                grid.scrollBy({ left: -scrollAmount, behavior: 'smooth' });
             });
             nextBtn.addEventListener('click', function() {
-                grid.scrollBy({
-                    left: scrollAmount,
-                    behavior: 'smooth'
-                });
+                grid.scrollBy({ left: scrollAmount, behavior: 'smooth' });
             });
 
             function updateScrollNavState() {
                 prevBtn.disabled = grid.scrollLeft <= 4;
                 nextBtn.disabled = grid.scrollLeft >= (grid.scrollWidth - grid.clientWidth - 4);
+                // Nothing to scroll (one card, or the sheet closed) — hide the controls entirely
+                // rather than showing two dead buttons.
+                nav.style.visibility = (grid.scrollWidth > grid.clientWidth + 4) ? '' : 'hidden';
             }
             grid.addEventListener('scroll', updateScrollNavState);
             window.addEventListener('resize', updateScrollNavState);
             updateScrollNavState();
-        })();
+            // The sheet's grid has no size until the sheet opens, so re-measure then.
+            document.addEventListener('click', function() { setTimeout(updateScrollNavState, 260); });
+        });
     </script>
     <script src="../assets/js/dashboard-cards.js"></script>
     <?php include 'components/form008_modal.php'; ?>
+
+    <!-- Deep-link: scroll to + highlight a specific requirement when opened from a notification -->
+    <style>
+        @keyframes deeplinkPulse {
+            0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.55); }
+            70%  { box-shadow: 0 0 0 14px rgba(124, 58, 237, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+        }
+        .item-card.deeplink-flash {
+            animation: deeplinkPulse 1.3s ease-out 2;
+            outline: 2px solid rgba(124, 58, 237, 0.9);
+            outline-offset: 3px;
+        }
+    </style>
+    <script>
+        (function () {
+            var itemId = new URLSearchParams(window.location.search).get('item');
+            if (!itemId) return;
+            function jump() {
+                // Proposal has status filter tabs — reset to "All" so the target card isn't filtered out.
+                var allTab = document.querySelector('.status-filter-tab[data-filter="all"]');
+                if (allTab && !allTab.classList.contains('active')) allTab.click();
+                var el = document.getElementById('req-item-' + itemId);
+                if (!el) return; // card not in the DOM (e.g. a step not currently shown) — leave module as-is
+                el.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'center' });
+                el.classList.add('deeplink-flash');
+                setTimeout(function () { el.classList.remove('deeplink-flash'); }, 2800);
+            }
+            if (document.readyState === 'complete') setTimeout(jump, 450);
+            else window.addEventListener('load', function () { setTimeout(jump, 450); });
+        })();
+    </script>
 
 </body>
 

@@ -1,78 +1,68 @@
-/* assets/mascot/mascot.css */
+/* assets/mascot/mascot.css — the iSubmit eagle, live (redesigned 2026-10-05).
+   The MAIN eagle is inline SVG (ids prefixed "eq-", assets/mascot/eagle_svg.php) so her feathers
+   move: a slow flap and breathing at rest, and — like the old bird — the wing waved high on a
+   tiptoe when you tap or hover. Every other pose is the <img>, shown only while it is the pose. */
 
 #quill-container {
-    width: 130px;
-    height: 130px;
-    margin: 0; 
+    width: 152px;
+    height: 146px;
+    margin: 0;
     position: relative;
     z-index: 10;
-    transition: transform 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+    display: grid;
+    place-items: center;
+    -webkit-tap-highlight-color: transparent;
 }
 
-#quill-svg {
+/* which one shows: the inline eagle for 'plain', the picture for any other pose */
+#quill-container .eagle-main,
+#quill-container .eagle-img {
+    grid-area: 1 / 1;
     width: 100%;
     height: 100%;
-    overflow: visible;
+    display: block;
+    user-select: none;
+    -webkit-user-drag: none;
+    transform-origin: 50% 88%;
+    filter: drop-shadow(0 6px 10px rgba(30, 21, 53, .14));
 }
+#quill-container .eagle-main { width: 84%; height: 84%; }          /* her own frame is tighter than the poses' */
+#quill-container .eagle-img { object-fit: contain; }
+#quill-container[data-pose="plain"] .eagle-img,
+#quill-container:not([data-pose="plain"]) .eagle-main { display: none; }
 
-/* Base Transitions */
-#quill-wingL,
-#quill-wingR,
-#quill-pupils,
-#quill-eyes-squash {
-    transition: transform 0.3s ease, opacity 0.2s ease;
-}
+/* resting: breathing, and the feathers never quite still */
+#quill-container .eagle-main, #quill-container .eagle-img { animation: eagleBob 4.6s ease-in-out infinite; }
+#eq-wingL { transform-box: view-box; transform-origin: 70px 166px; animation: eqFlapL 3.2s ease-in-out infinite; }
+#eq-wingR { transform-box: view-box; transform-origin: 190px 166px; animation: eqFlapR 3.2s ease-in-out infinite; }
+#eq-body  { transform-box: view-box; transform-origin: 170px 256px; transition: transform .3s ease; }
+#eq-footL { transform-box: view-box; transform-origin: 90px 256px; transition: transform .3s ease; }
+#eq-cap   { transform-box: view-box; transform-origin: 128px 60px; }
+#eq-eyes  { transform-box: view-box; transform-origin: 130px 110px; animation: eqBlink 5s infinite; }
 
-/* ── IDLE STATE (Blinking) ── */
-.quill-idle #quill-eyes-squash {
-    animation: quillSquashBlink 4s infinite;
-}
+/* the pose changed: a quick, springy settle */
+#quill-container.eagle-pop .eagle-img { animation: eaglePop .4s cubic-bezier(.34, 1.56, .64, 1), eagleBob 4.6s ease-in-out .4s infinite; }
 
-/* Proper anatomical blinking: the entire eye scales down vertically to a slit */
-@keyframes quillSquashBlink {
-    0%, 95%, 100% { transform: scaleY(1); }
-    97% { transform: scaleY(0.1); }
-}
+/* tapped / hovered: up on her right foot, the left foot lifts, the left wing waves high —
+   the old bird's wave, on the new eagle */
+#quill-container.eagle-wave #eq-body  { transform: rotate(7deg); }
+#quill-container.eagle-wave #eq-footL { transform: translateY(-9px) rotate(16deg); }
+#quill-container.eagle-wave #eq-wingL { animation: eqWaveHigh .42s ease-in-out infinite alternate; }
+#quill-container.eagle-wave #eq-wingR { animation: none; transform: rotate(-8deg); }
+#quill-container.eagle-wave #eq-cap   { animation: eqCapBob .42s ease-in-out infinite alternate; }
 
-/* ── SHY STATE (Password Focus) ── */
-/* When covering eyes, translate to eyes globally, then rotate */
-.quill-shy #quill-wingL {
-    transform: translate(14px, -20px) rotate(140deg) scale(1.3);
-}
+#quill-container:hover .eagle-main, #quill-container:hover .eagle-img { filter: drop-shadow(0 9px 14px rgba(30, 21, 53, .2)); }
 
-.quill-shy #quill-wingR {
-    transform: translate(-14px, -20px) rotate(-140deg) scale(1.3);
-}
+@keyframes eagleBob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-4px); } }
+@keyframes eaglePop { 0% { transform: scale(.88); } 100% { transform: scale(1); } }
+@keyframes eqFlapL { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(5deg); } }
+@keyframes eqFlapR { 0%, 100% { transform: rotate(0); } 50% { transform: rotate(-5deg); } }
+@keyframes eqWaveHigh { from { transform: rotate(118deg); } to { transform: rotate(150deg); } }
+@keyframes eqCapBob { from { transform: rotate(-2deg); } to { transform: rotate(2deg); } }
+@keyframes eqBlink { 0%, 94%, 100% { transform: scaleY(1); } 97% { transform: scaleY(.1); } }
 
-/* Optionally make pupils look down when shy */
-.quill-shy #quill-pupils {
-    transform: translate(0, 3px);
-}
-
-/* ── WAVE STATE (Tiptoe & Wave) ── */
-.quill-wave #quill-body-group {
-    /* Pivot directly on the right planted foot so it never detaches */
-    transform-origin: 74px 130px !important;
-    transform: rotate(8deg);
-}
-
-.quill-wave #quill-footL {
-    /* Left foot lifts up and angles as the body pivots */
-    transform: translateY(-8px) rotate(15deg);
-}
-/* Right foot stays planted */
-
-.quill-wave #quill-wingL {
-    /* Left wing waves high */
-    animation: quillWaveHigh 0.4s ease-in-out infinite alternate;
-}
-
-@keyframes quillWaveHigh {
-    from { transform: translate(-2px, -4px) rotate(-130deg) scale(1.1); }
-    to { transform: translate(-4px, -6px) rotate(-170deg) scale(1.1); }
-}
-
-.quill-wave #quill-wingR {
-    /* Right wing tucks in for balance */
-    transform: rotate(30deg) translate(-5px, 5px);
+@media (prefers-reduced-motion: reduce) {
+    #quill-container .eagle-main, #quill-container .eagle-img,
+    #eq-wingL, #eq-wingR, #eq-eyes, #eq-cap,
+    #quill-container.eagle-wave #eq-wingL { animation: none; }
 }

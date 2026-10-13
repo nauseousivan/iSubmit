@@ -3,6 +3,8 @@ require_once '../config/db.php';
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
+require_once 'defense_lib.php';
+require_once 'plag_pipeline_lib.php';   // pp_current_pay_docs() — this round's form + receipt
 
 if (!isset($_SESSION['user_id'])) {
     header("Location: ../auth/login.php");
@@ -22,11 +24,11 @@ $effective_user_id = $leader_id_for_current_user ?? $user_id;
 $safe_username = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["username"] ?? "Student")));
 $safe_program = preg_replace("/[^a-zA-Z0-9]+$/", "", preg_replace("/[^a-zA-Z0-9]+/", "_", trim($user_data["program"] ?? "")));
 
-// CSRF validation (proposal + stats + plagiarism flows). Other module contexts are unaffected for now.
+// CSRF validation (proposal + final + stats + plagiarism flows). Other module contexts are unaffected for now.
 function csrf_ok_for_proposal($context)
 {
-    if (!in_array($context, ['proposal', 'stats', 'plagiarism'], true)) {
-        return true; // scope: proposal, stats and plagiarism flows only
+    if (!in_array($context, ['proposal', 'final', 'stats', 'plagiarism'], true)) {
+        return true; // scope: proposal, final, stats and plagiarism flows only
     }
     return isset($_POST['csrf_token']) && hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token']);
 }
@@ -88,63 +90,45 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
     // Overwrite original name so it looks pretty in DB and UI
     $original_name = $new_filename;
 
-    // Plagiarism control-number filename override: the group's control number is generated
-    // once (on first upload) and lives on plagiarism_checks, keyed by the leader, so every
-    // re-upload/revision reuses the same number instead of minting a new one.
-    if ($module_context === 'plagiarism' && $item_id === 4) {
+    // ── PLAGIARISM PHASE GATE ────────────────────────────────────────────────────────────────
+    // The card is opened by the office (plagiarism_checks.released_at), and each of its three
+    // documents only belongs to one stage. Enforced here, not just in the UI: without this
+    // anyone could POST item_id=4 and enter the plagiarism queue before their defense.
+    if ($module_context === 'plagiarism' || in_array($item_id, [4, 41, 42], true)) {
+        $pg = $pdo->prepare("SELECT status, released_at FROM plagiarism_checks WHERE user_id = ?");
+        $pg->execute([$effective_user_id]);
+        $pg_row = $pg->fetch();
+
+        if (!$pg_row || empty($pg_row['released_at'])) {
+            header("Location: student.php?module=plag&msg="
+                . urlencode('Your final manuscript cannot be sent yet — the research office has not opened this step.')
+                . "&type=error");
+            exit();
+        }
+        $pg_status = $pg_row['status'] ?: 'Phase 1: Pending Manuscript';
+        $pg_allowed = [
+            4  => ['Phase 1: Pending Manuscript', 'Phase 1: Manuscript Review',
+                   'Phase 1: Manuscript Returned', 'Phase 5: Revision Requested'],
+            41 => ['Phase 2: Form Download', 'Phase 3: Payment Verification'],
+            42 => ['Phase 2: Form Download', 'Phase 3: Payment Verification'],
+        ];
+        if (!isset($pg_allowed[$item_id]) || !in_array($pg_status, $pg_allowed[$item_id], true)) {
+            header("Location: student.php?module=plag&msg="
+                . urlencode('This document is not what your Plagiarism step is waiting for right now.')
+                . "&type=error");
+            exit();
+        }
+    }
+
+    // Plagiarism filename prefix. The control number is NOT minted here any more: it is printed
+    // on the official receipt the group brings back from the finance office, and the research
+    // office types it in when it registers the payment. Until then there is no number to name the
+    // file after, so a neutral prefix is used — and the receipt's number ends up being the only
+    // one this group ever has, instead of a second number nobody recognises.
+    if ($module_context === 'plagiarism' && in_array($item_id, [4, 41, 42], true)) {
         $pc_stmt = $pdo->prepare("SELECT formatted_control_no FROM plagiarism_checks WHERE user_id = ?");
         $pc_stmt->execute([$effective_user_id]);
-        $pc_row = $pc_stmt->fetch();
-
-        if ($pc_row && !empty($pc_row['formatted_control_no'])) {
-            $formatted_control_no = $pc_row['formatted_control_no'];
-        } else {
-            // Dept/course abbreviation: mirrors the REAL, live logic used for STAT control
-            // numbers (admin_module_dynamic.php's acknowledge_payment action) — keyed off the
-            // student's actual program/course, not the institution-level `department` field
-            // (that field stores full names like "International School of Asia and the
-            // Pacific", which never literally contains the substring "ISAP").
-            $stmt_leader_info = $pdo->prepare("SELECT program FROM users WHERE user_id = ?");
-            $stmt_leader_info->execute([$effective_user_id]);
-            $leader_info = $stmt_leader_info->fetch();
-
-            $prog = strtoupper($leader_info['program'] ?? 'GEN');
-            $dept = 'ISAP';
-            if (strpos($prog, 'NURSING') !== false || strpos($prog, 'MEDICAL') !== false || strpos($prog, 'RADIOLOGIC') !== false || strpos($prog, 'PHARMACY') !== false || strpos($prog, 'MIDWIFERY') !== false || strpos($prog, 'DENTAL') !== false || strpos($prog, 'CAREGIVING') !== false) {
-                $dept = 'MCNP';
-            }
-
-            $course_stopwords = ['BS', 'BA', 'AB', 'BSED', 'OF', 'IN', 'AND', 'THE'];
-            $course_words = preg_split('/\s+/', trim($leader_info['program'] ?? ''));
-            $course_significant = [];
-            foreach ($course_words as $w) {
-                if ($w !== '' && !in_array(strtoupper($w), $course_stopwords, true)) {
-                    $course_significant[] = strtoupper($w);
-                }
-            }
-            if (count($course_significant) === 1) {
-                $course_abbr = $course_significant[0];
-            } elseif (count($course_significant) > 1) {
-                $course_abbr = '';
-                foreach ($course_significant as $w) { $course_abbr .= $w[0]; }
-            } else {
-                $course_abbr = 'GEN';
-            }
-
-            $seq_stmt = $pdo->query("SELECT MAX(control_number_seq) FROM plagiarism_checks");
-            $next_seq = intval($seq_stmt->fetchColumn()) + 1;
-            $candidate_control_no = "PLAG-$dept-$course_abbr-" . str_pad($next_seq, 3, '0', STR_PAD_LEFT);
-
-            // Race-safe insert-if-not-exists: UNIQUE KEY(user_id) means a concurrent second
-            // member's upload either wins or loses this INSERT IGNORE; the re-SELECT below
-            // always returns whichever row actually won, so both requests end up naming their
-            // file identically.
-            $pdo->prepare("INSERT IGNORE INTO plagiarism_checks (user_id, control_number_seq, formatted_control_no) VALUES (?, ?, ?)")
-                ->execute([$effective_user_id, $next_seq, $candidate_control_no]);
-
-            $pc_stmt->execute([$effective_user_id]);
-            $formatted_control_no = $pc_stmt->fetchColumn();
-        }
+        $formatted_control_no = $pc_stmt->fetchColumn() ?: ('PLAGSUB-' . $effective_user_id);
 
         $safe_control_no = preg_replace("/[^a-zA-Z0-9\-]+$/", "", preg_replace("/[^a-zA-Z0-9\-]+/", "_", trim($formatted_control_no)));
         $new_filename = $safe_control_no . "_" . $short_username . "." . $ext;
@@ -185,6 +169,85 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && !isset($_POST['action'])) {
             // (FK is ON DELETE SET NULL, so deleting a pending draft simply nulls this reference)
             $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, upload_id, title, description, status_type) VALUES (?, ?, ?, ?, 'info')");
             $log_stmt->execute([$effective_user_id, $new_upload_id, 'File Submitted: ' . $item_name, 'You uploaded a new file: ' . htmlspecialchars($original_name)]);
+
+            // The application document opens the group's booking and starts the Apply ->
+            // Schedule stage. One item per phase (df_application_items): proposal asks for the
+            // signed endorsement, final for Form 002. Re-uploading before the office has decided
+            // simply re-points the booking at the newest version; once 'Scheduled' the
+            // application is settled and is left alone.
+            $application_phase = df_phase_for_application_item($item_id);
+            if ($application_phase !== null) {
+                $existing = df_get_booking($pdo, $effective_user_id, $application_phase);
+                $is_primary = ($item_id === df_primary_application_item($application_phase));
+
+                if ($existing === null) {
+                    // Only the primary document owns application_upload_id; a secondary one
+                    // uploaded first still opens the booking, it just does not claim that slot.
+                    $pdo->prepare("INSERT INTO defense_bookings (user_id, phase, application_upload_id, status)
+                                   VALUES (?, ?, ?, 'Applied')")
+                        ->execute([$effective_user_id, $application_phase, $is_primary ? $new_upload_id : null]);
+                } elseif ($existing['status'] !== 'Scheduled' && $is_primary) {
+                    $pdo->prepare("UPDATE defense_bookings SET application_upload_id = ? WHERE booking_id = ?")
+                        ->execute([$new_upload_id, $existing['booking_id']]);
+                }
+
+                // Final's application is reviewed BEFORE the calendar opens, so it must not
+                // promise a date picker the group cannot reach yet. Proposal's application is
+                // only possible at 100%, so for that phase the calendar really is the next step.
+                if ($application_phase === 'final') {
+                    header("Location: student.php?module=" . urlencode($module_context)
+                        . "&msg=" . urlencode('Form 002 submitted — the research office will review it')
+                        . "&type=success");
+                    exit();
+                }
+                // Land back INSIDE the schedule view. Without view=schedule the module reopens
+                // on its requirement list and the group has to click their way back in after
+                // every single upload.
+                header("Location: student.php?module=" . urlencode($module_context)
+                    . "&view=schedule&msg=" . urlencode('Application submitted — now choose your defense date')
+                    . "&type=success");
+                exit();
+            }
+
+            // ── PLAGIARISM PHASE TRANSITIONS ────────────────────────────────────────────────
+            // The manuscript moves the group into review; the two finance documents move it into
+            // payment verification once BOTH are in and neither has been sent back. Mirrors
+            // stat_upload_handler.php's transitions for items 30 / 36+37.
+            if (in_array($item_id, [4, 41, 42], true)) {
+                if ($item_id === 4) {
+                    // Every manuscript — first send, a re-send after the office returned it, or a
+                    // revision after Turnitin — goes to the office to be received. A REVISION IS A
+                    // NEW ROUND (office rule, 2026-09-28): receiving it sends the group to pay the
+                    // scan fee again. It used to jump straight back to the Turnitin queue, unpaid.
+                    $pdo->prepare("UPDATE plagiarism_checks SET status = 'Phase 1: Manuscript Review'
+                                   WHERE user_id = ?")->execute([$effective_user_id]);
+                } else {
+                    // Only THIS round's form and receipt count: round 1's Approved pair would
+                    // otherwise make a paid-again round look paid before anything was uploaded.
+                    $both_rows = array_map(fn($d) => $d['verification_status'], pp_current_pay_docs($pdo, (int)$effective_user_id));
+                    $ready = isset($both_rows[41], $both_rows[42])
+                        && $both_rows[41] !== 'Revision Requested'
+                        && $both_rows[42] !== 'Revision Requested';
+                    if ($ready) {
+                        $pdo->prepare("UPDATE plagiarism_checks SET status = 'Phase 3: Payment Verification'
+                                       WHERE user_id = ? AND status = 'Phase 2: Form Download'")
+                            ->execute([$effective_user_id]);
+                    }
+                }
+                header("Location: student.php?module=plag&msg="
+                    . urlencode('Uploaded. ' . $item_name . ' is in.') . "&type=success");
+                exit();
+            }
+
+            // Phase-2 documents are uploaded from inside the schedule sheet, next to the date
+            // picker. Land the group back in that sheet rather than on the requirement card
+            // they never left — otherwise they click their way back in six times.
+            if (in_array($module_context, ['proposal', 'final'], true)
+                && in_array($item_id, df_phase2_items($module_context), true)) {
+                header("Location: student.php?module=" . urlencode($module_context)
+                    . "&view=schedule&msg=" . urlencode('Uploaded. ' . $item_name . ' is in.') . "&type=success");
+                exit();
+            }
 
             header("Location: student.php?module=" . urlencode($module_context) . "&msg=File successfully submitted for verification&type=success");
         } else {

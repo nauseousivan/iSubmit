@@ -39,3 +39,21 @@ node_modules/
 .Trashes
 ehthumbs.db
 Thumbs.db
+
+# Gmail app password (config/mail.php reads it from here) — the repo is PUBLIC, never push it
+config/mail_secret.php
+
+# Blank forms the Admin uploads at runtime (Admin -> System -> Forms) — data, like uploads/.
+# The shipped defaults live at the root / dashboards/downloads and ARE tracked.
+forms/*
+!forms/.htaccess
+
+# Thesis figures, diagrams and screenshots (paper material, not the app; screenshots show real accounts)
+docs/diagrams/
+
+# Loose mascot source art (the app uses assets/mascot/eagle/ + assets/images/mascot.png)
+/isubmit-eagle-poses.zip
+/isubmit-eagle-purple-no-diploma.svg
+
+# Online database login (InfinityFree etc.) — config/db.php reads it; never push
+config/db_local.php

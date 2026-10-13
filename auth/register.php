@@ -24,13 +24,70 @@ require_once '../config/group_helpers.php';
 $message = "";
 $message_type = "error"; // "error" or "success"
 
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_POST['auth_action'] === 'register') {
+// 2026-10-01: the Admin can close student sign-ups (System settings). The form still shows, and says so.
+$registration_closed = function_exists('rd_setting') && rd_setting('registration_open', '1') !== '1';
+if ($registration_closed) {
+    $message = "Registration is closed right now. Please check back later or ask the research office.";
+}
+
+if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_POST['auth_action'] === 'register') {
     $username = trim($_POST['username'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = password_hash($_POST['password'] ?? '', PASSWORD_BCRYPT);
-    $role = $_POST['role'] ?? 'Student';
+    // Self-registration only ever makes a Student. The form posts a hidden role field, and
+    // trusting it let anyone sign up as a Director (or, since 2026-09-30, an Admin) by editing it.
+    // Staff accounts are made in admin_accounts.php.
+    $role = 'Student';
     $department = $_POST['department'] ?? null;
     $program = $_POST['program'] ?? null;
+    $student_number = trim($_POST['student_number'] ?? '');
+    // Year level is personal, like student_number — NEVER inherited from the leader the
+    // way research_group_name / department / program are below.
+    $allowed_year_levels = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year', 'Graduate'];
+    $year_level = trim($_POST['year_level'] ?? '');
+    if ($year_level === '' || !in_array($year_level, $allowed_year_levels, true)) {
+        $year_level = null;
+    }
+    // Section is a GROUP fact, like research_group_name/department/program — the whole group
+    // sits in one room — so a member inherits the leader's rather than picking their own.
+    // Validated against the sections table, and only accepted if it belongs to the school and
+    // course chosen, so a tampered id cannot drop a student into another course's room.
+    // The pattern attribute on the input is decoration; this is the rule. Exactly one letter,
+    // uppercased, so "a" and "A" are the same room and "4A" / "Section A" never get in.
+    $section_id = null;
+    $is_leader_signup = !isset($_POST['is_group_leader']) || $_POST['is_group_leader'] === 'yes';
+
+    if ($role === 'Student' && $is_leader_signup) {
+        $section_label = strtoupper(trim((string)($_POST['section_label'] ?? '')));
+
+        if (!preg_match('/^[A-Z]$/', $section_label)) {
+            $message = "Please type your section as a single letter, for example A.";
+            $message_type = "error";
+            goto end_registration;
+        }
+        if ($year_level === null) {
+            // A section is a room in a year level; without the year, "A" is ambiguous.
+            $message = "Please choose your year level so we know which section A you mean.";
+            $message_type = "error";
+            goto end_registration;
+        }
+
+        // Find or create. The first student to type D makes room D for that course and year;
+        // everyone after joins the same one, which is what keeps them together as a section
+        // without anyone in the office having to set the rooms up first.
+        $sec_stmt = $pdo->prepare("SELECT section_id FROM sections
+                                   WHERE department = ? AND program = ? AND year_level = ? AND label = ?");
+        $sec_stmt->execute([$department, $program, $year_level, $section_label]);
+        $section_id = $sec_stmt->fetchColumn();
+
+        if (!$section_id) {
+            $pdo->prepare("INSERT INTO sections (department, program, year_level, label, created_by)
+                           VALUES (?, ?, ?, ?, NULL)")
+                ->execute([$department, $program, $year_level, $section_label]);
+            $section_id = (int)$pdo->lastInsertId();
+        }
+    }
+
     $group_name = ($role === 'Student') ? trim($_POST['group_name'] ?? '') : null;
     $group_member_emails = ($role === 'Student') ? trim($_POST['group_member_emails'] ?? '') : null;
     $is_group_leader = isset($_POST['is_group_leader']) && $_POST['is_group_leader'] === 'yes';
@@ -46,7 +103,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         }
 
         // Find leader in DB
-        $stmt_leader = $pdo->prepare("SELECT user_id, research_group_name, department, program FROM users WHERE email = ? AND role = 'Student' AND leader_id IS NULL");
+        $stmt_leader = $pdo->prepare("SELECT user_id, research_group_name, department, program, section_id FROM users WHERE email = ? AND role = 'Student' AND leader_id IS NULL");
         $stmt_leader->execute([$leader_email]);
         $leader_info = $stmt_leader->fetch();
 
@@ -55,11 +112,34 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             $group_name = $leader_info['research_group_name']; // Inherit research group
             $department = $leader_info['department'];          // Inherit department
             $program = $leader_info['program'];                // Inherit study course
+            $section_id = $leader_info['section_id'];          // Inherit section (same room)
         } else {
             $message = "Leader email not found or the user is not registered as a primary student leader.";
             $message_type = "error";
             goto end_registration;
         }
+    }
+
+    // School ID number: personal to the account (never inherited from the leader the way
+    // research_group_name/department/program are above) and unique portal-wide.
+    if ($role === 'Student') {
+        if (!preg_match('/^\d{4}-\d{4,6}$/', $student_number)) {
+            $message = "Please enter your School ID Number in the format 2023-10078.";
+            $message_type = "error";
+            goto end_registration;
+        }
+
+        // Pre-check so a duplicate reads as a friendly message instead of surfacing the
+        // uniq_student_number index violation as a raw PDO exception.
+        $stmt_sn = $pdo->prepare("SELECT user_id FROM users WHERE student_number = ?");
+        $stmt_sn->execute([$student_number]);
+        if ($stmt_sn->fetch()) {
+            $message = "That School ID Number is already registered to another portal account.";
+            $message_type = "error";
+            goto end_registration;
+        }
+    } else {
+        $student_number = null;
     }
 
     // Verify institutional email uniqueness
@@ -71,8 +151,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
         $message_type = "error";
     } else {
         // Insert new record
-        $stmt = $pdo->prepare("INSERT INTO users (username, password, email, role, department, program, research_group_name, leader_id, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)");
-        if ($stmt->execute([$username, $password, $email, $role, $department, $program, $group_name, $leader_id])) {
+        $stmt = $pdo->prepare("INSERT INTO users (username, password, email, student_number, role, department, program, year_level, section_id, research_group_name, leader_id, is_verified) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)");
+        if ($stmt->execute([$username, $password, $email, $student_number ?: null, $role, $department, $program, $year_level, $section_id, $group_name, $leader_id])) {
             $new_user_id = $pdo->lastInsertId();
 
             // Leader invited teammates by email in Step 4: link immediately if they
@@ -188,7 +268,9 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="color-scheme" content="light only">
     <title>Register | iSubmit</title>
-    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <!-- Premium Typography -->
     <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@500;600;700;800&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
     <!-- Lucide Icons CDN -->
@@ -372,6 +454,14 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                         </div>
 
                         <div class="mat-input-group">
+                            <label>School ID Number</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="id-card" class="mat-icon" style="width: 18px; height: 18px;"></i>
+                                <input type="text" class="mat-input" name="student_number" id="studentNumberInput" placeholder="e.g. 2023-10078" required inputmode="numeric" maxlength="11" pattern="\d{4}-\d{4,6}" title="Format: year-serial, e.g. 2023-10078" oninput="formatStudentNumber(this)">
+                            </div>
+                        </div>
+
+                        <div class="mat-input-group">
                             <label>Academic Degree Program / Course</label>
                             <div class="mat-input-with-icon">
                                 <i data-lucide="shapes" class="mat-icon" style="width: 18px; height: 18px;"></i>
@@ -380,6 +470,55 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                                 </select>
                             </div>
                         </div>
+
+                        <div class="mat-input-group" id="yearLevelField">
+                            <label>Year Level</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="graduation-cap" class="mat-icon" style="width: 18px; height: 18px;"></i>
+                                <select name="year_level" class="mat-input" id="yearLevel">
+                                    <option value="" selected>Select Year Level</option>
+                                    <option value="1st Year">1st Year</option>
+                                    <option value="2nd Year">2nd Year</option>
+                                    <option value="3rd Year">3rd Year</option>
+                                    <option value="4th Year">4th Year</option>
+                                    <option value="5th Year">5th Year</option>
+                                    <option value="Graduate">Graduate</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <?php /* Section is PICKED, never typed. Free text would arrive as
+                                 A / a / Section A / 4A / IV-A and shatter one section card into
+                                 six. The office defines the list; this only offers it. Optional
+                                 on purpose — a course whose focal person has not made its
+                                 sections yet must still be able to register, and those groups
+                                 land in her "Unassigned" tray. */ ?>
+                        <?php /* TYPED, not picked. A dropdown had to be pre-seeded, and courses
+                                 like Nursing run sections past E — seeding every letter for every
+                                 course and year just to be safe made a 26-item menu for a one-
+                                 letter answer. So: one letter, typed.
+
+                                 The reason a dropdown existed was to stop the same room arriving
+                                 as A / a / Section A / 4A and shattering into four sections. That
+                                 is handled instead by the format: exactly one letter A-Z, upper-
+                                 cased on the way in, anything else refused here AND in PHP. The
+                                 section is then found-or-created, so the first student to type D
+                                 makes room D and everyone after joins it. */ ?>
+                        <div class="mat-input-group" id="sectionField">
+                            <label>Section &mdash; one letter</label>
+                            <div class="mat-input-with-icon">
+                                <i data-lucide="users" class="mat-icon" style="width: 18px; height: 18px;"></i>
+                                <input type="text" name="section_label" class="mat-input" id="section"
+                                       maxlength="1" required autocomplete="off" placeholder="A"
+                                       pattern="[A-Za-z]" title="Just the letter, for example A"
+                                       oninput="this.value = this.value.toUpperCase().replace(/[^A-Z]/g,'')"
+                                       style="text-transform:uppercase;">
+                            </div>
+                            <small id="sectionHint" style="display:block;margin-top:6px;font-size:12px;color:var(--text-secondary,#64748b);">
+                                Just the letter &mdash; <b>A</b>, not &ldquo;4A&rdquo; or &ldquo;Section A&rdquo;.
+                            </small>
+                        </div>
+
                     </div>
 
                     <!-- -----------------------------------------
@@ -445,6 +584,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
 
                 <div style="text-align: center; margin-top: 24px; font-size: 14px; color: var(--text-secondary);" class="mobile-only-link">
                     Already have an account? <a href="login.php" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Sign In</a>
+                    <span style="margin: 0 6px; opacity: 0.4;">&middot;</span>
+                    <a href="help.php?c=other" style="color: var(--text-secondary); font-weight: 600; text-decoration: none;">Get help</a>
+                </div>
+
+                <div class="desktop-only" style="text-align: center; margin-top: 16px; font-size: 13px; color: var(--text-muted);">
+                    Stuck registering? <a href="help.php?c=other" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Ask the Help Desk</a>
                 </div>
 
                 <!-- Minimal Institutional Footer -->
@@ -500,7 +645,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                 }
 
                 if (dept === "Medical Colleges of Northern Philippines") {
-                    brandOverlay.setAttribute("data-theme", "mcnp");
                     root.style.setProperty('--active-accent', 'var(--primary-color)');
                     if (brandTitle) brandTitle.innerText = "iSubmit";
                     const brandSubLead = document.getElementById('brandSubLead');
@@ -508,7 +652,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                     if (h2Title) h2Title.style.color = 'var(--text-primary)';
 
                 } else if (dept === "International School of Asia and the Pacific") {
-                    brandOverlay.setAttribute("data-theme", "isap");
                     root.style.setProperty('--active-accent', 'var(--primary-color)');
                     if (brandTitle) brandTitle.innerText = "iSubmit";
                     const brandSubLead = document.getElementById('brandSubLead');
@@ -516,7 +659,6 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                     if (h2Title) h2Title.style.color = 'var(--text-primary)';
 
                 } else {
-                    brandOverlay.removeAttribute("data-theme");
                     root.style.setProperty('--active-accent', 'var(--primary-color)');
                     if (brandTitle) brandTitle.innerText = "iSubmit";
                     const brandSubLead = document.getElementById('brandSubLead');
@@ -750,6 +892,13 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                     error.style.display = 'none';
                     return true;
                 }
+            }
+
+            // School ID is always <4-digit year>-<serial>; drop the hyphen in for the student
+            // so they can just type digits. Rebuilt from the digits only, so paste works too.
+            function formatStudentNumber(input) {
+                const digits = input.value.replace(/\D/g, '').slice(0, 10);
+                input.value = digits.length > 4 ? digits.slice(0, 4) + '-' + digits.slice(4) : digits;
             }
 
             function validateStep(step) {

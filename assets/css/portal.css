@@ -32,40 +32,46 @@
     --violet: #8b5cf6;
 }
 
-/* Light (default) ---------------------------------------------------------- */
+/* Light (default) ----------------------------------------------------------
+   The STUDENT dashboard's lavender theme, lifted from student.php
+   (body.theme-purple), so the staff side and the student side are one product.
+   The INK is the part that matters: the old near-black #1d1d1f is what made
+   every staff screen read as an admin panel rather than as iSubmit.
+   Changed HERE rather than per page — every staff shell, module window and
+   overlay loads this file, so this is the one place the palette lives. */
 body, body.theme-light {
     --canvas: #ffffff;
     --surface: #ffffff;
-    --surface-2: #f5f5f7;
-    --surface-3: #ececef;
-    --ink: #1d1d1f;
-    --ink-soft: #48484a;
-    --muted: #86868b;
-    --line: #e6e6eb;
-    --line-soft: #f0f0f3;
-    --accent: #6c5fa0;          /* muted brand purple — desaturated so it never overpowers */
+    --surface-2: #faf8ff;
+    --surface-3: #f2edff;
+    --ink: #4c1d95;
+    --ink-soft: #5b21b6;
+    --muted: #8b82a8;
+    --line: #ede9fe;
+    --line-soft: #f5f3ff;
+    --accent: #6d28d9;
     --accent-ink: #ffffff;
 
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, .04), 0 1px 3px rgba(0, 0, 0, .03);
-    --shadow-2: 0 2px 6px rgba(0, 0, 0, .05), 0 10px 26px rgba(0, 0, 0, .06);
-    --shadow-3: 0 8px 20px rgba(0, 0, 0, .08), 0 24px 56px rgba(0, 0, 0, .10);
-    --shadow-dock: 0 8px 30px -6px rgba(0, 0, 0, .18), 0 2px 8px -2px rgba(0, 0, 0, .08);
+    --shadow-1: 0 1px 2px rgba(76, 29, 149, .05), 0 1px 3px rgba(76, 29, 149, .04);
+    --shadow-2: 0 2px 6px rgba(76, 29, 149, .06), 0 10px 26px rgba(76, 29, 149, .08);
+    --shadow-3: 0 8px 20px rgba(76, 29, 149, .10), 0 24px 56px rgba(76, 29, 149, .12);
+    --shadow-dock: 0 8px 30px -6px rgba(76, 29, 149, .20), 0 2px 8px -2px rgba(76, 29, 149, .10);
     --dock-bg: rgba(255, 255, 255, .82);
 }
 
 /* Dark --------------------------------------------------------------------- */
 body.theme-dark {
-    --canvas: #1c1c1e;
-    --surface: #2c2c2e;
-    --surface-2: #3a3a3c;
-    --surface-3: #48484a;
-    --ink: #f5f5f7;
-    --ink-soft: #d1d1d6;
-    --muted: #98989d;
-    --line: #3a3a3c;
-    --line-soft: #323234;
-    --accent: #b3a6e6;          /* muted purple, lifted for dark surfaces */
-    --accent-ink: #241d3a;
+    --canvas: #16121f;
+    --surface: #1e1830;
+    --surface-2: #271f3d;
+    --surface-3: #332a4d;
+    --ink: #ede9fe;
+    --ink-soft: #c4b5fd;
+    --muted: #8b85a3;
+    --line: #342b4d;
+    --line-soft: #2a2240;
+    --accent: #a78bfa;          /* the student violet, lifted for dark surfaces */
+    --accent-ink: #1b1233;
 
     --shadow-1: 0 1px 2px rgba(0, 0, 0, .3);
     --shadow-2: 0 2px 8px rgba(0, 0, 0, .4), 0 12px 28px rgba(0, 0, 0, .35);
@@ -109,11 +115,13 @@ body {
     -moz-osx-font-smoothing: grayscale;
 }
 
+:root { --nav-w: 194px; }
+
 .app-dashboard-frame {
     width: 100vw;
     height: 100vh;
     display: flex;
-    flex-direction: column;
+    flex-direction: row;          /* left rail + content */
     position: relative;
     overflow: hidden;
     background: var(--canvas);
@@ -121,8 +129,9 @@ body {
 
 .main-workspace-content {
     flex: 1;
+    min-width: 0;
     overflow-y: auto;
-    padding: 38px 38px 132px;   /* bottom room for the dock */
+    padding: 34px 38px 56px;      /* dock is gone — no bottom reserve */
     position: relative;
     z-index: 5;
     background: var(--canvas);
@@ -133,78 +142,116 @@ body {
    3. macOS DOCK
    ------------------------------------------------------------------------- */
 .app-dock-navigation {
-    position: fixed;
-    bottom: 22px;
-    left: 50%;
-    transform: translateX(-50%);
-    height: 66px;
-    background: var(--dock-bg);
-    -webkit-backdrop-filter: blur(24px) saturate(170%);
-    backdrop-filter: blur(24px) saturate(170%);
-    border: 1px solid var(--line);
-    border-radius: 22px;
-    box-shadow: var(--shadow-dock);
+    width: var(--nav-w);
+    flex-shrink: 0;
+    height: 100vh;
+    background: var(--surface);
+    border-right: 1px solid var(--line);
     display: flex;
-    align-items: center;
-    padding: 8px 14px;
-    gap: 6px;
+    flex-direction: column;
+    padding: 16px 12px 14px;
+    gap: 1px;
+    overflow-y: auto;
+    overflow-x: hidden;
     z-index: 600;
 }
-.dock-menu-list { list-style: none; display: flex; align-items: center; gap: 6px; }
-.dock-item { position: relative; display: flex; }
+.app-dock-navigation::-webkit-scrollbar { width: 0; }
+/* Brand lockup — the same three parts the student header wears: the mascot floating on the
+   page (drop-shadow follows the PNG alpha, which is what reads as 3D rather than as a tile),
+   the wordmark, and the sub-line under it. A wordmark on its own looked unfinished. */
+.dock-brand { display: flex; align-items: center; gap: 9px; padding: 2px 6px 16px; min-width: 0; }
+.dock-brand-logo { width: 30px; height: 30px; border-radius: 9px; object-fit: cover; flex-shrink: 0; }
+.dock-brand-mascot { width: 35px; height: auto; flex-shrink: 0; display: block;
+    filter: drop-shadow(0 5px 8px rgba(76, 29, 149, .24)) drop-shadow(0 1px 2px rgba(76, 29, 149, .12));
+    animation: dockMascotFloat 4.5s ease-in-out infinite; }
+body.theme-dark .dock-brand-mascot { filter: drop-shadow(0 5px 10px rgba(0, 0, 0, .55)) drop-shadow(0 0 8px rgba(167, 139, 250, .5)); }
+@keyframes dockMascotFloat { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-3px); } }
+@media (prefers-reduced-motion: reduce) { .dock-brand-mascot { animation: none; } }
+.dock-brand-text { display: flex; flex-direction: column; min-width: 0; line-height: 1.15; }
+.dock-brand-name { font-size: 16px; font-weight: 800; color: var(--ink); letter-spacing: -.03em; white-space: nowrap; }
+.dock-brand-sub { font-size: 9px; font-weight: 600; color: var(--ink-soft); opacity: .78; white-space: nowrap;
+    letter-spacing: -.01em; overflow: hidden; text-overflow: ellipsis; }
+
+.dock-menu-list { list-style: none; display: flex; flex-direction: column; align-items: stretch; gap: 1px; width: 100%; flex: 1 1 auto; }
+.dock-item { position: relative; display: flex; width: 100%; }
+.nav-account { margin-top: auto; display: flex; flex-direction: column; gap: 1px; padding-top: 6px; }
+.nav-account .nav-section-label { padding-top: 8px; }
+
+.nav-section-label {
+    font-size: 9.5px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); padding: 15px 12px 6px; opacity: .85;
+}
+
 .dock-btn {
     background: transparent;
     border: none;
-    width: 46px; height: 46px;
-    border-radius: 14px;
+    width: 100%; height: 39px;
+    border-radius: 10px;
     cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    color: var(--muted);
+    display: flex; align-items: center; justify-content: flex-start; gap: 12px;
+    padding: 0 12px;
+    color: var(--ink-soft);
+    font-family: var(--font-ui); font-size: 13.5px; font-weight: 650;
     position: relative;
-    transition: transform .25s var(--spring), background .2s, color .2s;
+    transition: background .16s, color .16s;
+    text-align: left;
 }
-.dock-btn i, .dock-btn svg { width: 23px; height: 23px; }
-.dock-btn:hover { color: var(--ink); background: var(--surface-2); transform: scale(1.14) translateY(-4px); }
-.dock-btn.active { color: var(--accent); background: var(--accent-weak); }
+.dock-btn i, .dock-btn svg { width: 19px; height: 19px; flex-shrink: 0; }
+.dock-btn .dock-label { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* The count badge is absolutely positioned over the row, so a label on a badge-carrying button has
+   to keep clear of it — reserved always, since the badge appears and disappears with the live poll. */
+.dock-btn:has(.dock-badge) .dock-label { padding-right: 20px; }
+
+/* Step marker inside a nav label — the review sections are ordered stages of one process, and
+   the number is what says so. Lives inside .dock-label so the collapsed icon rail drops it too. */
+.nav-step {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 15px; height: 15px; margin-right: 7px; vertical-align: -2px;
+    border-radius: 5px; background: var(--surface-3); color: var(--muted);
+    font-size: 9px; font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums;
+    transition: background .16s, color .16s;
+}
+.nav-step.done { font-size: 10px; }
+.dock-btn:hover .nav-step { background: var(--line); color: var(--ink-soft); }
+.dock-btn.active .nav-step { background: color-mix(in srgb, var(--accent) 26%, transparent); color: var(--accent); }
+
+/* Hover lifts the label, active is a filled pill with a marker on the rail — an active row
+   that only changed colour was hard to find in a nav this long. */
+.dock-btn:hover { color: var(--ink); background: var(--surface-2); }
+.dock-btn.active { color: var(--accent); background: var(--accent-weak); font-weight: 750; }
+.dock-btn.active::before {
+    content: ''; position: absolute; left: -12px; top: 50%; transform: translateY(-50%);
+    width: 3px; height: 20px; border-radius: 0 3px 3px 0; background: var(--accent);
+}
+.dock-btn.active i, .dock-btn.active svg { color: var(--accent); }
 .dock-btn.dock-logout { color: var(--muted); }
-.dock-btn.dock-logout:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); transform: scale(1.14) translateY(-4px); }
+.dock-btn.dock-logout:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 12%, transparent); }
 
 .dock-badge {
-    position: absolute; top: 1px; right: 1px;
+    position: absolute; top: 50%; right: 10px; transform: translateY(-50%);
     min-width: 18px; height: 18px; padding: 0 5px;
     background: var(--danger); color: #fff;
     font-size: 10px; font-weight: 800; line-height: 1;
     border-radius: var(--r-pill);
     display: flex; align-items: center; justify-content: center;
-    border: 2px solid var(--surface);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, .2);
 }
-.dock-tooltip {
-    position: absolute; left: 50%; top: -40px;
-    transform: translateX(-50%) translateY(8px);
-    background: var(--ink); color: var(--surface);
-    padding: 6px 11px; border-radius: 8px;
-    font-size: 11px; font-weight: 700; letter-spacing: .3px; white-space: nowrap;
-    opacity: 0; pointer-events: none;
-    box-shadow: var(--shadow-2);
-    transition: opacity .2s var(--ease), transform .2s var(--ease);
-}
-.dock-item:hover .dock-tooltip { opacity: 1; transform: translateX(-50%) translateY(0); }
-.dock-divider { width: 1px; height: 28px; background: var(--line); margin: 0 4px; flex-shrink: 0; }
+.dock-tooltip { display: none; }
+.dock-divider { width: auto; height: 1px; background: var(--line); margin: 8px 8px; flex-shrink: 0; }
 
-.dock-avatar-btn { background: none; border: none; padding: 0; cursor: pointer; position: relative; display: flex; }
-.dock-avatar-ring { width: 46px; height: 46px; border-radius: 50%; padding: 2px; border: 2px solid var(--accent); transition: transform .3s var(--spring); }
-.dock-avatar-btn:hover .dock-avatar-ring { transform: scale(1.1); }
+.dock-avatar-btn { background: none; border: none; padding: 7px 12px; cursor: pointer; position: relative; display: flex; align-items: center; gap: 11px; width: 100%; border-radius: 10px; }
+.dock-avatar-btn:hover { background: var(--surface-2); }
+.dock-avatar-ring { width: 30px; height: 30px; border-radius: 50%; padding: 2px; border: 2px solid var(--accent); flex-shrink: 0; }
 .dock-avatar-img { width: 100%; height: 100%; border-radius: 50%; object-fit: cover; background: var(--surface-2); }
+.dock-avatar-name { font-size: 13px; font-weight: 700; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 
-/* Avatar dropdown */
+/* Avatar dropdown — opens upward from the bottom account row */
 .dock-dropdown {
-    position: absolute; bottom: 62px; left: 50%; transform: translateX(-50%) translateY(8px) scale(.96);
+    position: absolute; bottom: 48px; left: 8px; right: 8px; transform: translateY(8px) scale(.98);
     background: var(--surface); border: 1px solid var(--line); border-radius: var(--r-md);
-    box-shadow: var(--shadow-3); padding: 6px; min-width: 190px;
+    box-shadow: var(--shadow-3); padding: 6px;
     opacity: 0; pointer-events: none; transition: opacity .2s var(--ease), transform .2s var(--ease); z-index: 620;
 }
-.dock-dropdown.open { opacity: 1; pointer-events: auto; transform: translateX(-50%) translateY(0) scale(1); }
+.dock-dropdown.open { opacity: 1; pointer-events: auto; transform: translateY(0) scale(1); }
 .dock-dropdown-head { padding: 8px 10px 10px; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .dock-dropdown-name { font-size: 13px; font-weight: 700; color: var(--ink); }
 .dock-dropdown-role { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .5px; font-weight: 600; margin-top: 1px; }
@@ -214,53 +261,42 @@ body {
 .dock-dropdown a.danger:hover { color: var(--danger); background: color-mix(in srgb, var(--danger) 10%, transparent); }
 
 /* ----------------------------------------------------------------------------
-   4. MAC WINDOWS (module overlays w/ traffic lights)
+   4. MODULE WINDOWS (full-view, chrome-free — open right of the side rail)
    ------------------------------------------------------------------------- */
-.window-layer { position: fixed; inset: 0; z-index: 400; pointer-events: none; }
+.window-layer { position: fixed; inset: 0 0 0 var(--nav-w); z-index: 400; pointer-events: none; }
 .app-window {
     position: absolute;
-    inset: 18px 18px 104px 18px;
+    inset: 0;
     background: var(--surface);
-    border: 1px solid var(--line);
-    border-radius: 16px;
-    box-shadow: var(--shadow-3);
     display: none;
     flex-direction: column;
     overflow: hidden;
     pointer-events: auto;
     opacity: 0;
-    transform: scale(.985) translateY(10px);
-    transition: opacity .3s var(--ease), transform .3s var(--ease);
+    transition: opacity .22s var(--ease);
 }
 .app-window.active { display: flex; }
-.app-window.shown { opacity: 1; transform: none; }
-.app-window.expanded { inset: 0; border-radius: 0; border: none; }
+.app-window.shown { opacity: 1; }
+.app-window.expanded { inset: 0; }
 .app-window.minimized { display: none; }
 
 .window-titlebar {
-    height: 46px; flex-shrink: 0;
-    display: flex; align-items: center; gap: 12px;
-    padding: 0 14px;
-    background: var(--surface-2);
+    height: 44px; flex-shrink: 0;
+    display: flex; align-items: center; gap: 10px;
+    padding: 0 16px;
+    background: var(--surface);
     border-bottom: 1px solid var(--line);
     user-select: none;
 }
-.traffic-lights { display: flex; gap: 8px; align-items: center; }
-.traffic-light {
-    width: 12px; height: 12px; border-radius: 50%;
-    border: none; padding: 0; cursor: pointer;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 9px; font-weight: 700; color: transparent; line-height: 1;
-    transition: filter .15s;
+.window-close {
+    margin-left: auto; width: 30px; height: 30px; border: none; background: transparent;
+    color: var(--muted); border-radius: 8px; cursor: pointer; font-size: 21px; line-height: 1;
+    display: flex; align-items: center; justify-content: center; transition: background .15s, color .15s;
 }
-.traffic-lights:hover .traffic-light { color: rgba(0, 0, 0, .55); }
-.traffic-light:hover { filter: brightness(.94); }
-.traffic-light.red { background: #ff5f56; }
-.traffic-light.yellow { background: #ffbd2e; }
-.traffic-light.green { background: #27c93f; }
-.window-title { display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; color: var(--ink-soft); margin: 0 auto 0 6px; }
+.window-close:hover { background: color-mix(in srgb, var(--danger) 12%, transparent); color: var(--danger); }
+.window-title { display: flex; align-items: center; gap: 9px; font-size: 13.5px; font-weight: 750; color: var(--ink); }
 .window-title i { width: 16px; height: 16px; color: var(--accent); }
-.window-frame { flex: 1; border: none; width: 100%; background: var(--surface); }
+.window-frame { flex: 1; border: none; width: 100%; background: var(--surface); color-scheme: normal; }   /* normal, not dark: a loading frame then shows this dark surface instead of an opaque white about:blank (2026-10-01) */
 
 /* ----------------------------------------------------------------------------
    5. HEADER + CLOCK WIDGET
@@ -347,11 +383,17 @@ label { color: var(--ink-soft); }
 .activity-item { display: flex; gap: 14px; padding: 13px; border-bottom: 1px solid var(--line-soft); cursor: pointer; border-radius: var(--control-radius); transition: background var(--dur-fast); }
 .activity-item:hover { background: var(--surface-2); }
 .activity-item:last-child { border-bottom: none; }
-.activity-icon { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: bold; flex-shrink: 0; }
-.activity-icon.success { background: color-mix(in srgb, var(--success) 18%, var(--surface)); color: var(--success); }
-.activity-icon.warning { background: color-mix(in srgb, var(--warning) 20%, var(--surface)); color: var(--warning); }
-.activity-icon.info { background: color-mix(in srgb, var(--info) 16%, var(--surface)); color: var(--info); }
-.activity-icon i { width: 18px; height: 18px; }
+.activity-icon { width: 34px; height: 34px; border-radius: 11px; display: flex; align-items: center;
+    justify-content: center; flex-shrink: 0; border: 1px solid transparent; }
+.activity-icon.success { background: color-mix(in srgb, var(--success) 14%, var(--surface));
+    border-color: color-mix(in srgb, var(--success) 24%, transparent); color: var(--success); }
+.activity-icon.warning { background: color-mix(in srgb, var(--warning) 16%, var(--surface));
+    border-color: color-mix(in srgb, var(--warning) 28%, transparent); color: color-mix(in srgb, var(--warning) 80%, var(--ink)); }
+/* 'info' is the ordinary case — it takes the BRAND accent, not the system blue it used to
+   borrow, which is what made the feed look like it came from another app. */
+.activity-icon.info { background: color-mix(in srgb, var(--accent) 12%, var(--surface));
+    border-color: color-mix(in srgb, var(--accent) 24%, transparent); color: var(--accent); }
+.activity-icon i, .activity-icon svg { width: 17px; height: 17px; }
 .activity-content { flex: 1; min-width: 0; }
 .activity-title { font-weight: 600; color: var(--ink); font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .activity-desc { color: var(--muted); font-size: 12px; margin-top: 2px; }
@@ -367,9 +409,17 @@ label { color: var(--ink-soft); }
 .feed-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .feed-head h3 { margin: 0; display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; color: var(--ink); }
 .feed-head h3 i { width: 17px; height: 17px; color: var(--accent); }
-.feed-seeall { display: inline-flex; align-items: center; gap: 6px; background: var(--accent-weak); border: none; color: var(--accent); font-family: inherit; font-size: 12px; font-weight: 700; padding: 7px 14px; border-radius: var(--r-pill); cursor: pointer; transition: filter var(--dur-fast); white-space: nowrap; }
-.feed-seeall:hover { filter: brightness(.96); }
-.feed-seeall i { width: 14px; height: 14px; }
+/* Same pill the student dashboard uses (.btn-see-all): a quiet tinted chip that fills
+   with the accent and lifts on hover. */
+.feed-seeall { display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    background: var(--accent-weak); border: 1px solid transparent; color: var(--accent);
+    font-family: inherit; font-size: 11px; font-weight: 750; letter-spacing: .5px;
+    text-transform: uppercase; padding: 6px 14px; border-radius: 10px; cursor: pointer;
+    white-space: nowrap; transition: background .25s var(--ease), color .25s var(--ease),
+        transform .25s var(--ease), box-shadow .25s var(--ease); }
+.feed-seeall:hover { background: var(--accent); color: var(--accent-ink);
+    transform: translateY(-1.5px); box-shadow: 0 4px 12px -2px var(--accent-ghost); }
+.feed-seeall i, .feed-seeall svg { width: 13px; height: 13px; }
 
 /* Action-first summary (master dashboard) */
 .action-banner { display: flex; align-items: center; gap: 18px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--card-radius); padding: 22px 24px; box-shadow: var(--shadow-1); margin-bottom: 22px; }
@@ -406,6 +456,7 @@ body.admin-module { padding: 28px 28px 32px; background: var(--canvas); min-heig
 .time-digits { font-size: 15px; font-weight: 700; color: var(--ink); }
 
 .workspace-grid { display: grid; grid-template-columns: 280px 1fr; gap: 22px; align-items: start; }
+.workspace-grid.full-width { grid-template-columns: 1fr; }
 .group-sidebar { background: var(--surface); border: 1px solid var(--line); border-radius: var(--card-radius); padding: 16px; box-shadow: var(--shadow-1); display: flex; flex-direction: column; gap: 12px; max-height: calc(100vh - 170px); overflow-y: auto; position: sticky; top: 0; }
 .sidebar-title { font-size: 12.5px; font-weight: 800; color: var(--ink); margin: 0; padding-bottom: 8px; border-bottom: 1px solid var(--line); text-transform: uppercase; letter-spacing: .6px; }
 .group-select-item { background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 10px; cursor: pointer; transition: all var(--dur-fast) var(--ease); display: flex; align-items: center; gap: 10px; }
@@ -472,9 +523,11 @@ body.admin-module { padding: 28px 28px 32px; background: var(--canvas); min-heig
 .preview-modal { display: none; position: fixed; inset: 0; background: rgba(0, 0, 0, .42); z-index: 1000; justify-content: flex-end; align-items: stretch; }
 .preview-content { background: var(--surface); width: min(940px, 96vw); height: 100%; display: flex; flex-direction: column; overflow: hidden; box-shadow: -28px 0 70px rgba(0, 0, 0, .28); border-left: 1px solid var(--line); animation: drawerIn var(--dur) var(--ease); }
 @keyframes drawerIn { from { transform: translateX(40px); opacity: .6; } to { transform: translateX(0); opacity: 1; } }
-.preview-header { padding: 15px 24px; background: var(--surface-2); color: var(--ink); display: flex; justify-content: space-between; align-items: center; flex-shrink: 0; border-bottom: 1px solid var(--line); }
+.preview-header { padding: 15px 24px; background: var(--surface-2); color: var(--ink); display: flex; justify-content: space-between; align-items: center; gap: 16px; flex-shrink: 0; border-bottom: 1px solid var(--line); }
 .preview-header * { color: var(--ink) !important; }
-.close-preview { cursor: pointer; font-size: 26px; font-weight: bold; line-height: 1; color: var(--muted) !important; transition: color var(--dur-fast); }
+.preview-header-titles { display: flex; flex-direction: column; gap: 2px; min-width: 0; overflow: hidden; }
+.preview-header-titles > * { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.close-preview { cursor: pointer; font-size: 26px; font-weight: bold; line-height: 1; color: var(--muted) !important; transition: color var(--dur-fast); flex-shrink: 0; }
 .close-preview:hover { color: var(--danger) !important; }
 .preview-body { flex: 1; display: flex; overflow: hidden; min-height: 0; }
 .preview-frame { flex: 1.25; border: none; background: var(--surface-3); height: 100%; }
@@ -508,9 +561,102 @@ body.admin-module { padding: 28px 28px 32px; background: var(--canvas); min-heig
     .preview-frame { flex: none; height: 42vh; }
     .preview-sidebar { flex: 1; min-width: 0; border-left: none; border-top: 1px solid var(--line); }
 }
-@media (max-width: 760px) {
-    .main-workspace-content { padding: 20px 20px 120px; }
-    table { min-width: 100%; }
-    .app-window { inset: 10px 10px 96px 10px; }
-    .app-dock-navigation { max-width: calc(100vw - 20px); overflow-x: auto; }
+/* Collapse the side rail to an icon-only strip on narrow screens */
+@media (max-width: 860px) {
+    .app-dashboard-frame { --nav-w: 58px; }
+    .app-dock-navigation { padding: 14px 8px; }
+    .dock-btn { justify-content: center; padding: 0; gap: 0; }
+    .dock-btn .dock-label,
+    .nav-section-label,
+    .dock-avatar-name,
+    .dock-brand-name { display: none; }
+    .dock-avatar-btn { justify-content: center; padding: 7px 0; gap: 0; }
+    .dock-badge { top: 3px; right: 3px; transform: none; }
+    .dock-dropdown { left: auto; right: -6px; min-width: 190px; width: 190px; }
 }
+@media (max-width: 760px) {
+    .main-workspace-content { padding: 20px 20px 40px; }
+    table { min-width: 100%; }
+}
+
+/* ==========================================================================
+   COLOUR THEMES (2026-09-29) — the student portal's colour choice, on the staff side.
+   Light / Dark is one choice (body.theme-light|theme-dark, portal.js); the COLOUR is a
+   second, independent one (body.acc-*, localStorage 'rd-portal-accent'), so every colour
+   has a light AND a dark version. Lavender is the default and has no class: the blocks
+   above ARE lavender. Selectors are html body.acc-x:not(.theme-dark) / html body.acc-x.theme-dark
+   (0,2,2) so they beat the `body, body.theme-light` pair any page redeclares AND
+   staff_home.css`s body.sh-shell.theme-dark.
+   --sh-* are the staff home's hero / "hot" card stops (staff_home.css).
+   Red is deliberately not offered: red means "sent back" on every review screen, and a red
+   accent turned every primary button into a warning.
+   ========================================================================== */
+html body.acc-blue:not(.theme-dark) {
+    --surface-2: #f8faff; --surface-3: #eaf1ff; --ink: #1e3a8a; --ink-soft: #1e40af; --muted: #7d8aa8;
+    --line: #dbe7fe; --line-soft: #eff5ff; --accent: #2563eb; --accent-ink: #ffffff;
+    --shadow-1: 0 1px 2px rgba(30, 58, 138, .05), 0 1px 3px rgba(30, 58, 138, .04);
+    --shadow-2: 0 2px 6px rgba(30, 58, 138, .06), 0 10px 26px rgba(30, 58, 138, .08);
+    --shadow-3: 0 8px 20px rgba(30, 58, 138, .10), 0 24px 56px rgba(30, 58, 138, .12);
+    --sh-hero-a: #172554; --sh-hero-b: #1e3a8a; --sh-hot-a: #2563eb; --sh-hot-b: #1e40af;
+}
+html body.acc-blue.theme-dark {
+    --canvas: #10141f; --surface: #161d2e; --surface-2: #1d2640; --surface-3: #26314f; --ink: #e6edff;
+    --ink-soft: #bfd3fe; --muted: #8490ab; --line: #2a3552; --line-soft: #202a44; --accent: #60a5fa; --accent-ink: #0b1733;
+    --sh-hero-a: #0b1a3d; --sh-hero-b: #1e3a8a; --sh-hot-a: #2563eb; --sh-hot-b: #1d4ed8;
+}
+html body.acc-green:not(.theme-dark) {
+    --surface-2: #f7fcf8; --surface-3: #e8f7ec; --ink: #14532d; --ink-soft: #166534; --muted: #7b9985;
+    --line: #d7f0de; --line-soft: #eefaf1; --accent: #15803d; --accent-ink: #ffffff;
+    --shadow-1: 0 1px 2px rgba(20, 83, 45, .05), 0 1px 3px rgba(20, 83, 45, .04);
+    --shadow-2: 0 2px 6px rgba(20, 83, 45, .06), 0 10px 26px rgba(20, 83, 45, .08);
+    --shadow-3: 0 8px 20px rgba(20, 83, 45, .10), 0 24px 56px rgba(20, 83, 45, .12);
+    --sh-hero-a: #052e16; --sh-hero-b: #14532d; --sh-hot-a: #16a34a; --sh-hot-b: #15803d;
+}
+html body.acc-green.theme-dark {
+    --canvas: #0f1813; --surface: #14221a; --surface-2: #1a2d22; --surface-3: #22392c; --ink: #e3f7ea;
+    --ink-soft: #a7e3bd; --muted: #83a18d; --line: #264232; --line-soft: #1d3327; --accent: #4ade80; --accent-ink: #052e16;
+    --sh-hero-a: #052e16; --sh-hero-b: #14532d; --sh-hot-a: #16a34a; --sh-hot-b: #15803d;
+}
+html body.acc-rose:not(.theme-dark) {
+    --surface-2: #fff8fb; --surface-3: #fdeaf3; --ink: #831843; --ink-soft: #9d174d; --muted: #a8819a;
+    --line: #fbd9e8; --line-soft: #fdf0f6; --accent: #db2777; --accent-ink: #ffffff;
+    --shadow-1: 0 1px 2px rgba(131, 24, 67, .05), 0 1px 3px rgba(131, 24, 67, .04);
+    --shadow-2: 0 2px 6px rgba(131, 24, 67, .06), 0 10px 26px rgba(131, 24, 67, .08);
+    --shadow-3: 0 8px 20px rgba(131, 24, 67, .10), 0 24px 56px rgba(131, 24, 67, .12);
+    --sh-hero-a: #500724; --sh-hero-b: #831843; --sh-hot-a: #db2777; --sh-hot-b: #be185d;
+}
+html body.acc-rose.theme-dark {
+    --canvas: #1c1117; --surface: #26161f; --surface-2: #321c29; --surface-3: #3f2434; --ink: #fde7f1;
+    --ink-soft: #f9a8d4; --muted: #a58597; --line: #47293a; --line-soft: #37202d; --accent: #f472b6; --accent-ink: #3b0a22;
+    --sh-hero-a: #3b0a22; --sh-hero-b: #831843; --sh-hot-a: #db2777; --sh-hot-b: #be185d;
+}
+html body.acc-amber:not(.theme-dark) {
+    --surface-2: #fffcf5; --surface-3: #fef3dc; --ink: #78350f; --ink-soft: #92400e; --muted: #a8916f;
+    --line: #fde8bf; --line-soft: #fff8e8; --accent: #c2410c; --accent-ink: #ffffff;
+    --shadow-1: 0 1px 2px rgba(120, 53, 15, .05), 0 1px 3px rgba(120, 53, 15, .04);
+    --shadow-2: 0 2px 6px rgba(120, 53, 15, .06), 0 10px 26px rgba(120, 53, 15, .08);
+    --shadow-3: 0 8px 20px rgba(120, 53, 15, .10), 0 24px 56px rgba(120, 53, 15, .12);
+    --sh-hero-a: #451a03; --sh-hero-b: #78350f; --sh-hot-a: #d97706; --sh-hot-b: #b45309;
+}
+html body.acc-amber.theme-dark {
+    --canvas: #1a150d; --surface: #241c10; --surface-2: #2f2515; --surface-3: #3b2f1b; --ink: #fef3dc;
+    --ink-soft: #fcd34d; --muted: #a8977a; --line: #45371f; --line-soft: #342a17; --accent: #fbbf24; --accent-ink: #3a2203;
+    --sh-hero-a: #3a2203; --sh-hero-b: #78350f; --sh-hot-a: #d97706; --sh-hot-b: #b45309;
+}
+html body.acc-teal:not(.theme-dark) {
+    --surface-2: #f5fcfc; --surface-3: #e3f6f5; --ink: #134e4a; --ink-soft: #115e59; --muted: #7a9a98;
+    --line: #cdeeea; --line-soft: #ecf9f8; --accent: #0f766e; --accent-ink: #ffffff;
+    --shadow-1: 0 1px 2px rgba(19, 78, 74, .05), 0 1px 3px rgba(19, 78, 74, .04);
+    --shadow-2: 0 2px 6px rgba(19, 78, 74, .06), 0 10px 26px rgba(19, 78, 74, .08);
+    --shadow-3: 0 8px 20px rgba(19, 78, 74, .10), 0 24px 56px rgba(19, 78, 74, .12);
+    --sh-hero-a: #042f2e; --sh-hero-b: #134e4a; --sh-hot-a: #0d9488; --sh-hot-b: #0f766e;
+}
+html body.acc-teal.theme-dark {
+    --canvas: #0e1716; --surface: #13201f; --surface-2: #192b29; --surface-3: #213735; --ink: #e0f5f3;
+    --ink-soft: #99e6dc; --muted: #809f9c; --line: #244240; --line-soft: #1b3231; --accent: #2dd4bf; --accent-ink: #042f2e;
+    --sh-hero-a: #042f2e; --sh-hero-b: #134e4a; --sh-hot-a: #0d9488; --sh-hot-b: #0f766e;
+}
+
+/* Native scrollbars, checkboxes and date pickers follow the theme too. */
+body.theme-dark { color-scheme: dark; }
+body.theme-light { color-scheme: light; }

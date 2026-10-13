@@ -7,6 +7,13 @@
     --primary-light: #e6e5ff;
     --primary-gradient: linear-gradient(135deg, #6C63FF 0%, #4a3aff 100%);
 
+    /* 2026-10-07 "Study doodles": the auth brand pane is a SOLID colour (no gradient — the user
+       asked) wearing a faint wallpaper of research doodles: paper, check, grad cap, pencil, star,
+       bar chart, magnifier. ONE colour for everyone: it no longer follows the institution (the user asked).
+       Twin: assets/css/auth_card.css (help / change password) — change both. */
+    --brand-solid: #5b50f5;
+    --brand-doodles: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160' fill='none' stroke='%23ffffff' stroke-opacity='.14' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 12h18l7 7v25H14z'/%3E%3Cpath d='M32 12v7h7M19 28h14M19 34h10'/%3E%3Ccircle cx='112' cy='26' r='11'/%3E%3Cpath d='M107 26l4 4 7-8'/%3E%3Cpath d='M58 66l14-7 14 7-14 7z'/%3E%3Cpath d='M64 69v8c4 3 12 3 16 0v-8M86 66v9'/%3E%3Cpath d='M112 119l22-22 7 7-22 22h-7z'/%3E%3Cpath d='M129 102l7 7'/%3E%3Cpath d='M28 92l3.5 7.5 8 1-6 5.5 1.5 8-7-4-7 4 1.5-8-6-5.5 8-1z'/%3E%3Cpath d='M62 146v-14M72 146v-24M82 146v-18M57 149h30'/%3E%3Ccircle cx='134' cy='138' r='8'/%3E%3Cpath d='M140 144l7 7'/%3E%3Ccircle cx='100' cy='62' r='2'/%3E%3Ccircle cx='44' cy='140' r='2'/%3E%3C/svg%3E");
+
     /* Neutral Backgrounds (Material 3 Surface Colors) */
     --bg-surface: #ffffff;
     --bg-background: #f8f9fa;
@@ -275,7 +282,9 @@ h6 {
 
 .auth-visual-pane {
     flex: 1;
-    background: var(--primary-gradient);
+    background-color: var(--brand-solid);
+    background-image: var(--brand-doodles);
+    background-size: 160px 160px;
     color: white;
     padding: 60px 40px;
     display: flex;
@@ -284,7 +293,21 @@ h6 {
     justify-content: center;
     position: relative;
     overflow: hidden;
-    transition: background 0.5s ease-in-out;
+    transition: background-color 0.5s ease-in-out;
+}
+
+/* The page behind the card: one faint diagonal band of the brand colour (desktop; the phone
+   layout covers the whole screen). Fixed, so it stays put while a long form scrolls. */
+.auth-wrapper::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    background: var(--brand-solid);
+    clip-path: polygon(0 0, 100% 0, 100% 30%, 0 62%);
+    opacity: .07;
+    pointer-events: none;
+    z-index: -1;
+    transition: background-color 0.5s ease-in-out;
 }
 
 .brand-icon-box {
@@ -405,15 +428,37 @@ h6 {
     bottom: 0;
     width: 100%;
     height: 100vh;
-    background-color: var(--primary-light);
-    /* Light Purple background */
+    background-color: #f1efff;
+    /* Light lavender sky. 2026-10-07 "Eagle flight": the curtain no longer leaves on a fixed CSS
+       timer — login.php's intro script adds .is-out once the eagle has landed (or on a tap). */
     z-index: 100000;
     display: flex;
     align-items: center;
     justify-content: center;
-    animation: fadeOutCurtain 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    animation-delay: 2.2s;
-    /* Wait for progress bar to finish */
+    overflow: hidden;
+    cursor: pointer;
+    transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.5s;
+}
+
+.intro-cinematic-curtain.is-out {
+    opacity: 0;
+    visibility: hidden;
+}
+
+/* The doodle wallpaper of the brand pane, in violet on the sky, drifting past as she flies. */
+.intro-cinematic-curtain::before {
+    content: "";
+    position: absolute;
+    inset: -160px;
+    background: var(--brand-solid);
+    -webkit-mask: var(--brand-doodles) 0 0 / 160px 160px repeat;
+    mask: var(--brand-doodles) 0 0 / 160px 160px repeat;
+    opacity: 0.75;
+    animation: skyDrift 6s linear infinite;
+}
+
+@keyframes skyDrift {
+    to { transform: translateX(-160px); }   /* exactly one tile, so the loop never jumps */
 }
 
 .isubmit-loader-container {
@@ -501,8 +546,14 @@ h6 {
 .auth-wrapper {
     opacity: 0;
     transform: translateY(20px);
-    animation: formFadeIn 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
-    animation-delay: 2.2s;
+    animation: formFadeIn 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+    /* It used to wait a fixed 2.2s for the intro on EVERY auth page — register, forgot
+       password and OTP have no intro, so people stared at an empty page. Now it waits only
+       while login's intro is actually playing (body.intro-playing, removed when she lands). */
+}
+
+body.intro-playing .auth-wrapper {
+    animation: none;
 }
 
 @keyframes formFadeIn {
@@ -784,7 +835,9 @@ body.no-intro-delay .intro-cinematic-curtain {
         justify-content: flex-start;
         /* Moves content to the top */
         align-items: center;
-        background: var(--primary-gradient) !important;
+        background-color: var(--brand-solid) !important;
+        background-image: var(--brand-doodles) !important;
+        background-size: 160px 160px !important;
         color: white !important;
     }
 
@@ -799,6 +852,19 @@ body.no-intro-delay .intro-cinematic-curtain {
     .brand-icon-box img {
         width: 110px !important;
         height: 110px !important;
+    }
+
+    /* 2026-10-05: the eagle badge was ~180px tall on a phone, which pushed "iSubmit" and the
+       sub-line down under the white sheet. A smaller badge here; bottom-sheet.js also parks the
+       sheet just below #brandSubLead, so the brand can never be covered whatever the screen. */
+    .auth-visual-pane .brand-icon-box {
+        padding: 8px !important;
+        margin-bottom: 10px !important;
+    }
+
+    .auth-visual-pane #quill-container {
+        width: 100px;
+        height: 96px;
     }
 
     /* Show brand titles on mobile */
@@ -898,7 +964,9 @@ body.no-intro-delay .intro-cinematic-curtain {
     .drag-handle {
         width: 48px;
         height: 5px;
-        background-color: var(--border-color);
+        /* --border-color is defined nowhere, so this used to resolve to transparent and the
+           handle vanished: students could not tell the sheet drags. A real colour, then. */
+        background-color: #d9d5ee;
         border-radius: 4px;
         margin: 0 auto 24px auto;
         cursor: grab;

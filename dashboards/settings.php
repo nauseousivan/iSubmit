@@ -14,7 +14,12 @@ $message = "";
 $message_type = "";
 
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    if (isset($_POST['action']) && $_POST['action'] === 'deactivate_account') {
+    // Both forms on this page change account state, so both are CSRF-gated —
+    // same hash_equals pattern as upload_handler.php and defense_handler.php.
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        $message = "Security token expired. Please refresh and try again.";
+        $message_type = "error";
+    } elseif (isset($_POST['action']) && $_POST['action'] === 'deactivate_account') {
         $confirmation = trim($_POST['deactivate_confirm'] ?? '');
         if ($confirmation === 'DEACTIVATE') {
             $stmt_deactivate = $pdo->prepare("UPDATE users SET is_verified = 0 WHERE user_id = ?");
@@ -62,12 +67,68 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// "Start a New Research" — read-only context for the Danger Zone card.
+// The reset itself lives in reset_handler.php; nothing below writes anything.
+// ---------------------------------------------------------------------------
+$me_stmt = $pdo->prepare("SELECT username, role, leader_id, research_group_name, year_level FROM users WHERE user_id = ?");
+$me_stmt->execute([$user_id]);
+$me = $me_stmt->fetch() ?: [];
+
+$is_student = ($me['role'] ?? '') === 'Student';
+// All of a group's progress is keyed to the leader's user_id (upload_handler.php's
+// $effective_user_id), so only a leader can meaningfully reset it.
+$is_leader  = $is_student && ($me['leader_id'] ?? null) === null;
+
+$reset_members  = [];
+$reset_counts   = ['documents' => 0, 'approved' => 0, 'defense' => null, 'stats_no' => null, 'plag_no' => null];
+$reset_archives = 0;
+
+if ($is_leader) {
+    $m_stmt = $pdo->prepare("SELECT user_id, username, email, student_number FROM users WHERE leader_id = ? ORDER BY username");
+    $m_stmt->execute([$user_id]);
+    $reset_members = $m_stmt->fetchAll();
+
+    $c_stmt = $pdo->prepare("SELECT COUNT(*) AS total,
+                                    SUM(verification_status = 'Approved') AS approved
+                             FROM uploads WHERE user_id = ?");
+    $c_stmt->execute([$user_id]);
+    $c = $c_stmt->fetch() ?: [];
+    $reset_counts['documents'] = (int)($c['total'] ?? 0);
+    $reset_counts['approved']  = (int)($c['approved'] ?? 0);
+
+    $d_stmt = $pdo->prepare("SELECT defense_date FROM defense_bookings
+                             WHERE user_id = ? AND defense_date IS NOT NULL
+                             ORDER BY defense_date DESC LIMIT 1");
+    $d_stmt->execute([$user_id]);
+    $reset_counts['defense'] = $d_stmt->fetchColumn() ?: null;
+
+    $s_stmt = $pdo->prepare("SELECT formatted_control_no FROM form_stat_treatment
+                             WHERE user_id = ? AND formatted_control_no IS NOT NULL
+                             ORDER BY form_id DESC LIMIT 1");
+    $s_stmt->execute([$user_id]);
+    $reset_counts['stats_no'] = $s_stmt->fetchColumn() ?: null;
+
+    $p_stmt = $pdo->prepare("SELECT formatted_control_no FROM plagiarism_checks WHERE user_id = ?");
+    $p_stmt->execute([$user_id]);
+    $reset_counts['plag_no'] = $p_stmt->fetchColumn() ?: null;
+
+    $a_stmt = $pdo->prepare("SELECT COUNT(*) FROM research_cycles WHERE leader_user_id = ?");
+    $a_stmt->execute([$user_id]);
+    $reset_archives = (int)$a_stmt->fetchColumn();
+}
+
+$year_options = ['1st Year', '2nd Year', '3rd Year', '4th Year', '5th Year', 'Graduate'];
 ?>
 <!DOCTYPE html>
 <html lang="en">
 
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Settings | Full Width Minimal</title>
     <script src="https://unpkg.com/lucide@latest"></script>
@@ -250,6 +311,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         .btn-danger.unlocked { opacity: 1; cursor: pointer; }
         .btn-danger.unlocked:hover { background: #dc2626; transform: scale(1.02); }
 
+        /* "Start a New Research" card — same danger language, amber instead of red
+           because it archives rather than destroys. */
+        .danger-zone.zone-amber { border-color: #fcd34d; margin-bottom: 24px; }
+        .danger-zone.zone-amber .danger-title { color: #b45309; }
+        .zone-amber .type-to-confirm input { border-color: #fcd34d; background: #fffbeb; color: #b45309; }
+        .zone-amber .type-to-confirm input:focus { border-color: #f59e0b; box-shadow: 0 4px 12px -4px rgba(245,158,11,0.25); }
+        .btn-warn { background: #f59e0b; }
+        .btn-warn.unlocked:hover { background: #d97706; }
+
+        /* What's about to be archived */
+        .archive-facts {
+            display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px; margin-bottom: 22px;
+        }
+        .fact-chip {
+            background: var(--bg-canvas); border: 1px solid var(--border-light);
+            border-radius: 12px; padding: 12px 14px;
+        }
+        .fact-chip .fact-num { font-size: 20px; font-weight: 800; color: var(--text-dark); line-height: 1.1; }
+        .fact-chip .fact-label { font-size: 11px; font-weight: 600; color: var(--text-secondary); text-transform: uppercase; letter-spacing: 0.4px; margin-top: 3px; }
+
+        .locked-note {
+            background: var(--bg-canvas); border: 1px dashed var(--border-line);
+            border-radius: 12px; padding: 16px 18px; font-size: 13px; color: var(--text-secondary); line-height: 1.5;
+        }
+
+        /* Setup modal — step 2 of the reset */
+        .rr-overlay {
+            position: fixed; inset: 0; background: rgba(15,23,42,0.55);
+            display: none; align-items: center; justify-content: center; z-index: 900; padding: 20px;
+            backdrop-filter: blur(4px);
+        }
+        .rr-overlay.show { display: flex; }
+        .rr-modal {
+            background: var(--bg-card); border-radius: 20px; padding: 28px;
+            width: 100%; max-width: 520px; max-height: 88vh; overflow-y: auto;
+            box-shadow: 0 24px 60px -12px rgba(0,0,0,0.35);
+            animation: fadeIn 0.25s ease-out;
+        }
+        .rr-modal h3 { font-size: 20px; font-weight: 800; margin-bottom: 6px; color: var(--text-dark); }
+        .rr-modal .rr-sub { font-size: 13px; color: var(--text-secondary); margin-bottom: 22px; line-height: 1.5; }
+        .rr-modal label.rr-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-secondary); margin-bottom: 8px; }
+        .rr-modal select.minimal-input { appearance: none; cursor: pointer; }
+
+        .rr-member {
+            display: flex; align-items: center; gap: 10px; padding: 10px 14px;
+            border: 1px solid var(--border-light); border-radius: 12px; margin-bottom: 8px;
+            cursor: pointer; transition: 0.15s;
+        }
+        .rr-member:hover { border-color: var(--border-line); }
+        .rr-member input { accent-color: var(--mcnp-teal); width: 16px; height: 16px; cursor: pointer; }
+        .rr-member .rr-m-name { font-size: 14px; font-weight: 600; color: var(--text-dark); }
+        .rr-member .rr-m-mail { font-size: 12px; color: var(--text-secondary); }
+        .rr-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 26px; }
+        .btn-ghost {
+            background: none; border: 1px solid var(--border-line); color: var(--text-secondary);
+            padding: 12px 24px; border-radius: 999px; font-weight: 600; cursor: pointer;
+            font-family: var(--ui-sans); font-size: 14px;
+        }
+        .btn-ghost:hover { background: var(--bg-canvas); }
+
         /* Toast Alert */
         .toast {
             position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%) translateY(100px);
@@ -325,6 +447,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         <!-- Security Panel -->
         <div class="panel" id="tab-security">
             <form method="POST">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                 <div class="panel-section">
                     <div class="section-header">
                         <i data-lucide="shield-check"></i>
@@ -351,10 +474,95 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                     </div>
                 </div>
             </form>
+
+            <?php // 2026-10-01: the Help Desk (auth/help.php) — for what a student cannot change here. ?>
+            <div class="panel-section">
+                <div class="section-header">
+                    <i data-lucide="life-buoy"></i>
+                    <h2>Help Desk</h2>
+                </div>
+                <p class="section-desc">Wrong email or School ID on your account, need to move to another group, or have a suggestion? Ask the administrator here, no need to go to the IT office. You'll see the reply on the same page.</p>
+                <a href="../auth/help.php" target="_top" class="btn-action" style="display:inline-block;text-decoration:none;">Ask the administrator</a>
+                <div style="clear:both;"></div>
+            </div>
         </div>
 
         <!-- Danger Zone Panel -->
         <div class="panel" id="tab-danger">
+
+            <?php if ($is_student): ?>
+            <div class="danger-zone zone-amber">
+                <div class="danger-title"><i data-lucide="rotate-ccw"></i> Start a New Research</div>
+                <div class="danger-text">
+                    Finished your research and starting a brand new one this school year? This clears your
+                    portal back to <strong>0%</strong> &mdash; every uploaded document, approval, defense
+                    schedule and payment record for your current research is filed away with the Research
+                    Office and disappears from your dashboard.
+                    <br><br>
+                    Your account, School ID Number and profile are <strong>kept</strong>, and the Research
+                    Office keeps a permanent copy of everything &mdash; but
+                    <strong>you cannot undo this yourself.</strong>
+                </div>
+
+                <?php if (!$is_leader): ?>
+                    <div class="locked-note">
+                        <i data-lucide="lock" style="width:14px;height:14px;vertical-align:-2px;"></i>
+                        Only your <strong>group leader</strong> can start a new research, because your
+                        group's documents and approvals are all filed under their account.
+                        Ask them to do it from their own Settings page.
+                    </div>
+                <?php elseif ($reset_counts['documents'] === 0 && $reset_counts['plag_no'] === null && $reset_counts['stats_no'] === null): ?>
+                    <div class="locked-note">
+                        <i data-lucide="info" style="width:14px;height:14px;vertical-align:-2px;"></i>
+                        You have nothing to archive yet &mdash; your current research has no submitted
+                        documents. You can rename your research any time from your
+                        <strong>Profile</strong> instead.
+                    </div>
+                <?php else: ?>
+                    <div class="archive-facts">
+                        <div class="fact-chip">
+                            <div class="fact-num"><?= (int)$reset_counts['documents'] ?></div>
+                            <div class="fact-label">Documents</div>
+                        </div>
+                        <div class="fact-chip">
+                            <div class="fact-num"><?= (int)$reset_counts['approved'] ?></div>
+                            <div class="fact-label">Approved</div>
+                        </div>
+                        <div class="fact-chip">
+                            <div class="fact-num"><?= $reset_counts['defense'] ? date('M j, Y', strtotime($reset_counts['defense'])) : '&mdash;' ?></div>
+                            <div class="fact-label">Defense Date</div>
+                        </div>
+                        <div class="fact-chip">
+                            <div class="fact-num" style="font-size:13px; word-break:break-all;"><?= htmlspecialchars($reset_counts['plag_no'] ?: '—') ?></div>
+                            <div class="fact-label">Plagiarism No.</div>
+                        </div>
+                        <div class="fact-chip">
+                            <div class="fact-num" style="font-size:13px; word-break:break-all;"><?= htmlspecialchars($reset_counts['stats_no'] ?: '—') ?></div>
+                            <div class="fact-label">Statistics No.</div>
+                        </div>
+                    </div>
+
+                    <?php if ($reset_archives > 0): ?>
+                        <p class="section-desc" style="margin-top:-10px;">
+                            You have already archived <strong><?= $reset_archives ?></strong>
+                            previous research<?= $reset_archives === 1 ? '' : 'es' ?>.
+                        </p>
+                    <?php endif; ?>
+
+                    <div class="type-to-confirm">
+                        <label style="font-size:13px; font-weight:600; color:#b45309; margin-bottom:8px; display:block;">
+                            Type START NEW RESEARCH to continue:
+                        </label>
+                        <input type="text" id="rInput" autocomplete="off" spellcheck="false">
+                        <br>
+                        <button type="button" class="btn-danger btn-warn" id="rBtn" disabled onclick="openResetModal()">
+                            Continue &rarr;
+                        </button>
+                    </div>
+                <?php endif; ?>
+            </div>
+            <?php endif; ?>
+
             <div class="danger-zone">
                 <div class="danger-title"><i data-lucide="alert-triangle"></i> Suspend Account</div>
                 <div class="danger-text">
@@ -363,6 +571,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 </div>
 
                 <form method="POST" class="type-to-confirm">
+                    <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                     <input type="hidden" name="action" value="deactivate_account">
                     <label style="font-size:13px; font-weight:600; color:#b91c1c; margin-bottom:8px; display:block;">Type DEACTIVATE to confirm:</label>
                     <input type="text" name="deactivate_confirm" id="dInput" autocomplete="off">
@@ -372,6 +581,67 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             </div>
         </div>
     </div>
+
+    <?php if ($is_leader): ?>
+    <!-- Step 2 of the reset: the new research's details. Mirrors Step 4 of registration
+         (auth/register.php) — Research Project Title + who's in the group. -->
+    <div class="rr-overlay" id="rrOverlay" onclick="if(event.target===this) closeResetModal()">
+        <div class="rr-modal">
+            <h3>Your new research</h3>
+            <p class="rr-sub">
+                Your current research is about to be archived with the Research Office.
+                Tell us what you're working on now.
+            </p>
+
+            <form method="POST" action="reset_handler.php" target="_parent" id="rrForm">
+                <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
+                <input type="hidden" name="confirm_phrase" id="rrPhrase" value="">
+
+                <div class="field-group full" style="margin-bottom:18px;">
+                    <label class="rr-label">Research Project Title</label>
+                    <input type="text" class="minimal-input" name="new_title" id="rrTitle"
+                           placeholder="Enter your complete new research title" required maxlength="255">
+                </div>
+
+                <div class="field-group full" style="margin-bottom:18px;">
+                    <label class="rr-label">Year Level</label>
+                    <select class="minimal-input" name="new_year_level">
+                        <option value="">Prefer not to say</option>
+                        <?php foreach ($year_options as $yr): ?>
+                            <option value="<?= htmlspecialchars($yr) ?>" <?= ($me['year_level'] ?? '') === $yr ? 'selected' : '' ?>>
+                                <?= htmlspecialchars($yr) ?>
+                            </option>
+                        <?php endforeach; ?>
+                    </select>
+                </div>
+
+                <?php if (!empty($reset_members)): ?>
+                    <label class="rr-label">Who is carrying over to the new research?</label>
+                    <p style="font-size:12px; color:var(--text-secondary); margin:-4px 0 12px; line-height:1.5;">
+                        Unticked members leave your group and can start their own research.
+                        You can invite new members afterwards from the Members page.
+                    </p>
+                    <?php foreach ($reset_members as $m): ?>
+                        <label class="rr-member">
+                            <input type="checkbox" name="keep_members[]" value="<?= (int)$m['user_id'] ?>" checked>
+                            <span>
+                                <span class="rr-m-name"><?= htmlspecialchars($m['username']) ?></span><br>
+                                <span class="rr-m-mail"><?= htmlspecialchars($m['student_number'] ?: $m['email']) ?></span>
+                            </span>
+                        </label>
+                    <?php endforeach; ?>
+                <?php endif; ?>
+
+                <div class="rr-actions">
+                    <button type="button" class="btn-ghost" onclick="closeResetModal()">Cancel</button>
+                    <button type="submit" class="btn-danger btn-warn unlocked" style="margin:0;">
+                        Archive &amp; Start New
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+    <?php endif; ?>
 
     <div class="toast" id="toastMsg"><span></span></div>
 
@@ -427,6 +697,37 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
             document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
             btn.classList.add('active');
         }
+
+        // Start a New Research — same type-to-confirm gate as deactivation, but the
+        // unlocked button opens the setup modal instead of submitting straight away.
+        const RESET_PHRASE = 'START NEW RESEARCH';
+        const rInput = document.getElementById('rInput');
+        const rBtn = document.getElementById('rBtn');
+        if (rInput && rBtn) {
+            rInput.addEventListener('input', (e) => {
+                const ok = e.target.value.trim().toUpperCase() === RESET_PHRASE;
+                rBtn.classList.toggle('unlocked', ok);
+                rBtn.disabled = !ok;
+            });
+        }
+
+        function openResetModal() {
+            const overlay = document.getElementById('rrOverlay');
+            if (!overlay) return;
+            // Carry the typed phrase into the form so the server re-verifies it too.
+            document.getElementById('rrPhrase').value = RESET_PHRASE;
+            overlay.classList.add('show');
+            setTimeout(() => document.getElementById('rrTitle').focus(), 60);
+        }
+
+        function closeResetModal() {
+            const overlay = document.getElementById('rrOverlay');
+            if (overlay) overlay.classList.remove('show');
+        }
+
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') closeResetModal();
+        });
 
         // Deactivation
         const dInput = document.getElementById('dInput');

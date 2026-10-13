@@ -3,7 +3,7 @@ require_once '../config/db.php';
 if (session_status() === PHP_SESSION_NONE) {
     session_start();
 }
-if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['Research Coordinator', 'Research Director', 'Statistician'], true)) {
+if (!isset($_SESSION['user_id']) || !in_array($_SESSION['role'], ['Research Coordinator', 'Research Director', 'Statistician', 'Admin', 'Focal Person'], true)) {
     http_response_code(403);
     header('Content-Type: application/json');
     echo json_encode(['error' => 'Access Denied']);
@@ -19,8 +19,17 @@ if ($group_user_id <= 0) {
     exit;
 }
 
+// Institution scope: the home only LISTS a scoped viewer's own groups; this is what refuses the
+// rest when someone asks for one by id. A hidden row is not a protected row.
+require_once __DIR__ . '/admin_accounts_lib.php';
+if (!aa_may_touch_student($pdo, $_SESSION['role'], (int)$_SESSION['user_id'], $group_user_id)) {
+    http_response_code(403);
+    echo json_encode(['error' => 'Outside your institution']);
+    exit;
+}
+
 // Must be a real student-leader group (same population as the Explorer/sidebar).
-$stmt = $pdo->prepare("SELECT user_id, username, research_group_name, department, program, profile_pic, email, research_title, created_at
+$stmt = $pdo->prepare("SELECT user_id, username, student_number, research_group_name, department, program, year_level, profile_pic, email, research_title, created_at
                         FROM users WHERE user_id = ? AND role = 'Student' AND leader_id IS NULL");
 $stmt->execute([$group_user_id]);
 $group = $stmt->fetch();
@@ -30,10 +39,11 @@ if (!$group) {
     exit;
 }
 
-// Team roster (free-text member names collected at group setup).
-$stmt = $pdo->prepare("SELECT member_name FROM research_group_members WHERE owner_user_id = ? ORDER BY id ASC");
-$stmt->execute([$group_user_id]);
-$roster = $stmt->fetchAll(PDO::FETCH_COLUMN);
+// Team roster. The free-text `research_group_members` table this used to read was dropped on
+// 2026-09-14 — it was never written to by any code and so always returned an empty list. The key
+// stays in the JSON so the caller's shape does not change; the real roster lives on `users`
+// (leader_id) and is available through group_roster_lib.php if this ever needs to show names.
+$roster = [];
 
 // Milestones: identical LEFT JOIN + COALESCE pattern as _master_overview.php's Explorer query,
 // so this can never disagree with what the Explorer card itself shows for the same group.
@@ -56,8 +66,8 @@ unset($milestones['updated_at']);
 // admin_module_dynamic.php ($group_progress, lines ~522-545), just run across all 4 phases for
 // this one group instead of the current phase only. Same numbers the review module itself shows.
 $phase_map = [
-    'proposal' => ['label' => 'Proposal Defense', 'items' => [11, 12, 13, 14, 15, 16]],
-    'final'    => ['label' => 'Final Manuscript', 'items' => [21, 22, 23, 24, 25, 26, 27]],
+    'proposal' => ['label' => 'Proposal Defense', 'items' => [11, 12, 13, 14, 15, 16, 17]],
+    'final'    => ['label' => 'Final Manuscript', 'items' => [20, 22, 23, 24, 25, 26, 27]],
     'stats'    => ['label' => 'Statistics Clearance', 'items' => [30, 31, 32, 33, 34, 35, 36, 37]],
     'plag'     => ['label' => 'Plagiarism Verification', 'items' => [4]],
 ];

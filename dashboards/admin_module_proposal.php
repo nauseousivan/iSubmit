@@ -66,6 +66,9 @@ foreach ($all_uploads as $up) {
 <html lang="en">
 <head>
     <meta charset="UTF-8">
+    <link rel="icon" type="image/svg+xml" href="../assets/images/favicon.svg?v=2">
+    <link rel="icon" type="image/png" sizes="32x32" href="../assets/images/favicon-32.png?v=2">
+    <link rel="apple-touch-icon" href="../assets/images/apple-touch-icon.png?v=2">
     <title>Admin - Proposal Defense Requirements</title>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap');

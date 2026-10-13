@@ -122,3 +122,44 @@ function send_invite_email(string $to, string $leaderUsername, string $groupName
         </div>';
     return sendSystemEmail($to, "You've been invited to a research group", $body);
 }
+
+/* ---------------------------------------------------------------------------------------------
+ * JOIN BY QR (2026-10-07). The leader shows a QR on members.php; a teammate scans it and signs up
+ * on auth/join.php with just name, School ID, email and password — no emailed code, because the
+ * leader handing over the QR in person IS the check. The group facts (school, course, section,
+ * title) come from the leader, as in the leader-email flow of register.php.
+ * The token is SIGNED, not stored: "{leader}.{expires}.{sig}", valid GROUP_JOIN_TTL seconds, so
+ * there is no table to migrate. A wrong joiner is fixed the usual way: the leader removes them.
+ * ------------------------------------------------------------------------------------------- */
+const GROUP_JOIN_TTL = 86400;   // 24 hours
+
+function group_join_sig(int $leader_id, int $expires): string
+{
+    $secret = (string)rd_setting('qr_secret', 'isubmit-group-join');
+    return substr(hash_hmac('sha256', 'groupjoin|' . $leader_id . '|' . $expires, $secret), 0, 24);
+}
+
+function group_join_token(int $leader_id): array
+{
+    $expires = time() + GROUP_JOIN_TTL;
+    return ['token' => $leader_id . '.' . $expires . '.' . group_join_sig($leader_id, $expires), 'expires' => $expires];
+}
+
+/**
+ * The leader row a join token opens, or null with a reason a person can read. Refuses a forged
+ * or expired token, and a leader who is no longer a leader (joined someone else, disabled).
+ */
+function group_join_leader(PDO $pdo, string $token, ?string &$why = null): ?array
+{
+    if (!preg_match('/^(\d+)\.(\d+)\.([a-f0-9]{24})$/', $token, $m)) { $why = 'This QR code is not a valid group invite.'; return null; }
+    [, $leader_id, $expires, $sig] = $m;
+    if (!hash_equals(group_join_sig((int)$leader_id, (int)$expires), $sig)) { $why = 'This QR code is not a valid group invite.'; return null; }
+    if ((int)$expires < time()) { $why = 'This QR code has expired. Ask your leader to show a new one.'; return null; }
+
+    $st = $pdo->prepare("SELECT user_id, username, email, department, program, section_id, research_group_name, research_title, account_status
+                         FROM users WHERE user_id = ? AND role = 'Student' AND leader_id IS NULL");
+    $st->execute([(int)$leader_id]);
+    $leader = $st->fetch(PDO::FETCH_ASSOC);
+    if (!$leader || $leader['account_status'] !== 'active') { $why = 'This group can no longer be joined. Ask your leader for help.'; return null; }
+    return $leader;
+}

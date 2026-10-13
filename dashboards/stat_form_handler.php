@@ -84,8 +84,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     $year = date('Y');
 
-    // Get next seq
-    $stmt_seq = $pdo->query("SELECT MAX(control_number_seq) FROM form_stat_treatment");
+    // Get next seq. Clears the archive as well, because "Start a New Research"
+    // (reset_handler.php) moves finished groups out of form_stat_treatment and a
+    // live-only MAX() would reissue a control number that already exists.
+    $stmt_seq = $pdo->query("SELECT GREATEST(
+            COALESCE((SELECT MAX(control_number_seq) FROM form_stat_treatment), 0),
+            COALESCE((SELECT MAX(control_number_seq) FROM form_stat_treatment_archive), 0))");
     $next_seq = intval($stmt_seq->fetchColumn()) + 1;
     $seq_padded = str_pad($next_seq, 3, '0', STR_PAD_LEFT);
 

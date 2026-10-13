@@ -57,3 +57,6 @@ docs/diagrams/
 
 # Online database login (InfinityFree etc.) — config/db.php reads it; never push
 config/db_local.php
+scratch/
+scratch.php
+scratch_uploads.php

@@ -27,12 +27,12 @@ function sendSystemEmail($to, $subject, $body) {
     $mail = new PHPMailer(true);
     try {
         $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
+        $mail->Host       = 'smtp-relay.brevo.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = RD_MAIL_USER;
+        $mail->Username   = 'bdf57f001@smtp-brevo.com';
         $mail->Password   = rd_mail_password();   // Gmail app password
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
+        $mail->Port       = 2525;
         $mail->Timeout    = 8;                        // never hang a student's page load on SMTP
 
         $mail->setFrom(RD_MAIL_USER, RD_MAIL_NAME);
@@ -120,12 +120,12 @@ function sendGroupEmail(PDO $pdo, int $leaderUserId, string $subject, string $ht
 
         $mail = new PHPMailer(true);
         $mail->isSMTP();
-        $mail->Host       = 'smtp.gmail.com';
+        $mail->Host       = 'smtp-relay.brevo.com';
         $mail->SMTPAuth   = true;
-        $mail->Username   = RD_MAIL_USER;
+        $mail->Username   = 'bdf57f001@smtp-brevo.com';
         $mail->Password   = rd_mail_password();
         $mail->SMTPSecure = PHPMailer::ENCRYPTION_STARTTLS;
-        $mail->Port       = 587;
+        $mail->Port       = 2525;
         $mail->Timeout    = 8;
 
         $mail->setFrom(RD_MAIL_USER, RD_MAIL_NAME);

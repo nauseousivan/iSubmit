@@ -5,12 +5,30 @@ $dbname = 'digital_research'; // Fixed to match your exact database name!
 $username = 'root';
 $password = '';
 
+// On a real server (e.g. InfinityFree) the login is different. Put it in config/db_local.php —
+// gitignored, the repo is public — returning ['host' => ..., 'dbname' => ..., 'username' => ...,
+// 'password' => ...]. No such file = the XAMPP defaults above.
+if (is_file(__DIR__ . '/db_local.php')) {
+    $db_local = require __DIR__ . '/db_local.php';
+    $host     = $db_local['host']     ?? $host;
+    $dbname   = $db_local['dbname']   ?? $dbname;
+    $username = $db_local['username'] ?? $username;
+    $password = $db_local['password'] ?? $password;
+    $db_show_errors = !empty($db_local['show_errors']);
+    unset($db_local);
+}
+
 try {
     $pdo = new PDO("mysql:host=$host;dbname=$dbname;charset=utf8mb4", $username, $password);
     $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
     $pdo->setAttribute(PDO::ATTR_DEFAULT_FETCH_MODE, PDO::FETCH_ASSOC);
 } catch (PDOException $e) {
-    die("Database connection failed: " . $e->getMessage());
+    // The real reason goes to the server log; a public page must not print the DB host and user.
+    error_log('Database connection failed: ' . $e->getMessage());
+    // 'show_errors' => true in db_local.php prints the real reason while setting a server up —
+    // remove it once the site works.
+    die($host === 'localhost' || !empty($db_show_errors) ? 'Database connection failed: ' . $e->getMessage()
+                              : 'The system is temporarily unavailable. Please try again in a few minutes.');
 }
 
 if (session_status() == PHP_SESSION_NONE) {

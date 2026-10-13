@@ -4,7 +4,22 @@ All notable changes to the `iSubmit` project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Join a group by QR (2026-10-07).** On Research Group (`dashboards/members.php`) a leader can open "Or let them
+  scan a QR" under the email invite. Teammates scan it and sign up on the new `auth/join.php` with name, School ID,
+  email and password — NO emailed code, since the leader showing the QR in person is the check. They are created
+  verified, active and already linked: school, course, section and research title come from the leader (never the
+  form), as in register.php's leader-email flow; pending email invites for that address are reconciled. The token is
+  signed, not stored (`group_join_token()` / `group_join_leader()` in `config/group_helpers.php`,
+  `{leader}.{expires}.{hmac}` on `qr_secret`, 24h), so no migration. Refused: forged or expired tokens, a "leader"
+  who is now a member or not active, closed registration, a taken School ID or email. Normal registration still
+  sends the code.
+
 ### Changed
+- **Ready for an online test host (2026-10-07).** `config/db.php` reads the server's database login from
+  `config/db_local.php` (gitignored; template in `config/db_local.example.php`) and falls back to the XAMPP defaults;
+  off localhost a failed connection shows a plain "temporarily unavailable" page instead of printing the DB host and
+  user. The Gmail app password likewise lives in `config/mail_secret.php` (gitignored).
 - **New favicon — the iSubmit eagle, on EVERY page (2026-10-07).** `assets/images/favicon.svg` was the old bird and
   only the 6 auth pages linked it; the ~40 dashboard pages (student, all staff shells, admin, module windows) had no
   icon at all. It is now a close-up of the main eagle (head + cap, so it still reads at 16px) on the violet tile,

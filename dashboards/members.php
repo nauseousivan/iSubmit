@@ -379,8 +379,37 @@ if ($me['leader_id'] === null) {
         body.theme-default, body.theme-blue { --bg-white: #ffffff; --text-dark: #0f172a; --text-muted: #64748b; --border-line: #e2e8f0; --border-light: #f8fafc; --accent: #3b82f6; }
         body.theme-dark { --bg-white: #1e293b; --text-dark: #f8fafc; --text-muted: #94a3b8; --text-lighter: #64748b; --border-line: #334155; --border-light: #0f172a; --accent: #8b5cf6; }
 
+        /* JOIN BY QR (2026-10-07) — opens under the email invite */
+        .jq { margin-top: 12px; }
+        .jq-toggle { width: 100%; display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-radius: 16px; cursor: pointer;
+                     background: var(--bg-white); border: 1px dashed var(--border-line); font-family: var(--ui-sans); color: var(--text-dark); text-align: left;
+                     transition: border-color .2s, background .2s; }
+        .jq-toggle:hover, .jq-toggle[aria-expanded="true"] { border-color: var(--accent); border-style: solid; }
+        .jq-toggle-ic { width: 38px; height: 38px; border-radius: 12px; display: grid; place-items: center; background: rgba(124, 58, 237, .1); color: var(--accent); flex-shrink: 0; }
+        .jq-toggle-ic svg, .jq-toggle-ic i { width: 20px; height: 20px; }
+        .jq-toggle-tx { flex: 1; display: flex; flex-direction: column; gap: 2px; }
+        .jq-toggle-tx b { font-size: 14px; font-weight: 700; }
+        .jq-toggle-tx small { font-size: 12.5px; color: var(--text-muted); }
+        .jq-chev { width: 18px; height: 18px; color: var(--text-muted); transition: transform .2s; }
+        .jq-toggle[aria-expanded="true"] .jq-chev { transform: rotate(180deg); }
+        .jq-panel { display: flex; gap: 22px; align-items: center; margin-top: 10px; padding: 20px; border-radius: 16px; background: var(--bg-white);
+                    border: 1px solid var(--border-line); animation: fadeDown .25s ease; }
+        .jq-panel[hidden] { display: none; }
+        .jq-code { flex-shrink: 0; padding: 12px; border-radius: 14px; background: #fff; border: 1px solid #e2e8f0; line-height: 0; }   /* always white: scanners need it, dark mode too */
+        .jq-code img, .jq-code canvas { width: 184px !important; height: 184px !important; }
+        .jq-side h3 { font-size: 16px; font-weight: 800; color: var(--text-dark); margin-bottom: 6px; letter-spacing: -.01em; }
+        .jq-side p { font-size: 13.5px; color: var(--text-muted); line-height: 1.5; margin-bottom: 8px; }
+        .jq-until { display: flex; align-items: center; gap: 6px; font-weight: 600; }
+        .jq-until svg, .jq-until i { width: 14px; height: 14px; flex-shrink: 0; }
+        .jq-copy { display: inline-flex; align-items: center; gap: 6px; margin-top: 4px; padding: 8px 14px; border-radius: 999px; border: 1px solid var(--border-line);
+                   background: transparent; color: var(--text-dark); font-family: var(--ui-sans); font-size: 13px; font-weight: 600; cursor: pointer; }
+        .jq-copy:hover { border-color: var(--accent); color: var(--accent); }
+        .jq-copy svg, .jq-copy i { width: 14px; height: 14px; }
+
         /* MOBILE RESPONSE */
         @media (max-width: 768px) {
+            .jq-panel { flex-direction: column; text-align: center; }
+            .jq-until { justify-content: center; }
             body { padding: 20px 16px; }
             .invite-container { flex-direction: column; padding: 12px; border-radius: 16px; background: var(--border-light); border: none; }
             .invite-icon { display: none; }
@@ -425,6 +454,28 @@ if ($me['leader_id'] === null) {
                     </button>
                 </div>
             </form>
+
+            <?php // 2026-10-07: JOIN BY QR. Teammates scan this and sign up on auth/join.php, already linked
+                  // to this group — no emailed code (see group_join_token() in config/group_helpers.php).
+                  $join = group_join_token((int)$user_id);
+                  $join_url = rd_site_url() . '/auth/join.php?t=' . $join['token'];
+                  $join_until = (new DateTime('@' . $join['expires']))->setTimezone(new DateTimeZone('Asia/Manila'))->format('M j, g:i A'); ?>
+            <div class="jq">
+                <button type="button" class="jq-toggle" id="jqToggle" aria-expanded="false" aria-controls="jqPanel">
+                    <span class="jq-toggle-ic"><i data-lucide="qr-code"></i></span>
+                    <span class="jq-toggle-tx"><b>Or let them scan a QR</b><small>They join your group right away, no email code</small></span>
+                    <i data-lucide="chevron-down" class="jq-chev"></i>
+                </button>
+                <div class="jq-panel" id="jqPanel" hidden>
+                    <div class="jq-code" id="jqCode" data-url="<?= htmlspecialchars($join_url) ?>"></div>
+                    <div class="jq-side">
+                        <h3>Scan to join <?= htmlspecialchars($me['research_group_name'] ?: 'your group') ?></h3>
+                        <p>Your teammate scans this with their phone camera, then types their name, School ID, email and a password. They are linked to your group, with the same school, course and section.</p>
+                        <p class="jq-until"><i data-lucide="clock"></i> Works until <?= htmlspecialchars($join_until) ?>. Only show it to your own members.</p>
+                        <button type="button" class="jq-copy" id="jqCopy"><i data-lucide="link"></i> <span>Copy join link</span></button>
+                    </div>
+                </div>
+            </div>
         </div>
         <?php endif; ?>
 
@@ -541,6 +592,30 @@ if ($me['leader_id'] === null) {
                 }
             } catch(e) {}
         }, 500);
+
+        // Join by QR: drawn the first time the panel opens (assets/js/qrcode.min.js, as admin_qr.php).
+        (function () {
+            const btn = document.getElementById('jqToggle');
+            if (!btn) return;
+            const panel = document.getElementById('jqPanel'), box = document.getElementById('jqCode');
+            let drawn = false;
+            btn.addEventListener('click', function () {
+                const open = panel.hidden;
+                panel.hidden = !open;
+                btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+                if (open && !drawn && window.QRCode) {
+                    new QRCode(box, { text: box.dataset.url, width: 368, height: 368, correctLevel: QRCode.CorrectLevel.M });
+                    drawn = true;
+                }
+            });
+            document.getElementById('jqCopy').addEventListener('click', function () {
+                const label = this.querySelector('span'), url = box.dataset.url;
+                const done = function () { label.textContent = 'Link copied'; setTimeout(function () { label.textContent = 'Copy join link'; }, 1800); };
+                if (navigator.clipboard && window.isSecureContext) { navigator.clipboard.writeText(url).then(done, function () { window.prompt('Copy this link:', url); }); }
+                else { window.prompt('Copy this link:', url); }
+            });
+        })();
     </script>
+    <script src="../assets/js/qrcode.min.js"></script>
 </body>
 </html>

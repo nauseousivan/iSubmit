@@ -54,3 +54,6 @@ docs/diagrams/
 # Loose mascot source art (the app uses assets/mascot/eagle/ + assets/images/mascot.png)
 /isubmit-eagle-poses.zip
 /isubmit-eagle-purple-no-diploma.svg
+
+# Online database login (InfinityFree etc.) — config/db.php reads it; never push
+config/db_local.php

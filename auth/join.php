@@ -53,6 +53,8 @@ if ($leader && !$closed && $_SERVER['REQUEST_METHOD'] === 'POST') {
         $msg = 'Your password needs 8 characters or more.';
     } elseif ($pw !== $pw2) {
         $msg = 'The two passwords do not match.';
+    } elseif (empty($_POST['privacy_consent'])) {                    // Data Privacy Act consent, as on register.php
+        $msg = 'Please read and agree to the Privacy Notice to join.';
     } else {
         $dup = $pdo->prepare("SELECT 1 FROM users WHERE student_number = ?");
         $dup->execute([$old['student_number']]);
@@ -185,6 +187,10 @@ if ($leader && !$closed && $_SERVER['REQUEST_METHOD'] === 'POST') {
                         <input class="ac-in" id="jnPw2" type="password" name="confirm_password" required minlength="8" autocomplete="new-password">
                     </div>
                 </div>
+                <label style="display:flex;gap:10px;align-items:flex-start;margin:4px 0 14px;font-size:13px;line-height:1.5;color:#5d5a78;cursor:pointer">
+                    <input type="checkbox" name="privacy_consent" value="1" required style="width:18px;height:18px;margin-top:2px;flex:none;accent-color:#5b50f5">
+                    <span>I have read the <a href="../privacy.php" target="_blank" rel="noopener" style="color:#3f35c9;font-weight:700">Privacy Notice</a> and agree that the Research &amp; Development Center processes my personal information and research files for the research process, under the Data Privacy Act of 2012 (RA 10173).</span>
+                </label>
                 <button type="submit" class="ac-btn">Join the group</button>
             </form>
             <div class="ac-foot"><a href="login.php">Already have an account? Sign in</a></div>

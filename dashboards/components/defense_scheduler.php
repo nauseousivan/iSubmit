@@ -707,18 +707,18 @@ $df_split = $df_show_calendar && $df_has_guide;
                     ]
                     : ($df_phase === 'proposal'
                         ? [
-                            'Download the endorsement form you just earned',
-                            'Have it signed by your research adviser',
-                            'Capture a photo or scan it',
-                            'Upload it using the button below',
-                            'Then pick your defense date from the calendar',
+                            'Download your clearing form',
+                            'Your focal person proposes one defense date for your whole section',
+                            'The coordinator confirms it',
+                            'The research office publishes it',
+                            'Your date and slot number appear here',
                         ]
                         : [
-                            'Download the blank Form 002 below',
-                            'Fill out the form completely and have it signed',
-                            'Upload it, along with the Minutes of your proposal defense',
-                            'Capture a photo or scan of each',
-                            'Then pick your defense date from the calendar',
+                            'Download your clearing form',
+                            'Your focal person proposes one final defense date for your whole section',
+                            'The coordinator confirms it',
+                            'The research office publishes it',
+                            'Your date and slot number appear here',
                         ]);
                 $df_step_total = count($df_apply_steps);
                 foreach ($df_apply_steps as $si => $stext):

@@ -218,7 +218,7 @@ $message_type = $_GET['type'] ?? '';
                     <i data-lucide="check-circle-2" style="width:18px;height:18px;color:#059669; flex-shrink: 0;"></i>
                     <strong style="color:#064e3b; font-size:13px; font-family:'Inter', sans-serif; line-height:1.2; text-transform: uppercase;">PHASE 1 COMPLETE!</strong>
                 </div>
-                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Every requirement for your proposal defense has been checked and approved. Download your clearing form below, then hit <strong>Schedule</strong> to book your defense date.</p>
+                <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Every requirement for your proposal defense has been checked and approved. Download your clearing form below. Your Focal Person schedules your section; tap <strong>Schedule</strong> to see your date once it is published.</p>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
                     <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_cleared', (int)$effective_user_id) ?>', 'Proposal Clearing Form')" class="btn" style="flex:1; min-width:140px; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Clearing Form</button>
                 </div>

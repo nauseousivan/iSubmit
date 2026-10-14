@@ -1,0 +1,3 @@
+# database/ holds migrations and command-line scripts (php database/seed_sections.php). They are run from a
+# terminal, never from a browser, so nothing in this folder is served.
+Require all denied

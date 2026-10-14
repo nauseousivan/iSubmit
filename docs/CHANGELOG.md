@@ -13,6 +13,10 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
   filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
   beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
+- **Privacy (2026-10-14).** `privacy.php` (RA 10173 notice, kept TRUE to the code: a new data flow or service means
+  a line there in the same change). Register + QR join require `privacy_consent` (form AND handler). Session cookie
+  HttpOnly + SameSite=Lax (+ Secure on HTTPS) via `config/db.php`; the server repeats it in
+  `/etc/php/<ver>/<sapi>/conf.d/99-isubmit-session.ini` because ~40 pages call `session_start()` before db.php.
 - **Front page motion + the office (2026-10-14).** Hero parallax (sky / glow / page at different speeds, card tilt on
   mouse only), "How it works" as a scroll story with a pinned panel (phones: a plain timeline), and "Meet the RDC Team"
   (`$lp_team`: the office roster with portraits cut from their calling cards, faces only, no Focal Persons) instead

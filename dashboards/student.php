@@ -595,31 +595,28 @@ foreach (['proposal', 'final'] as $df_ph) {
         ];
     }
 }
-// Capacity is one pool per SCHOOL, shared across both phases, so this reads the same for
-// either card. Scoped to the group's own school — the other school filling a day is none of
-// their business. Only a day with no slots left is "not available"; partly booked is open.
+// The published defense schedule (2026-10-14, dashboards/schedule_lib.php): which ROOMS of the group's own
+// institution defend on which day — the mini-calendar marks those days and says who, instead of the old
+// "available / full" colouring of the retired students-pick-a-date flow. Sections only, never names.
+require_once 'schedule_lib.php';
 $df_mini_school = df_user_school($pdo, $effective_user_id);
-$df_mini_taken  = df_mark_mine(df_taken_dates($pdo, 'final', df_today(), df_window_end(), $df_mini_school), $effective_user_id, 'final');
-foreach ($df_mini_taken as $df_date => $df_bk) {
-    if ($df_bk['count'] < DEFENSE_SLOTS_PER_SCHOOL_PER_DAY) {
-        continue;
-    }
-    $calendar_events[] = [
-        'title' => 'Defense date not available',
-        'description' => 'All ' . DEFENSE_SLOTS_PER_SCHOOL_PER_DAY . ' of your institution\x27s slots for this date are taken.',
-        'event_date' => $df_date,
-    ];
+$mini_inst = rd_institution_of((string)$df_mini_school);
+$mini_defense = [];   // date => ['rooms' => ['BSIT 4-A (Proposal)', ...], 'mine' => bool]
+foreach (sch_calendar_items(sch_published($pdo, date('Y-m-01', strtotime(df_today() . ' -1 month')), df_window_end())) as $sch) {
+    if ($sch['school'] !== $mini_inst) continue;
+    $mini_defense[$sch['date']]['rooms'][] = $sch['short'] . ($sch['phase'] === 'final' ? ' (Final)' : ' (Proposal)');
 }
 if ($df_mini_booking && !empty($df_mini_booking['defense_date'])
     && in_array($df_mini_booking['status'], ['Date Selected', 'Scheduled'], true)) {
-    $df_confirmed = $df_mini_booking['status'] === 'Scheduled';
-    $calendar_events[] = [
-        'title' => $df_confirmed ? 'Your Final Defense — date available' : 'Your requested defense date',
-        'description' => $df_confirmed
-            ? 'Logged and recorded by the research office.'
-            : 'Waiting for the research office to confirm.',
-        'event_date' => $df_mini_booking['defense_date'],
-    ];
+    if ($df_mini_booking['status'] === 'Scheduled') {
+        $mini_defense[$df_mini_booking['defense_date']]['mine'] = true;      // published: the green ring
+    } else {
+        $calendar_events[] = [                                                // proposed: can still move
+            'title' => 'Your proposed defense date',
+            'description' => 'Waiting for the research office to publish it.',
+            'event_date' => $df_mini_booking['defense_date'],
+        ];
+    }
 }
 
 // Notification bell badge: epoch timestamps of the review-outcome logs shown in the drawer.
@@ -2160,6 +2157,11 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         .cal-date.available::after {
             background-color: var(--color-approved);
         }
+
+        /* published defenses of your institution (violet dot); your own group's published defense (green ring) */
+        .cal-date.defense-day::after { background-color: #5b50f5; width: 5px; height: 5px; }
+        .cal-date.my-defense { box-shadow: inset 0 0 0 2px var(--color-approved); }
+        .cal-date.my-defense::after { background-color: var(--color-approved); }
 
         .cal-event-preview {
             margin-top: 18px;
@@ -3825,8 +3827,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <div class="right-column-wrapper" style="display: flex; flex-direction: column; gap: 12px;">
                     <div class="section-card">
                         <div class="section-title-wrapper">
-                            <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i>Availability & events</h3>
-                            <a href="javascript:void(0)" onclick="pushView('zoom-calendar', 'calendar_all.php')" class="btn-see-all">View More</a>
+                            <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i>Defense schedule & events</h3>
+                            <a href="javascript:void(0)" onclick="pushView('zoom-calendar', 'calendar_all.php')" class="btn-see-all">Open calendar</a>
                         </div>
 
                         <div class="mini-calendar-wrapper">
@@ -5561,6 +5563,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
         let currentMonth = new Date().getMonth();
         let currentYear = new Date().getFullYear();
         const events = <?= json_encode($calendar_events) ?>;
+        // Published defenses of the group's institution: date -> { rooms: [...], mine: bool }
+        const defenseDays = <?= json_encode((object)$mini_defense, JSON_HEX_TAG | JSON_HEX_APOS | JSON_HEX_QUOT | JSON_HEX_AMP) ?>;
         let holidaysData = [];
 
         async function fetchHolidays(year) {
@@ -5628,6 +5632,9 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
                 if (isBusy) classes += ' busy';
                 else if (isAvail) classes += ' available';
+                const dd = defenseDays[fullDate];
+                if (dd && dd.rooms && !isBusy) classes += ' has-event defense-day';
+                if (dd && dd.mine) classes += ' my-defense';
 
                 grid.innerHTML += `<div class="${classes}" onclick="showEvent('${fullDate}')">${d}</div>`;
             }
@@ -5705,6 +5712,16 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
 
             if (dayOfWeek === 6 && dbEvents.length === 0 && !holiday) {
                 message = "It's Saturday! Staff is only available until 1:00 PM. ⏰"; pose = 'wink';
+            }
+
+            // Published defenses that day (sections of the group's institution), the group's own first.
+            const dd = defenseDays[dateStr];
+            if (dd && (dd.mine || dd.rooms)) {
+                const parts = [];
+                if (dd.mine) { parts.push('Your defense is on this day! 🎓'); pose = 'celebrating'; }
+                if (dd.rooms) parts.push('Defending: ' + dd.rooms.join(', '));
+                message = parts.join(' • ') + (message && !dd.mine && dbEvents.length ? ' • ' + message : '');
+                if (!dd.mine) pose = 'happy';
             }
 
             if (message === '') {

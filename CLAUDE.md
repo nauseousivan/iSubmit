@@ -322,6 +322,9 @@ School research submission + approval portal. Students upload research documents
   shouts "book your final defense" over a locked card. Plagiarism opens when the **office releases
   the manuscript** (`plagiarism_checks.released_at` via `df_manuscript_released()`) — the defense
   happening face-to-face is invisible to the system, so a passed date is necessary but not sufficient.
+- **The PUBLISHED schedule has ONE source: `dashboards/schedule_lib.php` `sch_published()`** (batches the Secretary signed,
+  `Scheduled`; SECTIONS only, never names/titles). It feeds the student mini-calendar, `calendar_all.php` (month view),
+  the public `schedule.php` and the front-page strip, all drawn by `assets/js/defense_calendar.js` + `.css`.
 - **Defense slots: `DEFENSE_SLOTS_PER_SCHOOL_PER_DAY = 10`, PER INSTITUTION.** The office calls
   MCNP and ISAP **institutions**, never "schools" — say institution in all user-facing copy (the
   identifiers still read `school`, deliberately: renaming them is churn no reader benefits from,

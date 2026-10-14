@@ -1,0 +1,105 @@
+/* assets/css/defense_calendar.css — the shared month calendar (assets/js/defense_calendar.js), 2026-10-14.
+ * Colours come from --dc-* tokens that fall back to the student sub-pages' own tokens (--bg-white,
+ * --text-dark, --text-muted, --border-line, --chip-bg, --accent), so inside calendar_all.php it follows the
+ * portal theme, light or dark, and on the public schedule page it uses the brand defaults. */
+.dc {
+    --dc-bg: var(--bg-white, #fff);
+    --dc-ink: var(--text-dark, #1c1838);
+    --dc-muted: var(--text-muted, #5d5a78);
+    --dc-line: var(--border-line, #e6e4f3);
+    --dc-soft: var(--chip-bg, #f6f5fd);
+    --dc-accent: var(--accent, #5b50f5);
+    --k-defense: #5b50f5; --k-defense-bg: #efedff;
+    --k-final: #2d2594;   --k-final-bg: #e3e0ff;
+    --k-mine: #0f7a52;    --k-mine-bg: #e3f5ec;
+    --k-event: #0e7490;   --k-event-bg: #e1f4f8;
+    --k-closed: #b42318;  --k-closed-bg: #fdeceb;
+    --k-holiday: #a15c00; --k-holiday-bg: #fff2d9;
+    color: var(--dc-ink);
+    font-family: inherit;
+}
+body.theme-dark .dc {
+    --k-defense: #a39dff; --k-defense-bg: rgba(91, 80, 245, .2);
+    --k-final: #c9c5ff;   --k-final-bg: rgba(140, 130, 255, .26);
+    --k-mine: #5fd3a3;    --k-mine-bg: rgba(16, 185, 129, .18);
+    --k-event: #67d4ea;   --k-event-bg: rgba(14, 116, 144, .26);
+    --k-closed: #fca5a5;  --k-closed-bg: rgba(239, 68, 68, .18);
+    --k-holiday: #fbbf5a; --k-holiday-bg: rgba(217, 119, 6, .2);
+}
+.dc button { font: inherit; cursor: pointer; }
+
+/* toolbar */
+.dc-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 10px; }
+.dc-nav { display: flex; align-items: center; gap: 6px; }
+.dc-month { margin: 0 6px; min-width: 170px; text-align: center; font-size: 20px; font-weight: 800; letter-spacing: -.02em; }
+.dc-ic, .dc-today { height: 36px; border-radius: 10px; border: 1px solid var(--dc-line); background: var(--dc-bg); color: var(--dc-ink); }
+.dc-ic { width: 36px; font-size: 20px; line-height: 1; }
+.dc-today { padding: 0 14px; font-size: 13px; font-weight: 700; margin-left: 4px; }
+.dc-ic:hover, .dc-today:hover { border-color: var(--dc-accent); color: var(--dc-accent); }
+.dc-seg { display: inline-flex; gap: 3px; padding: 3px; border-radius: 999px; border: 1px solid var(--dc-line); background: var(--dc-bg); }
+.dc-seg button { border: 0; background: none; color: var(--dc-muted); font-size: 13px; font-weight: 700; padding: 7px 14px; border-radius: 999px; }
+.dc-seg button[aria-pressed="true"] { background: var(--dc-accent); color: #fff; }
+
+/* legend = the kind filters */
+.dc-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin-bottom: 12px; }
+.dc-key { display: inline-flex; align-items: center; gap: 7px; border: 0; background: none; padding: 2px 0; font-size: 13px; font-weight: 600; color: var(--dc-muted); }
+.dc-key i { width: 10px; height: 10px; border-radius: 3px; }
+.dc-key[aria-pressed="false"] { opacity: .45; text-decoration: line-through; }
+.dc-pf { margin-left: auto; font-size: 12px; color: var(--dc-muted); display: inline-flex; align-items: center; gap: 4px; }
+.dc-pf em, .dc-chip em { font-style: normal; font-weight: 800; font-size: 10px; display: inline-grid; place-items: center; width: 15px; height: 15px; border-radius: 4px;
+                         background: rgba(0, 0, 0, .08); margin-right: 4px; flex: none; }
+body.theme-dark .dc-pf em, body.theme-dark .dc-chip em { background: rgba(255, 255, 255, .12); }
+
+/* kind colours */
+.k-defense { --c: var(--k-defense); --cb: var(--k-defense-bg); }
+.k-defense.ph-final { --c: var(--k-final); --cb: var(--k-final-bg); }
+.k-mine    { --c: var(--k-mine);    --cb: var(--k-mine-bg); }
+.k-event   { --c: var(--k-event);   --cb: var(--k-event-bg); }
+.k-closed  { --c: var(--k-closed);  --cb: var(--k-closed-bg); }
+.k-holiday { --c: var(--k-holiday); --cb: var(--k-holiday-bg); }
+.dc-key i, .dc-dots i { background: var(--c); }
+
+/* month grid + side panel */
+.dc-body { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; align-items: start; }
+.dc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--dc-line); border-radius: 16px; overflow: hidden; background: var(--dc-line); gap: 1px; }
+.dc-dow { background: var(--dc-soft); padding: 8px 10px; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--dc-muted); }
+.dc-day { position: relative; min-height: 96px; padding: 7px 7px 6px; border: 0; background: var(--dc-bg); color: var(--dc-ink); text-align: left;
+          display: flex; flex-direction: column; gap: 4px; min-width: 0; transition: background .15s; }
+.dc-day:hover { background: var(--dc-soft); }
+.dc-day.out { background: var(--dc-soft); color: var(--dc-muted); }
+.dc-day.out .dc-n, .dc-day.out .dc-chips { opacity: .55; }
+.dc-day.sun .dc-n { color: var(--k-closed); }
+.dc-n { font-size: 13px; font-weight: 700; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; }
+.dc-day.today .dc-n { background: var(--dc-accent); color: #fff; }
+.dc-day.picked { box-shadow: inset 0 0 0 2px var(--dc-accent); z-index: 1; }
+.dc-day.past .dc-chip { opacity: .6; }
+.dc-chips { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.dc-chip { display: flex; align-items: center; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--cb); color: var(--c);
+           font-size: 11.5px; font-weight: 700; line-height: 1.5; white-space: nowrap; overflow: hidden; align-self: flex-start; max-width: 100%; }
+.dc-more { font-size: 11px; font-weight: 700; color: var(--dc-muted); padding-left: 4px; }
+.dc-dots { display: none; gap: 3px; justify-content: center; }
+.dc-dots i { width: 6px; height: 6px; border-radius: 50%; }
+
+.dc-side { border: 1px solid var(--dc-line); border-radius: 16px; background: var(--dc-bg); padding: 14px; position: sticky; top: 12px; }
+.dc-side-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; margin-bottom: 10px; }
+.dc-x { border: 1px solid var(--dc-line); background: none; color: var(--dc-accent); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
+.dc-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 470px; overflow: auto; }
+.dc-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 12px; background: var(--cb); border-left: 0; }
+.dc-when { flex: none; width: 40px; text-align: center; font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: var(--c); line-height: 1.1; }
+.dc-when b { display: block; font-size: 18px; }
+.dc-what { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35; }
+.dc-what b { display: block; color: var(--dc-ink); font-weight: 700; }
+.dc-what small { display: block; color: var(--c); font-weight: 600; font-size: 12px; margin-top: 2px; }
+.dc-badge { flex: none; font-size: 10.5px; font-weight: 800; padding: 2px 7px; border-radius: 999px; background: var(--dc-bg); color: var(--dc-muted); border: 1px solid var(--dc-line); }
+.dc-empty { margin: 0; color: var(--dc-muted); font-size: 13.5px; }
+
+@media (max-width: 860px) {
+    .dc-body { grid-template-columns: 1fr; }
+    .dc-side { position: static; }
+    .dc-day { min-height: 58px; align-items: center; padding: 6px 2px; }
+    .dc-chips { display: none; }                 /* phones: dots in the cell, the list underneath */
+    .dc-dots { display: flex; }
+    .dc-month { min-width: 0; font-size: 18px; }
+    .dc-pf { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .dc-day { transition: none; } }

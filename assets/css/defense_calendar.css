@@ -59,32 +59,40 @@ body.theme-dark .dc-pf em, body.theme-dark .dc-chip em { background: rgba(255, 2
 .k-holiday { --c: var(--k-holiday); --cb: var(--k-holiday-bg); }
 .dc-key i, .dc-dots i { background: var(--c); }
 
-/* month grid + side panel */
-.dc-body { display: grid; grid-template-columns: minmax(0, 1fr) 290px; gap: 16px; align-items: start; }
-.dc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); border: 1px solid var(--dc-line); border-radius: 16px; overflow: hidden; background: var(--dc-line); gap: 1px; }
-.dc-dow { background: var(--dc-soft); padding: 8px 10px; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: var(--dc-muted); }
-.dc-day { position: relative; min-height: 96px; padding: 7px 7px 6px; border: 0; background: var(--dc-bg); color: var(--dc-ink); text-align: left;
-          display: flex; flex-direction: column; gap: 4px; min-width: 0; transition: background .15s; }
+/* month grid + side panel. No ruled lines: the month is ONE card of soft rounded day tiles; a day with
+   something on it is tinted, its items are small dot pills, today is a filled circle, the chosen day a ring. */
+.dc-body { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 16px; align-items: start; }
+.dc-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; padding: 10px; border-radius: 22px;
+           background: var(--dc-bg); border: 1px solid var(--dc-line); box-shadow: 0 24px 50px -40px rgba(45, 37, 148, .55); }
+.dc-dow { padding: 4px 0 8px 12px; text-align: left; font-size: 11px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--dc-muted); }
+.dc-day { position: relative; min-height: 92px; padding: 6px; border: 0; border-radius: 14px; background: transparent; color: var(--dc-ink); text-align: left;
+          display: flex; flex-direction: column; gap: 5px; min-width: 0; transition: background .15s, box-shadow .15s; }
 .dc-day:hover { background: var(--dc-soft); }
-.dc-day.out { background: var(--dc-soft); color: var(--dc-muted); }
-.dc-day.out .dc-n, .dc-day.out .dc-chips { opacity: .55; }
-.dc-day.sun .dc-n { color: var(--k-closed); }
-.dc-n { font-size: 13px; font-weight: 700; width: 26px; height: 26px; display: grid; place-items: center; border-radius: 50%; }
-.dc-day.today .dc-n { background: var(--dc-accent); color: #fff; }
-.dc-day.picked { box-shadow: inset 0 0 0 2px var(--dc-accent); z-index: 1; }
-.dc-day.past .dc-chip { opacity: .6; }
+.dc-day.has { background: var(--dc-soft); }
+.dc-day.has:hover { box-shadow: inset 0 0 0 1px var(--dc-line); }
+.dc-day.out { background: transparent; }
+.dc-day.out .dc-n, .dc-day.out .dc-chips { opacity: .38; }
+.dc-day.sun .dc-n { color: var(--k-closed); opacity: .8; }
+.dc-n { font-size: 13px; font-weight: 700; width: 28px; height: 28px; display: grid; place-items: center; border-radius: 50%; flex: none; }
+.dc-day.today .dc-n { background: var(--dc-accent); color: #fff; opacity: 1; box-shadow: 0 6px 14px -6px var(--dc-accent); }
+.dc-day.picked { box-shadow: inset 0 0 0 2px var(--dc-accent); }
+.dc-day.past:not(.out) .dc-chips { opacity: .62; }
 .dc-chips { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
-.dc-chip { display: flex; align-items: center; min-width: 0; padding: 2px 6px; border-radius: 6px; background: var(--cb); color: var(--c);
-           font-size: 11.5px; font-weight: 700; line-height: 1.5; white-space: nowrap; overflow: hidden; align-self: flex-start; max-width: 100%; }
-.dc-more { font-size: 11px; font-weight: 700; color: var(--dc-muted); padding-left: 4px; }
+.dc-chip { display: flex; align-items: center; gap: 5px; min-width: 0; padding: 2px 8px 2px 6px; border-radius: 999px; background: var(--dc-bg); color: var(--dc-ink);
+           font-size: 11.5px; font-weight: 600; line-height: 1.55; white-space: nowrap; overflow: hidden; align-self: flex-start; max-width: 100%;
+           box-shadow: 0 1px 2px rgba(20, 12, 90, .08); }
+.dc-chip::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.dc-chip em { width: auto; height: auto; background: none !important; margin: 0; font-size: 10px; color: var(--c); order: 2; }
+.dc-more { font-size: 11px; font-weight: 700; color: var(--dc-muted); padding-left: 6px; }
 .dc-dots { display: none; gap: 3px; justify-content: center; }
 .dc-dots i { width: 6px; height: 6px; border-radius: 50%; }
 
-.dc-side { border: 1px solid var(--dc-line); border-radius: 16px; background: var(--dc-bg); padding: 14px; position: sticky; top: 12px; }
+.dc-side { border: 1px solid var(--dc-line); border-radius: 22px; background: var(--dc-bg); padding: 16px; position: sticky; top: 12px;
+           box-shadow: 0 24px 50px -40px rgba(45, 37, 148, .55); }
 .dc-side-h { display: flex; justify-content: space-between; align-items: center; gap: 8px; font-weight: 800; font-size: 14px; margin-bottom: 10px; }
 .dc-x { border: 1px solid var(--dc-line); background: none; color: var(--dc-accent); border-radius: 999px; padding: 4px 10px; font-size: 12px; font-weight: 700; }
 .dc-side ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; max-height: 470px; overflow: auto; }
-.dc-item { display: flex; gap: 10px; align-items: flex-start; padding: 9px 10px; border-radius: 12px; background: var(--cb); border-left: 0; }
+.dc-item { display: flex; gap: 10px; align-items: flex-start; padding: 10px; border-radius: 14px; background: var(--dc-soft); }
 .dc-when { flex: none; width: 40px; text-align: center; font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: var(--c); line-height: 1.1; }
 .dc-when b { display: block; font-size: 18px; }
 .dc-what { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.35; }
@@ -96,7 +104,8 @@ body.theme-dark .dc-pf em, body.theme-dark .dc-chip em { background: rgba(255, 2
 @media (max-width: 860px) {
     .dc-body { grid-template-columns: 1fr; }
     .dc-side { position: static; }
-    .dc-day { min-height: 58px; align-items: center; padding: 6px 2px; }
+    .dc-grid { padding: 6px; gap: 2px; border-radius: 18px; }
+    .dc-day { min-height: 54px; align-items: center; padding: 5px 2px; border-radius: 12px; }
     .dc-chips { display: none; }                 /* phones: dots in the cell, the list underneath */
     .dc-dots { display: flex; }
     .dc-month { min-width: 0; font-size: 18px; }

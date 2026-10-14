@@ -1,0 +1,15 @@
+# Project root on the live server (Apache). The app is its .php pages and assets/; everything else in
+# the repo (notes, schema dumps, the .git folder of a git-deployed server) is source material, never a page.
+
+# No folder ever lists its files.
+Options -Indexes
+
+# Notes, SQL dumps, dependency manifests, logs and dotfiles (.gitignore, .env ...) are refused outright.
+<FilesMatch "(?i)(\.(md|sql|lock|log|bak)|^composer\.json|^\..+)$">
+    Require all denied
+</FilesMatch>
+
+# A FilesMatch cannot match a folder, so anything under .git/ answers 404 (it would hand out the code history).
+<IfModule mod_alias.c>
+    RedirectMatch 404 /\.git(/|$)
+</IfModule>

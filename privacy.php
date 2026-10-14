@@ -117,6 +117,6 @@ $updated = 'October 14, 2026';
         <span class="muted">Questions about this notice can also be sent through the <a href="auth/help.php">Help desk</a>, or to the school's Data Protection Officer through the research office.</span>
     </div>
 </main>
-<footer>© <?= date('Y') ?> iSubmit · Research &amp; Development Center (RDC), MCNP &amp; ISAP</footer>
+<footer>© <?= date('Y') ?> iSubmit · Research &amp; Development Center (RDC), MCNP &amp; ISAP · <a href="terms.php">Terms of Use</a></footer>
 </body>
 </html>

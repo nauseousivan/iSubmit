@@ -1339,7 +1339,9 @@ $df_split = $df_show_calendar && $df_has_guide;
         if (q.get('view') !== 'schedule' && !q.has('ticket')) return;
         function open() {
             dfOpenStage();
-            if (q.has('ticket') && typeof dfOpenTicket === 'function') setTimeout(dfOpenTicket, 160);
+            // A published group's sheet holds ONLY the ticket (see dfOpenTicketStage), so ?view=schedule must
+            // open the ticket too, or the student lands on a blank sheet (seen 2026-10-15).
+            if ((q.has('ticket') || window.DF_TICKET) && typeof dfOpenTicket === 'function') setTimeout(dfOpenTicket, 160);
         }
         if (document.readyState === 'complete') setTimeout(open, 200);
         else window.addEventListener('load', function () { setTimeout(open, 200); });

@@ -10,6 +10,9 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Research Coordinator by NAME only (no emails or phone numbers on a public page), the Help desk, and the blank forms
   per institution (read from `rd_form_current()`, so the Admin's uploads show), with Sign in / Register. It used to
   jump straight to the login screen. Self-contained styles in the auth language (brand violet + doodles).
+  Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
+  filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
+  beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
 - **Live server hardening (2026-10-14).** Root `.htaccess`: no directory listings; `.md`/`.sql`/lock/log/dotfiles and
   `composer.json` refused; `/.git/` answers 404. `database/.htaccess` refuses the whole folder (CLI scripts only).
 

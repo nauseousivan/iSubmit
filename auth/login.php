@@ -67,6 +67,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
             $message_type = "error";
         } elseif ($pw_ok) {
             rd_log_login($pdo, $email, $uid_or_null, true, 'ok');
+            session_regenerate_id(true);
             if (!$user['is_verified']) {
                 $_SESSION['verify_email'] = $user['email'];
                 $message = "Your account is not verified yet. Verification code sent.";

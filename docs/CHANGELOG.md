@@ -13,6 +13,10 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
   filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
   beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
+- **Defense schedule calendar (2026-10-15).** `schedule_lib.php` `sch_published()` is the one source (Scheduled batches,
+  sections only) for the student mini-calendar (dots + rooms on tap), `calendar_all.php` (now a month grid via
+  `assets/js/defense_calendar.js`, with a Coming up panel), the public `schedule.php` and the front-page strip. The
+  retired Available/Unavailable vocabulary is gone. Front-page team is a hierarchy (Director -> coordinators -> units).
 - **Privacy (2026-10-14).** `privacy.php` (RA 10173 notice, kept TRUE to the code: a new data flow or service means
   a line there in the same change). Register + QR join require `privacy_consent` (form AND handler). Session cookie
   HttpOnly + SameSite=Lax (+ Secure on HTTPS) via `config/db.php`; the server repeats it in

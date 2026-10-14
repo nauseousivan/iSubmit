@@ -419,47 +419,7 @@ h6 {
     }
 }
 
-/* Cinematic Eagle Fly-By & Page Turn Transition CSS */
-.intro-cinematic-curtain {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    width: 100%;
-    height: 100vh;
-    background-color: #f1efff;
-    /* Light lavender sky. 2026-10-07 "Eagle flight": the curtain no longer leaves on a fixed CSS
-       timer — login.php's intro script adds .is-out once the eagle has landed (or on a tap). */
-    z-index: 100000;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    overflow: hidden;
-    cursor: pointer;
-    transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0s linear 0.5s;
-}
-
-.intro-cinematic-curtain.is-out {
-    opacity: 0;
-    visibility: hidden;
-}
-
-/* The doodle wallpaper of the brand pane, in violet on the sky, drifting past as she flies. */
-.intro-cinematic-curtain::before {
-    content: "";
-    position: absolute;
-    inset: -160px;
-    background: var(--brand-solid);
-    -webkit-mask: var(--brand-doodles) 0 0 / 160px 160px repeat;
-    mask: var(--brand-doodles) 0 0 / 160px 160px repeat;
-    opacity: 0.75;
-    animation: skyDrift 6s linear infinite;
-}
-
-@keyframes skyDrift {
-    to { transform: translateX(-160px); }   /* exactly one tile, so the loop never jumps */
-}
+/* The "Eagle flight" loading curtain lives in dashboards/components/eagle_intro.php (shared by login and the front page). */
 
 .isubmit-loader-container {
     display: flex;
@@ -773,9 +733,6 @@ body.intro-playing .auth-wrapper {
     }
 }
 
-body.no-intro-delay .intro-cinematic-curtain {
-    display: none !important;
-}
 
 /* =========================================================================
    MOBILE RESPONSIVENESS

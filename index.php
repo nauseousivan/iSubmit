@@ -235,7 +235,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .chk { font-size: 12.5px; font-weight: 700; line-height: 1.4; padding: 6px 10px; border-radius: 10px; color: var(--brand-ink); background: var(--brand-soft); border: 1px solid var(--brand-line); }
         .chk span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
         .chk.paper { background: #fff; border-style: dashed; color: var(--ink); }   /* happens in person, outside the system */
-        .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
+        .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; text-wrap: pretty; }
         .note b { color: var(--ink); }
 
         /* "Who defends next": up to four published days, each a date tile + the rooms; the full calendar is schedule.php */
@@ -461,7 +461,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                     </div>
                 </aside>
             </div>
-            <div class="note rv"><b>You don't pick your defense date.</b> Your Focal Person schedules your whole section, and the date appears in iSubmit once the research office publishes it.</div>
+            <div class="note rv"><b>You don't pick your defense date.</b> Your Focal Person schedules your whole section, and the date shows up here once it is published.</div>
         </div>
     </section>
 

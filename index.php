@@ -91,6 +91,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             --ok: #0f7a52; --ok-soft: #e7f6ef; --amber: #8a5300; --amber-soft: #fff2d6;
             --doodles: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160' viewBox='0 0 160 160' fill='none' stroke='%23ffffff' stroke-opacity='.14' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M14 12h18l7 7v25H14z'/%3E%3Cpath d='M32 12v7h7M19 28h14M19 34h10'/%3E%3Ccircle cx='112' cy='26' r='11'/%3E%3Cpath d='M107 26l4 4 7-8'/%3E%3Cpath d='M58 66l14-7 14 7-14 7z'/%3E%3Cpath d='M64 69v8c4 3 12 3 16 0v-8M86 66v9'/%3E%3Cpath d='M112 119l22-22 7 7-22 22h-7z'/%3E%3Cpath d='M129 102l7 7'/%3E%3Cpath d='M28 92l3.5 7.5 8 1-6 5.5 1.5 8-7-4-7 4 1.5-8-6-5.5 8-1z'/%3E%3Cpath d='M62 146v-14M72 146v-24M82 146v-18M57 149h30'/%3E%3Ccircle cx='134' cy='138' r='8'/%3E%3Cpath d='M140 144l7 7'/%3E%3Ccircle cx='100' cy='62' r='2'/%3E%3Ccircle cx='44' cy='140' r='2'/%3E%3C/svg%3E");
             --head: 'Poppins', system-ui, sans-serif; --body: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', sans-serif;
+            --brand-solid: var(--brand); --brand-doodles: var(--doodles);   /* the names the shared intro reads (theme.css's) */
         }
         * { box-sizing: border-box; }
         html { scroll-behavior: smooth; }
@@ -203,10 +204,21 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .fcard b { font-size: 15px; line-height: 1.35; }
         .fcard .dl { display: flex; gap: 8px; margin-top: auto; padding-top: 12px; }
 
-        footer { margin-top: 72px; background: var(--brand-deep); color: rgba(255, 255, 255, .85); font-size: 14px; }
-        footer .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px 24px; padding-top: 26px; padding-bottom: 26px; }
-        footer a { color: #fff; font-weight: 700; text-decoration: none; margin-left: 18px; }
-        footer a:first-child { margin-left: 0; }
+        /* footer: brand + description, link columns, the research office's own contact, then a copyright bar */
+        footer { margin-top: 80px; background-color: var(--brand-deep); color: rgba(255, 255, 255, .8); font-size: 14.5px; }
+        .foot { display: grid; grid-template-columns: 1.5fr 1fr 1fr 1.4fr; gap: 36px; padding-top: 56px; padding-bottom: 40px; }
+        .foot h4 { margin: 0 0 14px; font: 800 12.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: #fff; }
+        .foot ul { list-style: none; margin: 0; padding: 0; display: grid; gap: 9px; }
+        .foot a { color: rgba(255, 255, 255, .85); text-decoration: none; }
+        .foot a:hover { color: #fff; text-decoration: underline; text-underline-offset: 3px; }
+        .foot-brand .lockup { margin-bottom: 14px; color: #fff; }
+        .foot-brand p { margin: 0 0 16px; max-width: 330px; line-height: 1.6; }
+        .foot-marks { display: flex; gap: 10px; }
+        .foot-marks img { height: 34px; width: auto; }
+        .foot-contact li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.5; }
+        .foot-contact svg { width: 17px; height: 17px; flex: none; margin-top: 2px; color: #a39dff; }
+        .foot-bar { border-top: 1px solid rgba(255, 255, 255, .14); }
+        .foot-bar .wrap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px 24px; padding-top: 18px; padding-bottom: 22px; font-size: 13px; color: rgba(255, 255, 255, .65); }
 
         @media (max-width: 920px) {
             .hero-in { grid-template-columns: 1fr; gap: 24px; padding-top: 36px; padding-bottom: 56px; }
@@ -228,13 +240,15 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .hero-cta { justify-content: center; }
             .seg { width: 100%; justify-content: space-between; }
             .seg button { padding: 8px 10px; font-size: 13px; }
-            footer a { margin-left: 0; margin-right: 18px; }
+            .foot { grid-template-columns: 1fr 1fr; gap: 30px 20px; padding-top: 44px; }
+            .foot-brand, .foot-contact { grid-column: 1 / -1; }
         }
         @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } .demo .bird { animation: none; } }
     </style>
 </head>
-<body class="js-off">
+<body class="js-off no-intro-delay">
 <script>document.body.classList.remove('js-off');</script>
+<?php include __DIR__ . '/dashboards/components/eagle_intro.php'; /* the "Eagle flight" loading screen, once per session */ ?>
 <?php include __DIR__ . '/dashboards/components/announcement.php'; ?>
 
 <header class="hero">
@@ -366,9 +380,45 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 </main>
 
 <footer>
-    <div class="wrap">
-        <span>iSubmit · Research Digitalization for the MCNP–ISAP Research &amp; Development Center</span>
-        <span><a href="auth/login.php">Sign in</a><a href="auth/register.php">Register</a><a href="auth/help.php">Help desk</a></span>
+    <div class="wrap foot">
+        <div class="foot-brand">
+            <a class="lockup" href="./"><img src="assets/images/mascot.png" alt=""><span><b>iSubmit</b><small>by the MCNP–ISAP Research &amp; Development Center</small></span></a>
+            <p>Research submission and tracking for the Medical Colleges of Northern Philippines and the International School of Asia and the Pacific, from proposal to plagiarism check.</p>
+            <?php if ($lp_logos): ?><div class="foot-marks"><?php foreach ($lp_logos as $file => $alt): ?><img src="assets/images/<?= $e($file) ?>" alt="<?= $e($alt) ?>"><?php endforeach; ?></div><?php endif; ?>
+        </div>
+        <div>
+            <h4>iSubmit</h4>
+            <ul>
+                <li><a href="#how">How it works</a></li>
+                <li><a href="#forms">Blank forms</a></li>
+                <li><a href="#contact">Who to contact</a></li>
+                <li><a href="auth/help.php">Help desk</a></li>
+            </ul>
+        </div>
+        <div>
+            <h4>Your account</h4>
+            <ul>
+                <li><a href="auth/login.php">Sign in</a></li>
+                <li><a href="auth/register.php">Register your group</a></li>
+                <li><a href="auth/forgot_password.php">Forgot password</a></li>
+            </ul>
+        </div>
+        <div class="foot-contact">
+            <h4>Research &amp; Development Center</h4>
+            <ul>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Alimannao Hills, Peñablanca, Cagayan</span></li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg><a href="mailto:researchoffice@mcnp.edu.ph">researchoffice@mcnp.edu.ph</a></li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Mon–Fri 8:00 AM – 5:00 PM<br>Sat 8:00 AM – 12:00 PM</span></li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 9h3V5h-3a4 4 0 0 0-4 4v2H8v4h2v6h4v-6h3l1-4h-4V9z"/></svg><a href="https://www.facebook.com/profile.php?id=61593412015654" target="_blank" rel="noopener">RDC Facebook page ↗</a></li>
+                <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></svg><a href="https://jeraldguiquing.github.io/rdc-website/" target="_blank" rel="noopener">RDC website: agenda, journals, news ↗</a></li>
+            </ul>
+        </div>
+    </div>
+    <div class="foot-bar">
+        <div class="wrap">
+            <span>© <?= date('Y') ?> iSubmit · Research &amp; Development Center (RDC), MCNP &amp; ISAP</span>
+            <span>Research Digitalization</span>
+        </div>
     </div>
 </footer>
 <script>

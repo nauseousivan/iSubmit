@@ -13,6 +13,10 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
   filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
   beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
+- **Front page motion + the office (2026-10-14).** Hero parallax (sky / glow / page at different speeds, card tilt on
+  mouse only), "How it works" as a scroll story with a pinned panel (phones: a plain timeline), and the RDC shown by
+  ROLE as an org chart (`$lp_office`) instead of naming two coordinators. All motion is off under reduced motion.
+  Headless testing note: virtual time does not run CSS transitions, so screenshot with transitions disabled.
 - **Eagle flight intro shared (2026-10-14).** The loading screen moved out of `auth/login.php` + `theme.css` into
   `dashboards/components/eagle_intro.php`, included right after `<body class="no-intro-delay">` on login AND the front
   page. Once per session (`mcnp_isap_intro_played`), on whichever of the two opens first. The front page footer now

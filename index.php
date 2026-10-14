@@ -117,7 +117,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .lockup b { display: block; font: 800 21px/1 var(--head); letter-spacing: -.02em; }
         .lockup small { display: block; font-size: 12px; font-weight: 600; opacity: .85; margin-top: 4px; }
         .marks { display: flex; align-items: center; gap: 8px; padding-left: 14px; margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .35); }
-        .marks img { height: 30px; width: auto; }
+        .marks img { height: 36px; width: 36px; object-fit: contain; padding: 4px; border-radius: 50%; background: #fff; box-shadow: 0 4px 10px -4px rgba(20, 12, 90, .5); }
         .top-actions { display: flex; gap: 10px; flex: none; }
         .hero-in { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding-top: 56px; padding-bottom: 96px; }
         .hero h1 { font-size: clamp(34px, 5vw, 56px); line-height: 1.08; margin: 0 0 18px; }

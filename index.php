@@ -23,18 +23,19 @@ if (isset($_SESSION['user_id'])) {
     exit();
 }
 
-// Who to contact: each institution's Research Coordinator, by name, from the live accounts.
-$lp_inst = [
-    'MCNP' => ['name' => 'Medical Colleges of Northern Philippines', 'coord' => []],
-    'ISAP' => ['name' => 'International School of Asia and the Pacific', 'coord' => []],
+// The office behind the paper, by ROLE (the RDC's own structure: one center, two wings). No names on purpose:
+// a public page that lists people goes stale the day someone moves, and it put two lone coordinators on show.
+$lp_office = [
+    'head'  => ['Director', 'Research & Development Center', 'Sets the research agenda and oversees both institutions.'],
+    'units' => [
+        ['Secretariat & Records', 'Research office', 'Publishes defense schedules, keeps the records and issues clearances.'],
+        ['Biostatistics', 'Statisticians', 'Treat your data, register your statistics payment (RDC Form 011) and release your results.'],
+    ],
+    'wings' => [
+        ['MCNP', 'Health Sciences Wing', 'Medical Colleges of Northern Philippines'],
+        ['ISAP', 'Multidisciplinary Wing', 'International School of Asia and the Pacific'],
+    ],
 ];
-try {
-    $st = $pdo->query("SELECT username, department FROM users WHERE role = 'Research Coordinator' AND account_status = 'active' ORDER BY username");
-    foreach ($st->fetchAll(PDO::FETCH_ASSOC) as $c) {
-        if (trim((string)$c['department']) === '') continue;
-        $lp_inst[rd_institution_of((string)$c['department'])]['coord'][] = $c['username'];
-    }
-} catch (Throwable $e) { /* the page still works without names */ }
 
 // The blank forms, per institution (the Admin's latest upload, else the shipped default), each tagged
 // with the phases it belongs to so the filter can show one phase at a time.
@@ -58,14 +59,14 @@ require_once __DIR__ . '/assets/mascot/eagle_svg.php';
 $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 
 $lp_phases = [
-    // [title, what happens, checked ON PAPER by (null = none), handled IN ISUBMIT by (null = none)].
-    // The paper sign-off is real and comes FIRST: the research teacher, adviser and dean check the paper in
-    // person and have no accounts. Only after that do the requirements come into iSubmit.
-    ['Register your group', 'The leader creates the group; teammates join by scanning the group\'s QR code or with its invite code.', null, null],
-    ['Proposal', 'After your research teacher, adviser and dean have checked and signed your paper, upload the seven proposal requirements. They are checked, then your section is endorsed for a defense date, confirmed and published.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office'],
-    ['Statistics', 'Opens once your proposal defense is scheduled. Hand in your coded data, pay with RDC Form 011 to get your control number, then receive your statistical results.', null, 'Statistician'],
-    ['Final', 'Once your statistics are done and your final paper is signed the same way, upload the seven final requirements, ending in your final defense.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office'],
-    ['Plagiarism', 'Upload the final manuscript and pay with RDC Form 13 for the Turnitin check. Each revision is a new round.', null, 'Research office'],
+    // [title, what happens, checked ON PAPER by (null = none), handled IN ISUBMIT by (null = none), the story
+    // panel's "where your paper is" line]. The paper sign-off is real and comes FIRST: the research teacher,
+    // adviser and dean check the paper in person and have no accounts. Only after that does iSubmit take over.
+    ['Register your group', 'The leader creates the group; teammates join by scanning the group\'s QR code or with its invite code.', null, null, 'Your group signs up'],
+    ['Proposal', 'After your research teacher, adviser and dean have checked and signed your paper, upload the seven proposal requirements. They are checked, then your section is endorsed for a defense date, confirmed and published.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office', 'Signed on paper, then checked in iSubmit'],
+    ['Statistics', 'Opens once your proposal defense is scheduled. Hand in your coded data, pay with RDC Form 011 to get your control number, then receive your statistical results.', null, 'Statistician', 'With the Statistician'],
+    ['Final', 'Once your statistics are done and your final paper is signed the same way, upload the seven final requirements, ending in your final defense.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office', 'Signed on paper, then your final defense'],
+    ['Plagiarism', 'Upload the final manuscript and pay with RDC Form 13 for the Turnitin check. Each revision is a new round.', null, 'Research office', 'With the research office, then cleared'],
 ];
 $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>';
 ?>
@@ -114,7 +115,14 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         svg.i { width: 16px; height: 16px; flex: none; }
 
         /* ---------- hero: headline left, an example group card right with the eagle perched on it ---------- */
-        .hero { background-color: var(--brand); background-image: var(--doodles); color: #fff; overflow: hidden; }
+        /* Depth: three layers move at different speeds as you scroll (sky slowest, glow, then the page), and
+           the example card tilts toward the pointer with the eagle standing out in front of it. */
+        .hero { position: relative; background-color: var(--brand); color: #fff; overflow: hidden; }
+        .hero > .wrap { position: relative; z-index: 2; }
+        .hero-sky { position: absolute; inset: -40% 0 -10%; background-image: var(--doodles); will-change: transform; pointer-events: none; }
+        .hero-glow { position: absolute; inset: 0; pointer-events: none; will-change: transform;
+                     background: radial-gradient(520px 380px at 78% 30%, rgba(255, 255, 255, .16), transparent 70%),
+                                 radial-gradient(460px 340px at 8% 92%, rgba(45, 37, 148, .55), transparent 70%); }
         .top { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding-top: 18px; padding-bottom: 18px; }
         .lockup { display: flex; align-items: center; gap: 10px; text-decoration: none; min-width: 0; }
         .lockup > img { width: 38px; height: 44px; object-fit: contain; filter: drop-shadow(0 4px 8px rgba(20, 12, 90, .3)); }
@@ -129,9 +137,11 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .hero-cta { display: flex; flex-wrap: wrap; align-items: center; gap: 22px; }
         .link-how { font-weight: 700; color: #fff; text-underline-offset: 5px; text-decoration-thickness: 2px; }
 
-        .demo { position: relative; justify-self: end; width: 100%; max-width: 420px; margin-top: 70px; }
-        .demo .bird { position: absolute; right: -18px; top: -128px; width: 150px; z-index: 2; animation: bob 4.5s ease-in-out infinite;
+        .demo { position: relative; justify-self: end; width: 100%; max-width: 420px; margin-top: 70px; perspective: 1100px; will-change: transform; }
+        .demo-tilt { position: relative; transform-style: preserve-3d; transform: rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)); transition: transform .35s ease-out; }
+        .demo .bird { position: absolute; right: -18px; top: -128px; width: 150px; z-index: 2; transform: translateZ(70px);
                       filter: drop-shadow(0 14px 22px rgba(20, 12, 90, .35)); }
+        .demo .bird-in { animation: bob 4.5s ease-in-out infinite; }
         .demo .bird svg { width: 100%; height: auto; display: block; }
         @keyframes bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-6px); } }
         .gc { position: relative; background: #fff; color: var(--ink); border-radius: 22px; padding: 20px 20px 18px; box-shadow: 0 30px 60px -28px rgba(15, 8, 70, .7); }
@@ -162,15 +172,42 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .sec-h h2 { font-size: clamp(26px, 3.4vw, 34px); line-height: 1.2; margin: 8px 0 10px; }
         .sec-h p { margin: 0; color: var(--muted); }
 
-        /* the five phases: a horizontal track on desktop, a vertical one on phones */
-        .phases { list-style: none; margin: 0; padding: 0; display: grid; grid-template-columns: repeat(5, 1fr); gap: 18px; position: relative; }
-        .phases::before { content: ""; position: absolute; top: 23px; left: 24px; right: calc((100% - 72px) / 5 - 24px); height: 3px; border-radius: 3px;
-                          background: linear-gradient(90deg, var(--brand), #a39dff); opacity: .35; }
-        .phase { position: relative; }
-        .phase .num { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; margin-bottom: 16px; position: relative;
-                      background: var(--brand); color: #fff; font: 800 18px var(--head); box-shadow: 0 0 0 6px var(--canvas), 0 10px 20px -10px rgba(63, 53, 201, .8); }
-        .phase h3 { font-size: 18px; margin-bottom: 6px; }
-        .phase p { margin: 0 0 12px; color: var(--muted); font-size: 14.5px; line-height: 1.55; }
+        /* scroll reveal: anything .rv rises in as it enters the screen (visible at once without JS / with less motion) */
+        .rv { opacity: 0; transform: translateY(26px); transition: opacity .7s ease, transform .8s cubic-bezier(.2, .7, .2, 1); transition-delay: var(--d, 0s); }
+        .rv.in, .js-off .rv { opacity: 1; transform: none; }
+
+        /* "How it works" as a scroll story: the five chapters scroll on the left while a pinned panel on the right
+           follows the paper; the eagle hops to the phase you are reading. Phones get the chapters alone. */
+        .story { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 64px; align-items: start; }
+        .chapters { list-style: none; margin: 0; padding: 0; }
+        .chapter { min-height: clamp(340px, 58vh, 560px); display: flex; flex-direction: column; justify-content: center; padding: 28px 0; opacity: .28; transition: opacity .45s ease; }
+        .chapter.on, .js-off .chapter { opacity: 1; }
+        .chapter .num { font: 800 14px var(--head); letter-spacing: .12em; color: var(--brand-ink); }
+        .chapter h3 { font-size: clamp(28px, 3.4vw, 40px); line-height: 1.12; margin: 6px 0 12px; }
+        .chapter p { margin: 0 0 18px; color: var(--muted); font-size: 17px; line-height: 1.65; max-width: 540px; }
+        .chapter .checks { display: flex; flex-wrap: wrap; gap: 8px; }
+        .stage { position: sticky; top: 40px; padding: 32px 0; }
+        .panel { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 26px; padding: 24px 24px 22px; box-shadow: 0 40px 70px -40px rgba(45, 37, 148, .55); }
+        .panel-k { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; color: var(--muted); }
+        .panel-now { font: 700 21px/1.25 var(--head); margin: 6px 0 18px; min-height: 52px; transition: opacity .25s ease; }
+        .panel-now.swap { opacity: 0; }
+        .rail { padding: 0 0 0 4px; position: relative; }
+        .stops { list-style: none; margin: 0; padding: 0; }
+        .rail::before { content: ""; position: absolute; left: 21px; top: 22px; bottom: 22px; width: 3px; border-radius: 3px; background: var(--line); }
+        .rail-fill { position: absolute; left: 21px; top: 22px; width: 3px; border-radius: 3px; background: var(--brand);
+                     height: calc(var(--i, 0) * 52px); transition: height .6s cubic-bezier(.2, .7, .2, 1); }
+        .stop { position: relative; display: flex; align-items: center; gap: 14px; height: 52px; font-weight: 700; font-size: 15px; color: var(--muted); }
+        .stop i { width: 36px; height: 36px; border-radius: 50%; flex: none; display: grid; place-items: center; font: normal 800 13px var(--head);
+                  background: #fff; border: 2px solid var(--line); color: var(--muted); transition: all .35s ease; position: relative; z-index: 1; }
+        .stop.done { color: var(--ink); }
+        .stop.done i { background: var(--ok); border-color: var(--ok); color: #fff; }
+        .stop.now { color: var(--ink); }
+        .stop.now i { background: var(--brand); border-color: var(--brand); color: #fff; box-shadow: 0 0 0 6px var(--brand-soft); }
+        .rail-bird { position: absolute; right: -8px; top: -14px; width: 70px; transform: translateY(calc(var(--i, 0) * 52px)); z-index: 2;
+                     transition: transform .7s cubic-bezier(.34, 1.4, .64, 1); filter: drop-shadow(0 8px 12px rgba(45, 37, 148, .3)); }
+        .rail-bird svg { width: 100%; height: auto; display: block; }
+        .panel-bar { height: 6px; border-radius: 6px; background: var(--canvas); margin-top: 16px; overflow: hidden; }
+        .panel-bar b { display: block; height: 100%; width: calc((var(--i, 0) + 1) * 20%); background: linear-gradient(90deg, var(--brand), #a39dff); border-radius: 6px; transition: width .6s ease; }
         .checks { display: grid; gap: 6px; }
         .chk { font-size: 12.5px; font-weight: 700; line-height: 1.4; padding: 6px 10px; border-radius: 10px; color: var(--brand-ink); background: var(--brand-soft); border: 1px solid var(--brand-line); }
         .chk span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
@@ -178,16 +215,39 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
         .note b { color: var(--ink); }
 
-        /* contacts */
-        .contacts { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 18px; }
+        /* the office behind your paper: the RDC's structure by role, drawn as an org chart whose wires grow in */
+        .org { display: flex; flex-direction: column; align-items: center; }
+        .node { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px 20px; text-align: center; width: 100%; max-width: 340px;
+                box-shadow: 0 18px 40px -30px rgba(45, 37, 148, .6); }
+        .node .k { display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
+        .node b { display: block; font: 700 17px/1.3 var(--head); margin: 3px 0 4px; }
+        .node p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
+        .node.head { background: var(--brand); border-color: transparent; color: #fff; max-width: 380px; padding: 20px 24px; }
+        .node.head .k, .node.head p { color: rgba(255, 255, 255, .8); }
+        .node.focal { background: var(--brand-soft); border-style: dashed; border-color: var(--brand-line); box-shadow: none; }
+        .wire { width: 3px; height: 34px; border-radius: 3px; background: var(--brand-line); transform-origin: top; transform: scaleY(0); transition: transform .5s ease .15s; }
+        .in > .wire, .in.wire, .js-off .wire { transform: none; }
+        .wings { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; width: 100%; max-width: 760px; padding-top: 34px; }
+        .wings::before { content: ""; position: absolute; top: 0; left: 25%; right: 25%; height: 3px; border-radius: 3px; background: var(--brand-line);
+                         transform: scaleX(0); transition: transform .6s ease .1s; }
+        .wings.in::before, .js-off .wings::before { transform: none; }
+        .wing { display: flex; flex-direction: column; align-items: center; position: relative; }
+        .wing::before { content: ""; position: absolute; top: -34px; left: calc(50% - 1.5px); width: 3px; height: 34px; background: var(--brand-line); }
+        .serve { width: 100%; max-width: 760px; margin-top: 30px; padding: 22px; border-radius: 22px; border: 1px dashed var(--brand-line); background: rgba(255, 255, 255, .6); }
+        .serve > span { display: block; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
+        .serve-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+        .serve-row .node { max-width: none; }
+        .reach { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-top: 34px; }
         .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 22px 20px; display: flex; flex-direction: column; }
         .card .tag { font: 800 13px var(--head); letter-spacing: .06em; color: var(--brand-ink); }
-        .card h3 { font-size: 17px; line-height: 1.35; margin: 4px 0 14px; }
-        .card .role { font-size: 13px; color: var(--muted); font-weight: 600; }
-        .card .person { font-weight: 700; font-size: 16px; margin-bottom: 6px; }
+        .card h3 { font-size: 17px; line-height: 1.35; margin: 4px 0 12px; }
         .card p { margin: 0 0 16px; color: var(--muted); font-size: 14.5px; }
         .card .act { margin-top: auto; }
         .card.help { background: var(--brand-soft); border-color: var(--brand-line); }
+        .visit { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; font-size: 14.5px; }
+        .visit li { display: flex; gap: 10px; align-items: flex-start; line-height: 1.5; }
+        .visit svg { width: 18px; height: 18px; flex: none; margin-top: 2px; color: var(--brand-ink); }
+        .visit a { color: var(--brand-ink); font-weight: 700; text-decoration: none; }
 
         /* blank forms: small cards, one phase at a time (Proposal first). Without JS every card shows. */
         .forms-bar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
@@ -224,12 +284,18 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .hero-in { grid-template-columns: 1fr; gap: 24px; padding-top: 36px; padding-bottom: 56px; }
             .demo { justify-self: center; margin-top: 96px; }
             .demo .bird { width: 118px; top: -100px; right: -4px; }
-            .phases { grid-template-columns: 1fr; gap: 0; }
-            .phases::before { top: 24px; bottom: 24px; left: 23px; right: auto; width: 3px; height: auto; background: linear-gradient(180deg, var(--brand), #a39dff); }
-            .phase { display: grid; grid-template-columns: 48px 1fr; gap: 0 16px; padding-bottom: 26px; }
-            .phase .num { margin: 0; grid-row: span 3; }
-            .checks { justify-self: start; }
-            .contacts { grid-template-columns: 1fr; }
+            .story { grid-template-columns: 1fr; gap: 0; }
+            .stage { display: none; }                                  /* phones: the chapters tell it alone */
+            .chapters { border-left: 3px solid var(--brand-line); padding-left: 22px; }
+            .chapter { min-height: 0; opacity: 1; padding: 0 0 34px; position: relative; }
+            .chapter::before { content: ""; position: absolute; left: -32px; top: 2px; width: 17px; height: 17px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 5px var(--canvas); }
+            .chapter h3 { font-size: 24px; }
+            .chapter p { font-size: 15.5px; }
+            .wings, .serve-row, .reach { grid-template-columns: 1fr; }
+            .wings::before, .wing::before { display: none; }
+            .wings { padding-top: 0; gap: 0; }
+            .wing { padding-top: 0; }
+            .wing + .wing { margin-top: 18px; }
         }
         @media (max-width: 560px) {
             .wrap { padding-left: 16px; padding-right: 16px; }
@@ -243,7 +309,11 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .foot { grid-template-columns: 1fr 1fr; gap: 30px 20px; padding-top: 44px; }
             .foot-brand, .foot-contact { grid-column: 1 / -1; }
         }
-        @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } .btn { transition: none; } .demo .bird { animation: none; } }
+        @media (prefers-reduced-motion: reduce) {
+            html { scroll-behavior: auto; } .btn { transition: none; } .demo .bird-in { animation: none; }
+            .rv { opacity: 1; transform: none; transition: none; } .wire, .wings::before { transform: none; transition: none; }
+            .demo-tilt, .rail-bird, .rail-fill, .panel-bar b { transition: none; }
+        }
     </style>
 </head>
 <body class="js-off no-intro-delay">
@@ -251,7 +321,9 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 <?php include __DIR__ . '/dashboards/components/eagle_intro.php'; /* the "Eagle flight" loading screen, once per session */ ?>
 <?php include __DIR__ . '/dashboards/components/announcement.php'; ?>
 
-<header class="hero">
+<header class="hero" id="hero">
+    <div class="hero-sky" id="heroSky" aria-hidden="true"></div>
+    <div class="hero-glow" id="heroGlow" aria-hidden="true"></div>
     <div class="wrap top">
         <a class="lockup" href="./">
             <img src="assets/images/mascot.png" alt="">
@@ -272,8 +344,8 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                 <a class="link-how" href="#how">See how it works</a>
             </div>
         </div>
-        <div class="demo" aria-label="Example of a group's progress card">
-            <div class="bird"><?= eagle_plain_svg('lp') ?></div>
+        <div class="demo" id="heroDemo" aria-label="Example of a group's progress card"><div class="demo-tilt" id="heroTilt">
+            <div class="bird"><div class="bird-in"><?= eagle_plain_svg('lp') ?></div></div>
             <div class="gc">
                 <div class="gc-k">YOUR GROUP · EXAMPLE</div>
                 <div class="gc-head">
@@ -291,39 +363,53 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                     <div><small>Final defense</small><b>Appears here once published</b></div>
                 </div>
             </div>
-        </div>
+        </div></div>
     </div>
 </header>
 
 <main>
     <section class="block" id="how">
         <div class="wrap">
-            <div class="sec-h">
+            <div class="sec-h rv">
                 <span class="eyebrow">How it works</span>
                 <h2>Five phases, always in this order</h2>
                 <p>Each phase opens when the one before it is done. iSubmit shows where your group is, and who has your paper right now.</p>
             </div>
-            <ol class="phases">
-                <?php foreach ($lp_phases as $n => [$title, $what, $paper, $system]): ?>
-                    <li class="phase">
-                        <span class="num"><?= $n + 1 ?></span>
-                        <h3><?= $e($title) ?></h3>
-                        <p><?= $e($what) ?></p>
-                        <?php if ($paper || $system): ?><div class="checks">
-                            <?php if ($paper): ?><div class="chk paper"><span>On paper</span><?= $e($paper) ?></div><?php endif; ?>
-                            <?php if ($system): ?><div class="chk sys"><span>In iSubmit</span><?= $e($system) ?></div><?php endif; ?>
-                        </div><?php endif; ?>
-                    </li>
-                <?php endforeach; ?>
-            </ol>
-            <div class="note"><b>You don't pick your defense date.</b> Your Focal Person schedules your whole section, and the date appears in iSubmit once the research office publishes it.</div>
+            <div class="story">
+                <ol class="chapters">
+                    <?php foreach ($lp_phases as $n => [$title, $what, $paper, $system, $now]): ?>
+                        <li class="chapter" data-i="<?= $n ?>" data-now="<?= $e($now) ?>">
+                            <span class="num">PHASE <?= sprintf('%02d', $n + 1) ?></span>
+                            <h3><?= $e($title) ?></h3>
+                            <p><?= $e($what) ?></p>
+                            <?php if ($paper || $system): ?><div class="checks">
+                                <?php if ($paper): ?><div class="chk paper"><span>On paper</span><?= $e($paper) ?></div><?php endif; ?>
+                                <?php if ($system): ?><div class="chk sys"><span>In iSubmit</span><?= $e($system) ?></div><?php endif; ?>
+                            </div><?php endif; ?>
+                        </li>
+                    <?php endforeach; ?>
+                </ol>
+                <aside class="stage" aria-hidden="true">
+                    <div class="panel" id="storyPanel" style="--i:0">
+                        <div class="panel-k">WHERE YOUR PAPER IS</div>
+                        <div class="panel-now" id="storyNow"><?= $e($lp_phases[0][4]) ?></div>
+                        <div class="rail">
+                            <span class="rail-fill"></span>
+                            <ol class="stops"><?php foreach ($lp_phases as $n => $ph): ?><li class="stop<?= $n === 0 ? ' now' : '' ?>"><i><?= $n + 1 ?></i><?= $e($ph[0]) ?></li><?php endforeach; ?></ol>
+                            <span class="rail-bird"><?= eagle_plain_svg('rb') ?></span>
+                        </div>
+                        <div class="panel-bar"><b></b></div>
+                    </div>
+                </aside>
+            </div>
+            <div class="note rv"><b>You don't pick your defense date.</b> Your Focal Person schedules your whole section, and the date appears in iSubmit once the research office publishes it.</div>
         </div>
     </section>
 
     <?php if ($lp_forms): ?>
     <section class="block" id="forms">
         <div class="wrap">
-            <div class="sec-h">
+            <div class="sec-h rv">
                 <span class="eyebrow">Blank forms</span>
                 <h2>Download the forms you'll need</h2>
                 <p>Always the current version for your institution. Fill them in, have them signed, then upload them in iSubmit at the step that asks for them.</p>
@@ -353,22 +439,44 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 
     <section class="block" id="contact">
         <div class="wrap">
-            <div class="sec-h">
-                <span class="eyebrow">Who to contact</span>
-                <h2>Questions about your research</h2>
-                <p>Requirements, schedules and reviews go through your institution's Research Coordinator. Trouble with your account goes to the Help desk.</p>
+            <div class="sec-h rv">
+                <span class="eyebrow">The office behind your paper</span>
+                <h2>One center, two institutions</h2>
+                <p>The Research &amp; Development Center serves MCNP and ISAP together. This is who handles your paper once it reaches iSubmit.</p>
             </div>
-            <div class="contacts">
-                <?php foreach ($lp_inst as $code => $inst): ?>
-                    <div class="card">
-                        <span class="tag"><?= $e($code) ?></span>
-                        <h3><?= $e($inst['name']) ?></h3>
-                        <span class="role">Research Coordinator</span>
-                        <div class="person"><?= $inst['coord'] ? $e(implode(', ', $inst['coord'])) : 'To be announced' ?></div>
-                        <p>Ask at the Research &amp; Development Center, or message the office from your dashboard once you've signed in.</p>
+            <div class="org">
+                <div class="node head rv"><span class="k"><?= $e($lp_office['head'][1]) ?></span><b><?= $e($lp_office['head'][0]) ?></b><p><?= $e($lp_office['head'][2]) ?></p></div>
+                <div class="wire rv"></div>
+                <div class="wings rv">
+                    <?php foreach ($lp_office['wings'] as $k => [$code, $wing, $inst]): ?>
+                        <div class="wing">
+                            <div class="node rv" style="--d:<?= .15 + $k * .12 ?>s"><span class="k"><?= $e($code) ?> · <?= $e($wing) ?></span><b>Research Coordinator</b><p>Validates requirements and confirms defense dates for <?= $e($inst) ?> groups.</p></div>
+                            <div class="wire rv" style="--d:<?= .3 + $k * .12 ?>s"></div>
+                            <div class="node focal rv" style="--d:<?= .4 + $k * .12 ?>s"><span class="k">One per course</span><b>Focal Persons</b><p>Check your requirements and endorse your section for a defense date.</p></div>
+                        </div>
+                    <?php endforeach; ?>
+                </div>
+                <div class="serve rv">
+                    <span>Serving both institutions</span>
+                    <div class="serve-row">
+                        <?php foreach ($lp_office['units'] as $k => [$unit, $who, $does]): ?>
+                            <div class="node rv" style="--d:<?= .1 + $k * .12 ?>s"><span class="k"><?= $e($unit) ?></span><b><?= $e($who) ?></b><p><?= $e($does) ?></p></div>
+                        <?php endforeach; ?>
                     </div>
-                <?php endforeach; ?>
-                <div class="card help">
+                </div>
+            </div>
+            <div class="reach">
+                <div class="card rv">
+                    <span class="tag">VISIT OR WRITE</span>
+                    <h3>Research &amp; Development Center</h3>
+                    <ul class="visit">
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21s-7-6.2-7-11.5a7 7 0 0 1 14 0C19 14.8 12 21 12 21z"/><circle cx="12" cy="9.5" r="2.5"/></svg><span>Alimannao Hills, Peñablanca, Cagayan</span></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg><a href="mailto:researchoffice@mcnp.edu.ph">researchoffice@mcnp.edu.ph</a></li>
+                        <li><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg><span>Mon–Fri 8:00 AM – 5:00 PM · Sat 8:00 AM – 12:00 PM</span></li>
+                    </ul>
+                    <p style="margin:14px 0 0">Signed in? Message the office from your dashboard instead.</p>
+                </div>
+                <div class="card help rv" style="--d:.12s">
                     <span class="tag">HELP DESK</span>
                     <h3>Can't sign in, or something looks wrong?</h3>
                     <p>Lost access to your email, typed the wrong School ID, or need to change groups? Send a request and the administrator will get back to you.</p>
@@ -391,7 +499,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             <ul>
                 <li><a href="#how">How it works</a></li>
                 <li><a href="#forms">Blank forms</a></li>
-                <li><a href="#contact">Who to contact</a></li>
+                <li><a href="#contact">The office</a></li>
                 <li><a href="auth/help.php">Help desk</a></li>
             </ul>
         </div>
@@ -422,6 +530,75 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
     </div>
 </footer>
 <script>
+// Motion: scroll reveal, the "How it works" story, hero parallax + tilt. Everything degrades to a still page:
+// no IntersectionObserver = everything shown; reduced motion = no parallax, no tilt, no reveal.
+(function () {
+    var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    var hasIO = 'IntersectionObserver' in window;
+
+    // 1. reveal on scroll
+    var rv = document.querySelectorAll('.rv');
+    if (!hasIO || still) { rv.forEach(function (el) { el.classList.add('in'); }); }
+    else {
+        var io = new IntersectionObserver(function (es) {
+            es.forEach(function (e) { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+        }, { rootMargin: '0px 0px -10% 0px' });
+        rv.forEach(function (el) { io.observe(el); });
+    }
+
+    // 2. the story: whichever chapter crosses the middle of the screen drives the pinned panel
+    var chapters = Array.prototype.slice.call(document.querySelectorAll('.chapter'));
+    var panel = document.getElementById('storyPanel'), nowEl = document.getElementById('storyNow');
+    var stops = panel ? panel.querySelectorAll('.stop') : [];
+    var cur = -1;
+    function step(i) {
+        if (i === cur || !panel) return;
+        cur = i;
+        chapters.forEach(function (c, k) { c.classList.toggle('on', k === i); });
+        panel.style.setProperty('--i', i);
+        stops.forEach(function (s, k) { s.className = 'stop ' + (k < i ? 'done' : k === i ? 'now' : 'later'); });
+        if (nowEl) {
+            nowEl.classList.add('swap');
+            setTimeout(function () { nowEl.textContent = chapters[i].dataset.now; nowEl.classList.remove('swap'); }, still ? 0 : 200);
+        }
+    }
+    if (hasIO && panel) {
+        var so = new IntersectionObserver(function (es) {
+            es.forEach(function (e) { if (e.isIntersecting) step(+e.target.dataset.i); });
+        }, { rootMargin: '-45% 0px -45% 0px' });
+        chapters.forEach(function (c) { so.observe(c); });
+    }
+    step(0);
+
+    // 3. hero depth: layers drift at different speeds while the hero is on screen
+    if (still) return;
+    var hero = document.getElementById('hero'), sky = document.getElementById('heroSky'), glow = document.getElementById('heroGlow');
+    var demo = document.getElementById('heroDemo'), tilt = document.getElementById('heroTilt');
+    var ticking = false;
+    function paint() {
+        ticking = false;
+        var y = window.scrollY || window.pageYOffset;
+        if (y > hero.offsetHeight) return;
+        sky.style.transform = 'translate3d(0,' + (y * 0.45).toFixed(1) + 'px,0)';
+        glow.style.transform = 'translate3d(0,' + (y * 0.25).toFixed(1) + 'px,0)';
+        if (demo) demo.style.transform = 'translate3d(0,' + (y * -0.08).toFixed(1) + 'px,0)';
+    }
+    window.addEventListener('scroll', function () { if (!ticking) { ticking = true; requestAnimationFrame(paint); } }, { passive: true });
+    paint();
+
+    // the example card leans toward the pointer (mouse only — phones have nothing to lean toward)
+    if (tilt && window.matchMedia('(hover: hover) and (pointer: fine)').matches) {
+        hero.addEventListener('pointermove', function (ev) {
+            var r = demo.getBoundingClientRect();
+            var dx = (ev.clientX - (r.left + r.width / 2)) / window.innerWidth;
+            var dy = (ev.clientY - (r.top + r.height / 2)) / window.innerHeight;
+            tilt.style.setProperty('--ry', (dx * 14).toFixed(2) + 'deg');
+            tilt.style.setProperty('--rx', (dy * -10).toFixed(2) + 'deg');
+        });
+        hero.addEventListener('pointerleave', function () { tilt.style.setProperty('--ry', '0deg'); tilt.style.setProperty('--rx', '0deg'); });
+    }
+})();
+
 // Forms filter: one phase at a time, Proposal first. A form used in two phases (Form 002) shows in both.
 (function () {
     var btns = document.querySelectorAll('.seg button'), cards = document.querySelectorAll('.fcard'), out = document.getElementById('formsCount');

@@ -23,6 +23,22 @@ if (isset($_SESSION['user_id'])) {
     exit();
 }
 
+// "Who defends next": the next published defense days (dashboards/schedule_lib.php, the same source as the
+// public schedule.php and the student calendars). Sections only. None coming up -> the most recent ones,
+// labelled so, rather than an empty box.
+require_once __DIR__ . '/dashboards/defense_lib.php';
+require_once __DIR__ . '/dashboards/schedule_lib.php';
+$lp_sched = []; $lp_sched_label = 'Coming up';
+try {
+    $rows = sch_published($pdo, df_today(), df_window_end());
+    if (!$rows) {
+        $rows = sch_published($pdo, date('Y-m-d', strtotime(df_today() . ' -60 days')), date('Y-m-d', strtotime(df_today() . ' -1 day')));
+        $lp_sched_label = 'Recently held';
+    }
+    foreach (sch_calendar_items($rows) as $it) $lp_sched[$it['date']][] = $it;
+    $lp_sched = $lp_sched_label === 'Coming up' ? array_slice($lp_sched, 0, 4, true) : array_slice($lp_sched, -4, 4, true);
+} catch (Throwable $ex) { $lp_sched = []; }
+
 // Meet the RDC team — the office's own roster and grouping (from the RDC website's "Meet the RDC Team"), with the
 // photo cut from each person's calling card (assets/images/team/pN.jpg). Faces only: the cards carry personal
 // mobile numbers and emails, which never go on this page — the office email in the contact card is the way in.
@@ -222,21 +238,56 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
         .note b { color: var(--ink); }
 
-        /* Meet the RDC team: their grouping, a portrait card each; cards rise in and lift on hover */
-        .team-group + .team-group { margin-top: 38px; }
-        .team-group > h3 { font: 800 12.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
-        .team { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
-        .person { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 24px 22px 22px; text-align: center; display: flex; flex-direction: column; align-items: center;
-                  transition: transform .25s ease, box-shadow .25s ease, opacity .7s ease; }
+        /* "Who defends next": up to four published days, each a date tile + the rooms; the full calendar is schedule.php */
+        .sched-head { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 14px 24px; margin-bottom: 20px; }
+        .sched-head .sec-h { margin-bottom: 0; }
+        .sched-label { font-size: 12px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin-bottom: 10px; }
+        .sched-row { display: grid; grid-template-columns: repeat(auto-fill, minmax(240px, 1fr)); gap: 14px; }
+        .sday { display: flex; gap: 14px; align-items: flex-start; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 14px;
+                text-decoration: none; color: inherit; transition: transform .2s ease, box-shadow .2s ease, opacity .7s ease; }
+        .sday:hover { transform: translateY(-3px); box-shadow: 0 22px 40px -28px rgba(45, 37, 148, .7); }
+        .sday.rv { transform: translateY(26px); } .sday.rv.in { transform: none; } .sday.rv.in:hover { transform: translateY(-3px); }
+        .sdate { flex: none; width: 60px; text-align: center; border-radius: 14px; background: var(--brand); color: #fff; padding: 8px 0 7px; }
+        .sdate b { display: block; font: 800 24px/1.05 var(--head); }
+        .sdate span { display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; }
+        .sdate small { display: block; font-size: 11px; opacity: .8; }
+        .sday.past .sdate { background: var(--muted); }
+        .srooms { display: flex; flex-direction: column; gap: 6px; min-width: 0; padding-top: 2px; }
+        .sroom { display: flex; align-items: center; gap: 6px; font-size: 13.5px; font-weight: 700; white-space: nowrap; }
+        .sroom em { font-style: normal; font-size: 10px; font-weight: 800; width: 16px; height: 16px; display: inline-grid; place-items: center; border-radius: 4px;
+                    background: var(--brand-soft); color: var(--brand-ink); flex: none; }
+        .sroom i { font-style: normal; font-size: 10.5px; font-weight: 800; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 0 6px; }
+        .smore { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+        .sched-empty { background: #fff; border: 1px dashed var(--brand-line); border-radius: 18px; padding: 18px 20px; color: var(--muted); }
+
+        /* Meet the RDC team as a HIERARCHY: the Director, the two wing coordinators under them, then the two units
+           that serve both wings as panels of compact rows. Everything centred, so no row ends in an empty gap. */
+        .org { display: flex; flex-direction: column; align-items: center; }
+        .person { background: #fff; border: 1px solid var(--line); border-radius: 22px; transition: transform .25s ease, box-shadow .25s ease, opacity .7s ease; }
         .person:hover { transform: translateY(-4px); box-shadow: 0 26px 44px -30px rgba(45, 37, 148, .7); }
         .person.rv { transform: translateY(26px); } .person.rv.in { transform: none; } .person.rv.in:hover { transform: translateY(-4px); }
-        .person img { width: 112px; height: 112px; border-radius: 50%; object-fit: cover; margin-bottom: 14px;
-                      box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--brand-line), 0 14px 26px -14px rgba(45, 37, 148, .6); }
-        .person .unit { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
-        .person b { display: block; font: 700 16.5px/1.3 var(--head); margin: 4px 0 2px; }
-        .person .title { font-size: 14px; font-weight: 600; color: var(--ink); }
-        .person p { margin: 10px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
-        .person.lead { background: linear-gradient(180deg, var(--brand-soft), #fff 60%); border-color: var(--brand-line); }
+        .person img { border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--brand-line), 0 14px 26px -14px rgba(45, 37, 148, .6); }
+        .person .unit { display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
+        .person b { display: block; font: 700 16.5px/1.3 var(--head); margin: 3px 0 2px; }
+        .person .title { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
+        .person p { margin: 8px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+        .boss { width: 100%; max-width: 440px; padding: 26px 26px 24px; text-align: center; background: linear-gradient(180deg, var(--brand-soft), #fff 62%); border-color: var(--brand-line); }
+        .boss img { width: 124px; height: 124px; margin: 0 auto 14px; display: block; }
+        .stem { width: 3px; height: 30px; border-radius: 3px; background: var(--brand-line); }
+        .pair { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; width: 100%; max-width: 860px; padding-top: 30px; }
+        .pair::before { content: ""; position: absolute; top: 0; left: calc(25% - 6px); right: calc(25% - 6px); height: 3px; border-radius: 3px; background: var(--brand-line); }
+        .pair > .coord::before { content: ""; position: absolute; top: -31px; left: calc(50% - 1.5px); width: 3px; height: 31px; background: var(--brand-line); }
+        .coord { position: relative; display: flex; gap: 16px; align-items: flex-start; padding: 20px; text-align: left; }
+        .coord img { width: 84px; height: 84px; }
+        .units { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; width: 100%; margin-top: 44px; align-items: start; }
+        .squad { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 20px 20px 6px; }
+        .squad h3 { margin: 0; font: 800 12.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--brand-ink); }
+        .squad > p { margin: 4px 0 8px; color: var(--muted); font-size: 14px; }
+        .mini { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
+        .mini img { width: 54px; height: 54px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--brand-line); }
+        .mini b { display: block; font: 700 15px/1.3 var(--head); }
+        .mini span { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); }
+        .mini small { display: block; font-size: 12.5px; color: var(--muted); }
         .reach { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-top: 34px; }
         .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 22px 20px; display: flex; flex-direction: column; }
         .card .tag { font: 800 13px var(--head); letter-spacing: .06em; color: var(--brand-ink); }
@@ -291,7 +342,11 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .chapter::before { content: ""; position: absolute; left: -32px; top: 2px; width: 17px; height: 17px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 5px var(--canvas); }
             .chapter h3 { font-size: 24px; }
             .chapter p { font-size: 15.5px; }
-            .team { grid-template-columns: 1fr 1fr; }
+            .pair, .units { grid-template-columns: 1fr; }
+            .pair { padding-top: 0; gap: 14px; }
+            .pair::before, .pair > .coord::before, .stem { display: none; }
+            .boss { margin-bottom: 14px; }
+            .units { margin-top: 18px; }
             .reach { grid-template-columns: 1fr; }
         }
         @media (max-width: 560px) {
@@ -299,10 +354,13 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .lockup small, .marks { display: none; }
             .top-actions .btn-light { display: none; }   /* Register is the big hero button; Sign in must stay */
             .gc-head { padding-right: 0; flex-wrap: wrap; }
-            .team { grid-template-columns: 1fr; gap: 12px; }
-            .person { display: grid; grid-template-columns: 64px 1fr; gap: 0 14px; text-align: left; align-items: start; padding: 16px; border-radius: 18px; }
-            .person img { width: 64px; height: 64px; margin: 2px 0 0; grid-row: span 4; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--brand-line); }
-            .person b { font-size: 15.5px; } .person p { margin-top: 6px; font-size: 13px; }
+            .boss { padding: 22px 18px 20px; }
+            .boss img { width: 104px; height: 104px; }
+            .coord { padding: 16px; gap: 14px; }
+            .coord img { width: 64px; height: 64px; }
+            .person b { font-size: 15.5px; } .person p { font-size: 13px; }
+            .sched-row { grid-auto-flow: column; grid-template-columns: none; grid-auto-columns: 82%; overflow-x: auto; scroll-snap-type: x mandatory; padding-bottom: 6px; }
+            .sday { scroll-snap-align: start; }
             .hero-cta .btn { flex: 1 1 100%; }
             .hero-cta { justify-content: center; }
             .seg { width: 100%; justify-content: space-between; }
@@ -407,6 +465,37 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         </div>
     </section>
 
+    <section class="block" id="schedule">
+        <div class="wrap">
+            <div class="sched-head rv">
+                <div class="sec-h">
+                    <span class="eyebrow">Defense schedule</span>
+                    <h2>Who defends next</h2>
+                    <p>Published defense dates, by section. Names and titles are never shown.</p>
+                </div>
+                <a class="btn btn-solid btn-sm" href="schedule.php">Open the full calendar</a>
+            </div>
+            <?php if ($lp_sched): ?>
+                <div class="sched-label"><?= $e($lp_sched_label) ?></div>
+                <div class="sched-row">
+                    <?php $k = 0; foreach ($lp_sched as $day => $list): $ts = strtotime($day); ?>
+                        <a class="sday rv<?= $day < df_today() ? ' past' : '' ?>" href="schedule.php" style="--d:<?= $k++ * .08 ?>s">
+                            <span class="sdate"><b><?= date('j', $ts) ?></b><span><?= date('M', $ts) ?></span><small><?= date('D', $ts) ?></small></span>
+                            <span class="srooms">
+                                <?php foreach (array_slice($list, 0, 3) as $it): ?>
+                                    <span class="sroom"><em><?= $it['phase'] === 'final' ? 'F' : 'P' ?></em><?= $e($it['short']) ?><i><?= $e($it['school']) ?></i></span>
+                                <?php endforeach; ?>
+                                <?php if (count($list) > 3): ?><span class="smore">+<?= count($list) - 3 ?> more section<?= count($list) - 3 > 1 ? 's' : '' ?></span><?php endif; ?>
+                            </span>
+                        </a>
+                    <?php endforeach; ?>
+                </div>
+            <?php else: ?>
+                <div class="sched-empty rv">No defense dates are published yet. They appear here as soon as the research office publishes them.</div>
+            <?php endif; ?>
+        </div>
+    </section>
+
     <?php if ($lp_forms): ?>
     <section class="block" id="forms">
         <div class="wrap">
@@ -445,22 +534,38 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                 <h2>The people behind your paper</h2>
                 <p>One Research &amp; Development Center serving both MCNP and ISAP.</p>
             </div>
-            <?php foreach ($lp_team as $group => $people): ?>
-                <div class="team-group">
-                    <h3 class="rv"><?= $e($group) ?></h3>
-                    <div class="team">
-                        <?php foreach ($people as $k => [$photo, $name, $title, $unit, $does]): ?>
-                            <article class="person rv<?= $group === 'Leadership & Coordinators' && $k === 0 ? ' lead' : '' ?>" style="--d:<?= $k * .1 ?>s">
-                                <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="112" height="112">
-                                <span class="unit"><?= $e($unit) ?></span>
-                                <b><?= $e($name) ?></b>
-                                <span class="title"><?= $e($title) ?></span>
-                                <p><?= $e($does) ?></p>
-                            </article>
-                        <?php endforeach; ?>
-                    </div>
+            <?php [$boss, $coordA, $coordB] = $lp_team['Leadership & Coordinators'];
+            $lp_units = ['Biostatisticians' => 'Statistical treatment, Form 011 clearance and data clinics for both institutions.',
+                         'Systems & Secretariat' => 'Defense scheduling, records, clearances, and the digital repository.']; ?>
+            <div class="org">
+                <article class="person boss rv">
+                    <img src="assets/images/team/<?= $e($boss[0]) ?>" alt="<?= $e($boss[1]) ?>" loading="lazy" width="124" height="124">
+                    <span class="unit"><?= $e($boss[3]) ?></span><b><?= $e($boss[1]) ?></b><span class="title"><?= $e($boss[2]) ?></span><p><?= $e($boss[4]) ?></p>
+                </article>
+                <div class="stem"></div>
+                <div class="pair">
+                    <?php foreach ([$coordA, $coordB] as $k => [$photo, $name, $title, $unit, $does]): ?>
+                        <article class="person coord rv" style="--d:<?= .1 + $k * .12 ?>s">
+                            <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="84" height="84">
+                            <div><span class="unit"><?= $e($unit) ?></span><b><?= $e($name) ?></b><span class="title"><?= $e($title) ?></span><p><?= $e($does) ?></p></div>
+                        </article>
+                    <?php endforeach; ?>
                 </div>
-            <?php endforeach; ?>
+                <div class="units">
+                    <?php $k = 0; foreach ($lp_units as $group => $desc): ?>
+                        <section class="squad rv" style="--d:<?= $k++ * .12 ?>s">
+                            <h3><?= $e($group) ?></h3>
+                            <p><?= $e($desc) ?></p>
+                            <?php foreach ($lp_team[$group] as [$photo, $name, $title, $unit, $does]): ?>
+                                <div class="mini">
+                                    <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="54" height="54">
+                                    <div><b><?= $e($name) ?></b><span><?= $e($title) ?></span><small><?= $e($unit) ?></small></div>
+                                </div>
+                            <?php endforeach; ?>
+                        </section>
+                    <?php endforeach; ?>
+                </div>
+            </div>
             <div class="reach">
                 <div class="card rv">
                     <span class="tag">VISIT OR WRITE</span>
@@ -494,6 +599,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             <h4>iSubmit</h4>
             <ul>
                 <li><a href="#how">How it works</a></li>
+                <li><a href="schedule.php">Defense schedule</a></li>
                 <li><a href="#forms">Blank forms</a></li>
                 <li><a href="#contact">Meet the RDC team</a></li>
                 <li><a href="auth/help.php">Help desk</a></li>

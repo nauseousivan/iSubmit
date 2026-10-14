@@ -20,9 +20,17 @@ date_default_timezone_set('Asia/Manila');
 require_once '../config/db.php';
 require_once '../config/mail.php';
 require_once '../config/group_helpers.php';
+require_once '../config/google_auth.php';
 
 $message = "";
 $message_type = "error"; // "error" or "success"
+
+// 2026-10-15: a sign-up that started with "Continue with Google" (auth/google_callback.php). Google has proved the
+// email, so it is FIXED to Google's (whatever the form posts), there is no password and no email code; every other
+// field and rule below is the same as a normal sign-up. Half an hour to finish, then it must start again.
+if (isset($_GET['google']) && $_GET['google'] === 'cancel') unset($_SESSION['google_signup']);
+$g_signup = (!empty($_SESSION['google_signup']['email']) && time() - (int)$_SESSION['google_signup']['at'] < 1800) ? $_SESSION['google_signup'] : null;
+if (!$g_signup) unset($_SESSION['google_signup']);
 
 // 2026-10-01: the Admin can close student sign-ups (System settings). The form still shows, and says so.
 $registration_closed = function_exists('rd_setting') && rd_setting('registration_open', '1') !== '1';
@@ -34,6 +42,13 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
     $username = trim($_POST['username'] ?? '');
     $email = trim($_POST['email'] ?? '');
     $password = password_hash($_POST['password'] ?? '', PASSWORD_BCRYPT);
+    if ($g_signup) {
+        // Google sign-up: the email is Google's verified one, never the form's; the password is a random one
+        // nobody knows (they sign in with Google, or set one later through "Forgot password").
+        $email = $g_signup['email'];
+        $password = password_hash(bin2hex(random_bytes(24)), PASSWORD_BCRYPT);
+        if ($username === '') $username = $g_signup['name'];
+    }
     // Self-registration only ever makes a Student. The form posts a hidden role field, and
     // trusting it let anyone sign up as a Director (or, since 2026-09-30, an Admin) by editing it.
     // Staff accounts are made in admin_accounts.php.
@@ -193,6 +208,17 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
             // (covers teammates who were invited but self-registered normally,
             // including the common case of leaving Step 1 on its default "Leader" choice).
             consume_pending_invites_for_new_account($pdo, $new_user_id, $email, $leader_id);
+
+            // Google sign-up: the email is already proven, so no code to send — verified and signed straight in.
+            if ($g_signup) {
+                $pdo->prepare("UPDATE users SET is_verified = 1 WHERE user_id = ?")->execute([$new_user_id]);
+                unset($_SESSION['google_signup']);
+                $st_new = $pdo->prepare("SELECT * FROM users WHERE user_id = ?");
+                $st_new->execute([$new_user_id]);
+                rd_log_login($pdo, $email, (int)$new_user_id, true, 'google_signup');
+                header('Location: ' . rd_session_login($pdo, $st_new->fetch()));
+                exit();
+            }
 
             // Set up secure verification OTP
             $otp_code = strval(rand(100000, 999999));
@@ -364,6 +390,13 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                     </div>
                 </div>
 
+                <?php if ($g_signup): ?>
+                    <div style="display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap;background:#f4f3ff;border:1px solid #dcd9fb;border-radius:14px;padding:12px 14px;margin-bottom:16px;font-size:13.5px;line-height:1.45;color:#3f3a5c">
+                        <span>Signed in with Google as <b><?= htmlspecialchars($g_signup['email']) ?></b>. Finish the steps below to create your account; no password needed.</span>
+                        <a href="register.php?google=cancel" style="color:#3f35c9;font-weight:700;text-decoration:none;white-space:nowrap">Use email instead</a>
+                    </div>
+                    <script>window.GOOGLE_SIGNUP = true;</script>
+                <?php endif; ?>
                 <form action="" method="POST" id="regForm" autocomplete="on">
                     <input type="hidden" name="auth_action" value="register">
 
@@ -389,6 +422,7 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                                 </div>
                             </label>
                         </div>
+                        <?php if (!$g_signup && !$registration_closed) rd_google_button('Sign up with Google'); ?>
                     </div>
 
                     <!-- -----------------------------------------
@@ -399,7 +433,7 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                             <label>Student researcher / Full Name</label>
                             <div class="mat-input-with-icon">
                                 <i data-lucide="user" class="mat-icon" style="width: 18px; height: 18px;"></i>
-                                <input type="text" class="mat-input" name="username" id="usernameInput" placeholder="e.g. Juan De La Cruz" required autocomplete="name">
+                                <input type="text" class="mat-input" name="username" id="usernameInput" placeholder="e.g. Juan De La Cruz" required autocomplete="name"<?= $g_signup ? ' value="' . htmlspecialchars($g_signup['name']) . '"' : '' ?>>
                             </div>
                         </div>
 
@@ -407,15 +441,18 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                             <label>Gmail Address</label>
                             <div class="mat-input-with-icon">
                                 <i data-lucide="mail" class="mat-icon" style="width: 18px; height: 18px;"></i>
-                                <input type="email" class="mat-input" name="email" id="emailInput" placeholder="example@mcnp.edu.ph" required autocomplete="email">
+                                <input type="email" class="mat-input" name="email" id="emailInput" placeholder="example@mcnp.edu.ph" required autocomplete="email"<?= $g_signup ? ' value="' . htmlspecialchars($g_signup['email']) . '" readonly style="opacity:.75"' : '' ?>>
                             </div>
                         </div>
 
+                        <?php /* Google sign-up: no password — the three password parts stay in the page (the JS reads them)
+                                 but are hidden and disabled, so the browser neither checks nor sends them. */ ?>
+                        <div id="pwBlock"<?= $g_signup ? ' style="display:none"' : '' ?>>
                         <div class="mat-input-group" style="margin-bottom: 8px;">
                             <label>Password / PIN</label>
                             <div class="mat-input-with-icon">
                                 <i data-lucide="lock" class="mat-icon" style="width: 18px; height: 18px;"></i>
-                                <input type="password" class="mat-input" name="password" id="registerPass" placeholder="••••••••" required autocomplete="new-password" onkeyup="validatePassword()">
+                                <input type="password" class="mat-input" name="password" id="registerPass" placeholder="••••••••" required autocomplete="new-password"<?= $g_signup ? ' disabled' : '' ?> onkeyup="validatePassword()">
                                 <button type="button" class="password-toggle-btn" onclick="togglePassword('registerPass', this)" style="position: absolute; right: 12px; top: 0; background: transparent; border: none; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; height: 100%;">
                                     <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
                                 </button>
@@ -434,7 +471,7 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                             <label>Confirm Password</label>
                             <div class="mat-input-with-icon">
                                 <i data-lucide="shield-check" class="mat-icon" style="width: 18px; height: 18px;"></i>
-                                <input type="password" class="mat-input" name="confirm_password" id="confirmPass" placeholder="••••••••" required autocomplete="new-password" onkeyup="validatePasswordMatch()">
+                                <input type="password" class="mat-input" name="confirm_password" id="confirmPass" placeholder="••••••••" required autocomplete="new-password"<?= $g_signup ? ' disabled' : '' ?> onkeyup="validatePasswordMatch()">
                                 <button type="button" class="password-toggle-btn" onclick="togglePassword('confirmPass', this)" style="position: absolute; right: 12px; top: 0; background: transparent; border: none; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; height: 100%;">
                                     <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
                                 </button>
@@ -443,6 +480,7 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                                 <i data-lucide="alert-circle" style="width: 14px; height: 14px;"></i> Passwords do not match.
                             </div>
                         </div>
+                        </div><!-- /#pwBlock -->
                     </div>
 
                     <!-- -----------------------------------------
@@ -943,7 +981,7 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                     }
                 }
 
-                if (step === 2 && isValid) {
+                if (step === 2 && isValid && !window.GOOGLE_SIGNUP) {   // a Google sign-up has no password
                     if (!validatePassword() || !validatePasswordMatch()) {
                         isValid = false;
                         const passInput = document.getElementById('registerPass');

@@ -13,6 +13,10 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
   filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
   beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
+- **Continue with Google (2026-10-15).** `config/google_auth.php` + `auth/google.php` + `auth/google_callback.php`.
+  Existing email -> signed in through login.php's gates (`rd_session_login()` mirrors login.php's session: keep in step).
+  New email -> `register.php` in Google mode (`$_SESSION[google_signup]`, 30 min): email forced to Google's, random
+  password, `is_verified = 1`, no OTP. Students only. Hidden until `config/google_secret.php` (gitignored) exists.
 - **Defense schedule calendar (2026-10-15).** `schedule_lib.php` `sch_published()` is the one source (Scheduled batches,
   sections only) for the student mini-calendar (dots + rooms on tap), `calendar_all.php` (now a month grid via
   `assets/js/defense_calendar.js`, with a Coming up panel), the public `schedule.php` and the front-page strip. The

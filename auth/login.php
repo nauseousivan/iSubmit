@@ -250,8 +250,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                         <div class="mat-input-with-icon">
                             <i data-lucide="lock" class="prefix-icon" style="width: 18px; height: 18px;"></i>
                             <input type="password" name="password" id="loginPass" class="mat-input" placeholder="••••••••" required autocomplete="current-password">
-                            <button type="button" class="mat-btn mat-btn-text" onclick="togglePassword('loginPass', this)" style="position: absolute; right: 4px; padding: 8px; min-width: auto; height: 36px;">
-                                <i data-lucide="eye" style="width: 18px; height: 18px; margin: 0;"></i>
+                            <button type="button" class="password-toggle-btn" onclick="togglePassword('loginPass', this)" aria-label="Show password" style="position: absolute; right: 12px; top: 0; background: transparent; border: none; cursor: pointer; color: var(--text-muted); display: flex; align-items: center; height: 100%; padding: 0 4px;">
+                                <i data-lucide="eye" style="width: 18px; height: 18px;"></i>
                             </button>
                         </div>
                     </div>

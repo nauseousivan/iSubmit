@@ -23,17 +23,24 @@ if (isset($_SESSION['user_id'])) {
     exit();
 }
 
-// The office behind the paper, by ROLE (the RDC's own structure: one center, two wings). No names on purpose:
-// a public page that lists people goes stale the day someone moves, and it put two lone coordinators on show.
-$lp_office = [
-    'head'  => ['Director', 'Research & Development Center', 'Sets the research agenda and oversees both institutions.'],
-    'units' => [
-        ['Secretariat & Records', 'Research office', 'Publishes defense schedules, keeps the records and issues clearances.'],
-        ['Biostatistics', 'Statisticians', 'Treat your data, register your statistics payment (RDC Form 011) and release your results.'],
+// Meet the RDC team — the office's own roster and grouping (from the RDC website's "Meet the RDC Team"), with the
+// photo cut from each person's calling card (assets/images/team/pN.jpg). Faces only: the cards carry personal
+// mobile numbers and emails, which never go on this page — the office email in the contact card is the way in.
+// Focal Persons are not on it (they are per course, not the office). When staff change, edit this list.
+$lp_team = [
+    'Leadership & Coordinators' => [
+        ['p1.jpg', 'Dr. Ryan C. Fontanilla, Ph.D.-EM', 'Research Director', 'Executive Leadership', 'Directs the research agenda, ethics compliance and research linkages for MCNP and ISAP.'],
+        ['p2.jpg', 'Ms. Rio Frances G. Callores, MSc', 'MCNP Research Coordinator', 'MCNP Health Wing', 'Oversees health sciences research: Nursing, Medical Technology, Radiologic Technology, Pharmacy and Physical Therapy.'],
+        ['p3.jpg', 'Engr. KC R. Placido', 'ISAP Research Coordinator', 'ISAP Multidisciplinary Wing', 'Oversees Criminology, Customs Administration, IT, Teacher Education, Business and the Arts.'],
     ],
-    'wings' => [
-        ['MCNP', 'Health Sciences Wing', 'Medical Colleges of Northern Philippines'],
-        ['ISAP', 'Multidisciplinary Wing', 'International School of Asia and the Pacific'],
+    'Biostatisticians' => [
+        ['p4.jpg', 'Ms. Tshaine Anne T. Labang, LPT', 'Statistician for Faculty and Administration', 'Faculty & Admin Analytics', 'Statistics for faculty and institutional research, and faculty research clearances.'],
+        ['p5.jpg', 'Ms. Ruchelle B. Langcay', 'MCNP Statistician', 'Health Biostatistics Desk', 'Statistical treatment and Form 011 clearance for MCNP theses.'],
+        ['p6.jpg', 'Ms. Maryjane B. Agabin', 'ISAP Statistician', 'Multidisciplinary Biostatistics Desk', 'Statistical treatment, instrument testing and clearance for ISAP theses.'],
+    ],
+    'Systems & Secretariat' => [
+        ['p8.jpg', 'Ms. Lea M. Paddayuman', 'Secretary', 'Secretariat & Records', 'Defense scheduling, records, and completion clearances.'],
+        ['p7.jpg', 'Mr. Jerald J. Guiquing', 'IT Specialist', 'Systems & Digital Repositories', 'The digital repository, research journals and the Turnitin database.'],
     ],
 ];
 
@@ -215,28 +222,21 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
         .note b { color: var(--ink); }
 
-        /* the office behind your paper: the RDC's structure by role, drawn as an org chart whose wires grow in */
-        .org { display: flex; flex-direction: column; align-items: center; }
-        .node { position: relative; background: #fff; border: 1px solid var(--line); border-radius: 18px; padding: 16px 20px; text-align: center; width: 100%; max-width: 340px;
-                box-shadow: 0 18px 40px -30px rgba(45, 37, 148, .6); }
-        .node .k { display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
-        .node b { display: block; font: 700 17px/1.3 var(--head); margin: 3px 0 4px; }
-        .node p { margin: 0; color: var(--muted); font-size: 14px; line-height: 1.5; }
-        .node.head { background: var(--brand); border-color: transparent; color: #fff; max-width: 380px; padding: 20px 24px; }
-        .node.head .k, .node.head p { color: rgba(255, 255, 255, .8); }
-        .node.focal { background: var(--brand-soft); border-style: dashed; border-color: var(--brand-line); box-shadow: none; }
-        .wire { width: 3px; height: 34px; border-radius: 3px; background: var(--brand-line); transform-origin: top; transform: scaleY(0); transition: transform .5s ease .15s; }
-        .in > .wire, .in.wire, .js-off .wire { transform: none; }
-        .wings { position: relative; display: grid; grid-template-columns: 1fr 1fr; gap: 28px; width: 100%; max-width: 760px; padding-top: 34px; }
-        .wings::before { content: ""; position: absolute; top: 0; left: 25%; right: 25%; height: 3px; border-radius: 3px; background: var(--brand-line);
-                         transform: scaleX(0); transition: transform .6s ease .1s; }
-        .wings.in::before, .js-off .wings::before { transform: none; }
-        .wing { display: flex; flex-direction: column; align-items: center; position: relative; }
-        .wing::before { content: ""; position: absolute; top: -34px; left: calc(50% - 1.5px); width: 3px; height: 34px; background: var(--brand-line); }
-        .serve { width: 100%; max-width: 760px; margin-top: 30px; padding: 22px; border-radius: 22px; border: 1px dashed var(--brand-line); background: rgba(255, 255, 255, .6); }
-        .serve > span { display: block; text-align: center; font-size: 12px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin-bottom: 14px; }
-        .serve-row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-        .serve-row .node { max-width: none; }
+        /* Meet the RDC team: their grouping, a portrait card each; cards rise in and lift on hover */
+        .team-group + .team-group { margin-top: 38px; }
+        .team-group > h3 { font: 800 12.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); margin: 0 0 14px; }
+        .team { display: grid; grid-template-columns: repeat(3, 1fr); gap: 18px; }
+        .person { background: #fff; border: 1px solid var(--line); border-radius: 22px; padding: 24px 22px 22px; text-align: center; display: flex; flex-direction: column; align-items: center;
+                  transition: transform .25s ease, box-shadow .25s ease, opacity .7s ease; }
+        .person:hover { transform: translateY(-4px); box-shadow: 0 26px 44px -30px rgba(45, 37, 148, .7); }
+        .person.rv { transform: translateY(26px); } .person.rv.in { transform: none; } .person.rv.in:hover { transform: translateY(-4px); }
+        .person img { width: 112px; height: 112px; border-radius: 50%; object-fit: cover; margin-bottom: 14px;
+                      box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--brand-line), 0 14px 26px -14px rgba(45, 37, 148, .6); }
+        .person .unit { font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
+        .person b { display: block; font: 700 16.5px/1.3 var(--head); margin: 4px 0 2px; }
+        .person .title { font-size: 14px; font-weight: 600; color: var(--ink); }
+        .person p { margin: 10px 0 0; color: var(--muted); font-size: 13.5px; line-height: 1.55; }
+        .person.lead { background: linear-gradient(180deg, var(--brand-soft), #fff 60%); border-color: var(--brand-line); }
         .reach { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; margin-top: 34px; }
         .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 22px 22px 20px; display: flex; flex-direction: column; }
         .card .tag { font: 800 13px var(--head); letter-spacing: .06em; color: var(--brand-ink); }
@@ -291,17 +291,18 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .chapter::before { content: ""; position: absolute; left: -32px; top: 2px; width: 17px; height: 17px; border-radius: 50%; background: var(--brand); box-shadow: 0 0 0 5px var(--canvas); }
             .chapter h3 { font-size: 24px; }
             .chapter p { font-size: 15.5px; }
-            .wings, .serve-row, .reach { grid-template-columns: 1fr; }
-            .wings::before, .wing::before { display: none; }
-            .wings { padding-top: 0; gap: 0; }
-            .wing { padding-top: 0; }
-            .wing + .wing { margin-top: 18px; }
+            .team { grid-template-columns: 1fr 1fr; }
+            .reach { grid-template-columns: 1fr; }
         }
         @media (max-width: 560px) {
             .wrap { padding-left: 16px; padding-right: 16px; }
             .lockup small, .marks { display: none; }
             .top-actions .btn-light { display: none; }   /* Register is the big hero button; Sign in must stay */
             .gc-head { padding-right: 0; flex-wrap: wrap; }
+            .team { grid-template-columns: 1fr; gap: 12px; }
+            .person { display: grid; grid-template-columns: 64px 1fr; gap: 0 14px; text-align: left; align-items: start; padding: 16px; border-radius: 18px; }
+            .person img { width: 64px; height: 64px; margin: 2px 0 0; grid-row: span 4; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--brand-line); }
+            .person b { font-size: 15.5px; } .person p { margin-top: 6px; font-size: 13px; }
             .hero-cta .btn { flex: 1 1 100%; }
             .hero-cta { justify-content: center; }
             .seg { width: 100%; justify-content: space-between; }
@@ -311,7 +312,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         }
         @media (prefers-reduced-motion: reduce) {
             html { scroll-behavior: auto; } .btn { transition: none; } .demo .bird-in { animation: none; }
-            .rv { opacity: 1; transform: none; transition: none; } .wire, .wings::before { transform: none; transition: none; }
+            .rv, .person.rv { opacity: 1; transform: none; transition: none; }
             .demo-tilt, .rail-bird, .rail-fill, .panel-bar b { transition: none; }
         }
     </style>
@@ -440,31 +441,26 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
     <section class="block" id="contact">
         <div class="wrap">
             <div class="sec-h rv">
-                <span class="eyebrow">The office behind your paper</span>
-                <h2>One center, two institutions</h2>
-                <p>The Research &amp; Development Center serves MCNP and ISAP together. This is who handles your paper once it reaches iSubmit.</p>
+                <span class="eyebrow">Meet the RDC team</span>
+                <h2>The people behind your paper</h2>
+                <p>One Research &amp; Development Center serving both MCNP and ISAP.</p>
             </div>
-            <div class="org">
-                <div class="node head rv"><span class="k"><?= $e($lp_office['head'][1]) ?></span><b><?= $e($lp_office['head'][0]) ?></b><p><?= $e($lp_office['head'][2]) ?></p></div>
-                <div class="wire rv"></div>
-                <div class="wings rv">
-                    <?php foreach ($lp_office['wings'] as $k => [$code, $wing, $inst]): ?>
-                        <div class="wing">
-                            <div class="node rv" style="--d:<?= .15 + $k * .12 ?>s"><span class="k"><?= $e($code) ?> · <?= $e($wing) ?></span><b>Research Coordinator</b><p>Validates requirements and confirms defense dates for <?= $e($inst) ?> groups.</p></div>
-                            <div class="wire rv" style="--d:<?= .3 + $k * .12 ?>s"></div>
-                            <div class="node focal rv" style="--d:<?= .4 + $k * .12 ?>s"><span class="k">One per course</span><b>Focal Persons</b><p>Check your requirements and endorse your section for a defense date.</p></div>
-                        </div>
-                    <?php endforeach; ?>
-                </div>
-                <div class="serve rv">
-                    <span>Serving both institutions</span>
-                    <div class="serve-row">
-                        <?php foreach ($lp_office['units'] as $k => [$unit, $who, $does]): ?>
-                            <div class="node rv" style="--d:<?= .1 + $k * .12 ?>s"><span class="k"><?= $e($unit) ?></span><b><?= $e($who) ?></b><p><?= $e($does) ?></p></div>
+            <?php foreach ($lp_team as $group => $people): ?>
+                <div class="team-group">
+                    <h3 class="rv"><?= $e($group) ?></h3>
+                    <div class="team">
+                        <?php foreach ($people as $k => [$photo, $name, $title, $unit, $does]): ?>
+                            <article class="person rv<?= $group === 'Leadership & Coordinators' && $k === 0 ? ' lead' : '' ?>" style="--d:<?= $k * .1 ?>s">
+                                <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="112" height="112">
+                                <span class="unit"><?= $e($unit) ?></span>
+                                <b><?= $e($name) ?></b>
+                                <span class="title"><?= $e($title) ?></span>
+                                <p><?= $e($does) ?></p>
+                            </article>
                         <?php endforeach; ?>
                     </div>
                 </div>
-            </div>
+            <?php endforeach; ?>
             <div class="reach">
                 <div class="card rv">
                     <span class="tag">VISIT OR WRITE</span>
@@ -499,7 +495,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             <ul>
                 <li><a href="#how">How it works</a></li>
                 <li><a href="#forms">Blank forms</a></li>
-                <li><a href="#contact">The office</a></li>
+                <li><a href="#contact">Meet the RDC team</a></li>
                 <li><a href="auth/help.php">Help desk</a></li>
             </ul>
         </div>

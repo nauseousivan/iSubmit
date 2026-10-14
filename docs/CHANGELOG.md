@@ -13,6 +13,10 @@ All notable changes to the `iSubmit` project will be documented in this file.
   Hero = headline + an EXAMPLE group card (never real data) with the eagle perched on it; forms are small cards
   filtered one phase at a time (Proposal first, Form 002 in both Proposal and Final). RDC/MCNP/ISAP marks show
   beside the wordmark only once `assets/images/logo-rdc|mcnp|isap.png` exist.
+- **Eagle flight intro shared (2026-10-14).** The loading screen moved out of `auth/login.php` + `theme.css` into
+  `dashboards/components/eagle_intro.php`, included right after `<body class="no-intro-delay">` on login AND the front
+  page. Once per session (`mcnp_isap_intro_played`), on whichever of the two opens first. The front page footer now
+  follows the RDC site: brand + description, link columns, the research office address / email / hours / Facebook.
 - **Live server hardening (2026-10-14).** Root `.htaccess`: no directory listings; `.md`/`.sql`/lock/log/dotfiles and
   `composer.json` refused; `/.git/` answers 404. `database/.htaccess` refuses the whole folder (CLI scripts only).
 

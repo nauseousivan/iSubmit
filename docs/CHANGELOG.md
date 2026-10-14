@@ -5,6 +5,21 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Public front page (2026-10-14, `index.php`).** Visitors who are not signed in now see what iSubmit is, the five
+  phases in order (Register → Proposal → Statistics → Final → Plagiarism, with who checks each), each institution's
+  Research Coordinator by NAME only (no emails or phone numbers on a public page), the Help desk, and the blank forms
+  per institution (read from `rd_form_current()`, so the Admin's uploads show), with Sign in / Register. It used to
+  jump straight to the login screen. Self-contained styles in the auth language (brand violet + doodles).
+- **Live server hardening (2026-10-14).** Root `.htaccess`: no directory listings; `.md`/`.sql`/lock/log/dotfiles and
+  `composer.json` refused; `/.git/` answers 404. `database/.htaccess` refuses the whole folder (CLI scripts only).
+
+### Fixed
+- **Admin and Focal Person were signed out by the main link.** `index.php` only routed four roles and sent the rest to
+  `logout.php`; it now routes all six, the same as `auth/login.php`.
+- **Login loop after logout (2026-10-14).** Login regenerates the session id; logout clears the data, deletes the
+  session cookie and destroys the session.
+
+### Added (earlier)
 - **Join a group by QR (2026-10-07).** On Research Group (`dashboards/members.php`) a leader can open "Or let them
   scan a QR" under the email invite. Teammates scan it and sign up on the new `auth/join.php` with name, School ID,
   email and password — NO emailed code, since the leader showing the QR in person is the check. They are created

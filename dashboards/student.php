@@ -2158,6 +2158,10 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
             background-color: var(--color-approved);
         }
 
+        /* Full / short label pairs: one line at every width, never a wrapped title or pill (phones get the short one) */
+        .lbl-short { display: none; }
+        @media (max-width: 768px) { .lbl-full { display: none; } .lbl-short { display: inline; } }
+
         /* published defenses of your institution (violet dot); your own group's published defense (green ring) */
         .cal-date.defense-day::after { background-color: #5b50f5; width: 5px; height: 5px; }
         .cal-date.my-defense { box-shadow: inset 0 0 0 2px var(--color-approved); }
@@ -3827,8 +3831,8 @@ $theme_glow = 'rgba(124, 58, 237, 0.12)';
                 <div class="right-column-wrapper" style="display: flex; flex-direction: column; gap: 12px;">
                     <div class="section-card">
                         <div class="section-title-wrapper">
-                            <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i>Defense schedule & events</h3>
-                            <a href="javascript:void(0)" onclick="pushView('zoom-calendar', 'calendar_all.php')" class="btn-see-all">Open calendar</a>
+                            <h3 class="section-title"><i data-lucide="calendar-days" style="width:16px;height:16px;color:#7c3aed;"></i><span class="lbl-full">Defense schedule & events</span><span class="lbl-short">Schedule</span></h3>
+                            <a href="javascript:void(0)" onclick="pushView('zoom-calendar', 'calendar_all.php')" class="btn-see-all"><span class="lbl-full">Open calendar</span><span class="lbl-short">Open</span></a>
                         </div>
 
                         <div class="mini-calendar-wrapper">

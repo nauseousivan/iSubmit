@@ -109,6 +109,8 @@ body.theme-dark .dc-pf em, body.theme-dark .dc-chip em { background: rgba(255, 2
     .dc-chips { display: none; }                 /* phones: dots in the cell, the list underneath */
     .dc-dots { display: flex; }
     .dc-month { min-width: 0; font-size: 18px; }
-    .dc-pf { margin-left: 0; }
+    .dc-pf { margin-left: 0; font-size: 11.5px; }
+    .dc-legend { gap: 4px 12px; }
+    .dc-key { font-size: 12.5px; }
 }
 @media (prefers-reduced-motion: reduce) { .dc-day { transition: none; } }

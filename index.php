@@ -40,23 +40,23 @@ try {
 } catch (Throwable $ex) { $lp_sched = []; }
 
 // Meet the RDC team — the office's own roster and grouping (from the RDC website's "Meet the RDC Team"), with the
-// photo cut from each person's calling card (assets/images/team/pN.jpg). Faces only: the cards carry personal
+// official portrait (assets/images/officers/<name>.png: circular 600x600, transparent corners, shown WHOLE with object-fit: contain). The calling cards carry personal
 // mobile numbers and emails, which never go on this page — the office email in the contact card is the way in.
 // Focal Persons are not on it (they are per course, not the office). When staff change, edit this list.
 $lp_team = [
     'Leadership & Coordinators' => [
-        ['p1.jpg', 'Dr. Ryan C. Fontanilla, Ph.D.-EM', 'Research Director', 'Executive Leadership', 'Directs the research agenda, ethics compliance and research linkages for MCNP and ISAP.'],
-        ['p2.jpg', 'Ms. Rio Frances G. Callores, MSc', 'MCNP Research Coordinator', 'MCNP Health Wing', 'Oversees health sciences research: Nursing, Medical Technology, Radiologic Technology, Pharmacy and Physical Therapy.'],
-        ['p3.jpg', 'Engr. KC R. Placido', 'ISAP Research Coordinator', 'ISAP Multidisciplinary Wing', 'Oversees Criminology, Customs Administration, IT, Teacher Education, Business and the Arts.'],
+        ['ryan-fontanilla.png', 'Dr. Ryan C. Fontanilla, Ph.D.-EM', 'Research Director', 'Executive Leadership', 'Directs the research agenda, ethics compliance and research linkages for MCNP and ISAP.'],
+        ['rio-frances-callores.png', 'Ms. Rio Frances G. Callores, MSc', 'MCNP Research Coordinator', 'MCNP Health Wing', 'Oversees health sciences research: Nursing, Medical Technology, Radiologic Technology, Pharmacy and Physical Therapy.'],
+        ['kc-placido.png', 'Engr. KC R. Placido', 'ISAP Research Coordinator', 'ISAP Multidisciplinary Wing', 'Oversees Criminology, Customs Administration, IT, Teacher Education, Business and the Arts.'],
     ],
     'Biostatisticians' => [
-        ['p4.jpg', 'Ms. Tshaine Anne T. Labang, LPT', 'Statistician for Faculty and Administration', 'Faculty & Admin Analytics', 'Statistics for faculty and institutional research, and faculty research clearances.'],
-        ['p5.jpg', 'Ms. Ruchelle B. Langcay', 'MCNP Statistician', 'Health Biostatistics Desk', 'Statistical treatment and Form 011 clearance for MCNP theses.'],
-        ['p6.jpg', 'Ms. Maryjane B. Agabin', 'ISAP Statistician', 'Multidisciplinary Biostatistics Desk', 'Statistical treatment, instrument testing and clearance for ISAP theses.'],
+        ['tshaine-labang.png', 'Ms. Tshaine Anne T. Labang, LPT', 'Statistician for Faculty and Administration', 'Faculty & Admin Analytics', 'Statistics for faculty and institutional research, and faculty research clearances.'],
+        ['ruchelle-langcay.png', 'Ms. Ruchelle B. Langcay', 'MCNP Statistician', 'Health Biostatistics Desk', 'Statistical treatment and Form 011 clearance for MCNP theses.'],
+        ['maryjane-agabin.png', 'Ms. Maryjane B. Agabin', 'ISAP Statistician', 'Multidisciplinary Biostatistics Desk', 'Statistical treatment, instrument testing and clearance for ISAP theses.'],
     ],
     'Systems & Secretariat' => [
-        ['p8.jpg', 'Ms. Lea M. Paddayuman', 'Secretary', 'Secretariat & Records', 'Defense scheduling, records, and completion clearances.'],
-        ['p7.jpg', 'Mr. Jerald J. Guiquing', 'IT Specialist', 'Systems & Digital Repositories', 'The digital repository, research journals and the Turnitin database.'],
+        ['lea-paddayuman.png', 'Ms. Lea M. Paddayuman', 'Secretary', 'Secretariat & Records', 'Defense scheduling, records, and completion clearances.'],
+        ['jerald-guiquing.png', 'Mr. Jerald J. Guiquing', 'IT Specialist', 'Systems & Digital Repositories', 'The digital repository, research journals and the Turnitin database.'],
     ],
 ];
 
@@ -266,7 +266,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .person { background: #fff; border: 1px solid var(--line); border-radius: 22px; transition: transform .25s ease, box-shadow .25s ease, opacity .7s ease; }
         .person:hover { transform: translateY(-4px); box-shadow: 0 26px 44px -30px rgba(45, 37, 148, .7); }
         .person.rv { transform: translateY(26px); } .person.rv.in { transform: none; } .person.rv.in:hover { transform: translateY(-4px); }
-        .person img { border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--brand-line), 0 14px 26px -14px rgba(45, 37, 148, .6); }
+        .person img { border-radius: 50%; object-fit: contain; flex: none; box-shadow: 0 0 0 4px #fff, 0 0 0 6px var(--brand-line), 0 14px 26px -14px rgba(45, 37, 148, .6); }
         .person .unit { display: block; font-size: 11.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--brand-ink); }
         .person b { display: block; font: 700 16.5px/1.3 var(--head); margin: 3px 0 2px; }
         .person .title { display: block; font-size: 14px; font-weight: 600; color: var(--ink); }
@@ -284,7 +284,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .squad h3 { margin: 0; font: 800 12.5px var(--body); letter-spacing: .1em; text-transform: uppercase; color: var(--brand-ink); }
         .squad > p { margin: 4px 0 8px; color: var(--muted); font-size: 14px; }
         .mini { display: flex; gap: 14px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line); }
-        .mini img { width: 54px; height: 54px; border-radius: 50%; object-fit: cover; flex: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--brand-line); }
+        .mini img { width: 54px; height: 54px; border-radius: 50%; object-fit: contain; flex: none; box-shadow: 0 0 0 3px #fff, 0 0 0 5px var(--brand-line); }
         .mini b { display: block; font: 700 15px/1.3 var(--head); }
         .mini span { display: block; font-size: 13.5px; font-weight: 600; color: var(--ink); }
         .mini small { display: block; font-size: 12.5px; color: var(--muted); }
@@ -539,14 +539,14 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                          'Systems & Secretariat' => 'Defense scheduling, records, clearances, and the digital repository.']; ?>
             <div class="org">
                 <article class="person boss rv">
-                    <img src="assets/images/team/<?= $e($boss[0]) ?>" alt="<?= $e($boss[1]) ?>" loading="lazy" width="124" height="124">
+                    <img src="assets/images/officers/<?= $e($boss[0]) ?>" alt="<?= $e($boss[1]) ?>" loading="lazy" width="124" height="124">
                     <span class="unit"><?= $e($boss[3]) ?></span><b><?= $e($boss[1]) ?></b><span class="title"><?= $e($boss[2]) ?></span><p><?= $e($boss[4]) ?></p>
                 </article>
                 <div class="stem"></div>
                 <div class="pair">
                     <?php foreach ([$coordA, $coordB] as $k => [$photo, $name, $title, $unit, $does]): ?>
                         <article class="person coord rv" style="--d:<?= .1 + $k * .12 ?>s">
-                            <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="84" height="84">
+                            <img src="assets/images/officers/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="84" height="84">
                             <div><span class="unit"><?= $e($unit) ?></span><b><?= $e($name) ?></b><span class="title"><?= $e($title) ?></span><p><?= $e($does) ?></p></div>
                         </article>
                     <?php endforeach; ?>
@@ -558,7 +558,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                             <p><?= $e($desc) ?></p>
                             <?php foreach ($lp_team[$group] as [$photo, $name, $title, $unit, $does]): ?>
                                 <div class="mini">
-                                    <img src="assets/images/team/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="54" height="54">
+                                    <img src="assets/images/officers/<?= $e($photo) ?>" alt="<?= $e($name) ?>" loading="lazy" width="54" height="54">
                                     <div><b><?= $e($name) ?></b><span><?= $e($title) ?></span><small><?= $e($unit) ?></small></div>
                                 </div>
                             <?php endforeach; ?>

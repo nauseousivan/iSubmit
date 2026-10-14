@@ -90,6 +90,7 @@ $updated = 'October 14, 2026';
         <tr><th>Service</th><th>What it receives</th></tr>
         <tr><td>Cloud server (DigitalOcean)</td><td>Hosts iSubmit and its database, which hold everything above.</td></tr>
         <tr><td>Email delivery (Brevo)</td><td>Your email address and the message, to deliver verification codes and notifications.</td></tr>
+        <tr><td>Google sign-in (only if you use it)</td><td>When you press Continue with Google, Google tells iSubmit your name and verified email address. iSubmit receives no password and nothing else from your Google account.</td></tr>
         <tr><td>Google Fonts, unpkg, jsDelivr</td><td>Your IP address when your browser downloads the page's fonts and icons.</td></tr>
         <tr><td>Public holiday list (date.nager.at)</td><td>Your IP address when a calendar loads the Philippine public holidays.</td></tr>
         <tr><td>DiceBear avatars</td><td>Your name, to draw a default picture when you have not uploaded a profile photo.</td></tr>

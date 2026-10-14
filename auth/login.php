@@ -17,9 +17,15 @@ if (session_status() === PHP_SESSION_NONE) {
 date_default_timezone_set('Asia/Manila');
 
 require_once '../config/db.php';
+require_once '../config/google_auth.php';   // "Continue with Google" (2026-10-15)
 
 $message = "";
 $message_type = "error";
+// A note left by the Google sign-in (auth/google_callback.php): cancelled, not approved yet, closed, ...
+if (!empty($_SESSION['login_notice'])) {
+    [$message, $message_type] = $_SESSION['login_notice'];
+    unset($_SESSION['login_notice']);
+}
 // config/db.php signs out an account that was disabled mid-session and sends it here.
 if (isset($_GET['blocked'])) {
     $message = "Your account is no longer active. Please contact the research office.";
@@ -260,6 +266,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['auth_action']) && $_P
                     <button type="submit" class="mat-btn mat-btn-primary" style="width: 100%; justify-content: center; font-size: 15px; padding: 16px;">
                         LOGIN
                     </button>
+                    <?php rd_google_button('Continue with Google'); ?>
 
                     <div style="text-align: center; margin-top: 24px; font-size: 14px; color: var(--text-secondary);" class="mobile-only-link">
                         First time? <a href="register.php" style="color: var(--primary-color); font-weight: 600; text-decoration: none;">Create Account</a>

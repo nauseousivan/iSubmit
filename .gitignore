@@ -42,6 +42,7 @@ Thumbs.db
 
 # Gmail app password (config/mail.php reads it from here) — the repo is PUBLIC, never push it
 config/mail_secret.php
+config/google_secret.php
 
 # Blank forms the Admin uploads at runtime (Admin -> System -> Forms) — data, like uploads/.
 # The shipped defaults live at the root / dashboards/downloads and ARE tracked.

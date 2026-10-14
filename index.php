@@ -58,11 +58,14 @@ require_once __DIR__ . '/assets/mascot/eagle_svg.php';
 $e = fn($s) => htmlspecialchars((string)$s, ENT_QUOTES, 'UTF-8');
 
 $lp_phases = [
-    ['Register your group', 'The leader creates the group; teammates join by scanning the group\'s QR code or with its invite code.', 'Your group'],
-    ['Proposal', 'Upload the seven proposal requirements. Your Focal Person checks them and endorses your section for a defense date; the Coordinator confirms it and the research office publishes it.', 'Focal Person · Coordinator · Research office'],
-    ['Statistics', 'Opens once your proposal defense is scheduled. Hand in your coded data, pay with RDC Form 011 to get your control number, then receive your statistical results.', 'Statistician'],
-    ['Final', 'The same seven-requirement grid as the proposal, once your statistics are done, ending in your final defense.', 'Focal Person · Coordinator · Research office'],
-    ['Plagiarism', 'Upload the final manuscript and pay with RDC Form 13 for the Turnitin check. Each revision is a new round.', 'Research office'],
+    // [title, what happens, checked ON PAPER by (null = none), handled IN ISUBMIT by (null = none)].
+    // The paper sign-off is real and comes FIRST: the research teacher, adviser and dean check the paper in
+    // person and have no accounts. Only after that do the requirements come into iSubmit.
+    ['Register your group', 'The leader creates the group; teammates join by scanning the group\'s QR code or with its invite code.', null, null],
+    ['Proposal', 'After your research teacher, adviser and dean have checked and signed your paper, upload the seven proposal requirements. They are checked, then your section is endorsed for a defense date, confirmed and published.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office'],
+    ['Statistics', 'Opens once your proposal defense is scheduled. Hand in your coded data, pay with RDC Form 011 to get your control number, then receive your statistical results.', null, 'Statistician'],
+    ['Final', 'Once your statistics are done and your final paper is signed the same way, upload the seven final requirements, ending in your final defense.', 'Research teacher · Adviser · Dean', 'Focal Person · Coordinator · Research office'],
+    ['Plagiarism', 'Upload the final manuscript and pay with RDC Form 13 for the Turnitin check. Each revision is a new round.', null, 'Research office'],
 ];
 $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>';
 ?>
@@ -117,7 +120,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
         .lockup b { display: block; font: 800 21px/1 var(--head); letter-spacing: -.02em; }
         .lockup small { display: block; font-size: 12px; font-weight: 600; opacity: .85; margin-top: 4px; }
         .marks { display: flex; align-items: center; gap: 8px; padding-left: 14px; margin-left: 4px; border-left: 1px solid rgba(255, 255, 255, .35); }
-        .marks img { height: 36px; width: 36px; object-fit: contain; padding: 4px; border-radius: 50%; background: #fff; box-shadow: 0 4px 10px -4px rgba(20, 12, 90, .5); }
+        .marks img { height: 38px; width: auto; }
         .top-actions { display: flex; gap: 10px; flex: none; }
         .hero-in { display: grid; grid-template-columns: 1.1fr .9fr; gap: 48px; align-items: center; padding-top: 56px; padding-bottom: 96px; }
         .hero h1 { font-size: clamp(34px, 5vw, 56px); line-height: 1.08; margin: 0 0 18px; }
@@ -167,8 +170,10 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                       background: var(--brand); color: #fff; font: 800 18px var(--head); box-shadow: 0 0 0 6px var(--canvas), 0 10px 20px -10px rgba(63, 53, 201, .8); }
         .phase h3 { font-size: 18px; margin-bottom: 6px; }
         .phase p { margin: 0 0 12px; color: var(--muted); font-size: 14.5px; line-height: 1.55; }
-        .phase .who { display: inline-block; font-size: 12.5px; font-weight: 700; color: var(--brand-ink); background: var(--brand-soft); border: 1px solid var(--brand-line);
-                      padding: 4px 10px; border-radius: 8px; line-height: 1.4; }
+        .checks { display: grid; gap: 6px; }
+        .chk { font-size: 12.5px; font-weight: 700; line-height: 1.4; padding: 6px 10px; border-radius: 10px; color: var(--brand-ink); background: var(--brand-soft); border: 1px solid var(--brand-line); }
+        .chk span { display: block; font-size: 10.5px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+        .chk.paper { background: #fff; border-style: dashed; color: var(--ink); }   /* happens in person, outside the system */
         .note { margin-top: 26px; padding: 14px 18px; border-radius: 14px; background: var(--card); border: 1px solid var(--line); color: var(--muted); font-size: 14.5px; }
         .note b { color: var(--ink); }
 
@@ -211,7 +216,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
             .phases::before { top: 24px; bottom: 24px; left: 23px; right: auto; width: 3px; height: auto; background: linear-gradient(180deg, var(--brand), #a39dff); }
             .phase { display: grid; grid-template-columns: 48px 1fr; gap: 0 16px; padding-bottom: 26px; }
             .phase .num { margin: 0; grid-row: span 3; }
-            .phase .who { justify-self: start; }
+            .checks { justify-self: start; }
             .contacts { grid-template-columns: 1fr; }
         }
         @media (max-width: 560px) {
@@ -285,12 +290,15 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                 <p>Each phase opens when the one before it is done. iSubmit shows where your group is, and who has your paper right now.</p>
             </div>
             <ol class="phases">
-                <?php foreach ($lp_phases as $n => [$title, $what, $who]): ?>
+                <?php foreach ($lp_phases as $n => [$title, $what, $paper, $system]): ?>
                     <li class="phase">
                         <span class="num"><?= $n + 1 ?></span>
                         <h3><?= $e($title) ?></h3>
                         <p><?= $e($what) ?></p>
-                        <span class="who"><?= $e($who) ?></span>
+                        <?php if ($paper || $system): ?><div class="checks">
+                            <?php if ($paper): ?><div class="chk paper"><span>On paper</span><?= $e($paper) ?></div><?php endif; ?>
+                            <?php if ($system): ?><div class="chk sys"><span>In iSubmit</span><?= $e($system) ?></div><?php endif; ?>
+                        </div><?php endif; ?>
                     </li>
                 <?php endforeach; ?>
             </ol>

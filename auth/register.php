@@ -57,6 +57,14 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
     $section_id = null;
     $is_leader_signup = !isset($_POST['is_group_leader']) || $_POST['is_group_leader'] === 'yes';
 
+    // Data Privacy Act consent (2026-10-14): no account without agreeing to the Privacy Notice. The
+    // checkbox is required on the form too, but that is courtesy — this is the rule.
+    if (empty($_POST['privacy_consent'])) {
+        $message = "Please read and agree to the Privacy Notice to create your account.";
+        $message_type = "error";
+        goto end_registration;
+    }
+
     if ($role === 'Student' && $is_leader_signup) {
         $section_label = strtoupper(trim((string)($_POST['section_label'] ?? '')));
 
@@ -564,6 +572,12 @@ if (!$registration_closed && $_SERVER['REQUEST_METHOD'] === 'POST' && isset($_PO
                                 </div>
                             </div>
                         </div>
+
+                        <!-- Data Privacy Act consent: required here AND refused server-side without it -->
+                        <label class="privacy-consent" style="display: flex; gap: 10px; align-items: flex-start; margin-top: 18px; font-size: 13.5px; line-height: 1.5; color: var(--text-secondary); cursor: pointer;">
+                            <input type="checkbox" name="privacy_consent" value="1" required style="width: 18px; height: 18px; margin-top: 2px; flex: none; accent-color: var(--primary-color);">
+                            <span>I have read the <a href="../privacy.php" target="_blank" rel="noopener" style="color: var(--primary-color); font-weight: 600;">Privacy Notice</a> and agree that the Research &amp; Development Center processes my personal information and research files for the research process, under the Data Privacy Act of 2012 (RA 10173).</span>
+                        </label>
                     </div>
 
                     <div class="wizard-buttons-row" style="display: flex; gap: 12px; margin-top: 32px; justify-content: space-between;">

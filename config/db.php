@@ -32,6 +32,12 @@ try {
 }
 
 if (session_status() == PHP_SESSION_NONE) {
+    // Login cookie safety (2026-10-14): scripts cannot read it (HttpOnly), other sites cannot ride it
+    // (SameSite=Lax), and once the site is on HTTPS it is never sent over plain http (Secure). Many pages call
+    // session_start() themselves before this file, so the live server ALSO sets these in its PHP config
+    // (/etc/php/<ver>/<sapi>/conf.d/99-isubmit-session.ini) — that file is what covers every page.
+    $rd_https = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') || (($_SERVER['HTTP_X_FORWARDED_PROTO'] ?? '') === 'https');
+    session_set_cookie_params(['lifetime' => 0, 'path' => '/', 'secure' => $rd_https, 'httponly' => true, 'samesite' => 'Lax']);
     session_start();
 }
 

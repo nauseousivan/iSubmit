@@ -497,6 +497,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
                 <li><a href="#forms">Blank forms</a></li>
                 <li><a href="#contact">Meet the RDC team</a></li>
                 <li><a href="auth/help.php">Help desk</a></li>
+                <li><a href="privacy.php">Privacy Notice</a></li>
             </ul>
         </div>
         <div>
@@ -521,7 +522,7 @@ $ic_dl = '<svg class="i" viewBox="0 0 24 24" fill="none" stroke="currentColor" s
     <div class="foot-bar">
         <div class="wrap">
             <span>© <?= date('Y') ?> iSubmit · Research &amp; Development Center (RDC), MCNP &amp; ISAP</span>
-            <span>Research Digitalization</span>
+            <span><a href="privacy.php" style="color:inherit">Privacy Notice</a> · Research Digitalization</span>
         </div>
     </div>
 </footer>

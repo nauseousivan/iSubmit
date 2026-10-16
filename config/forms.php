@@ -38,9 +38,11 @@ function rd_form_catalogue(): array
         'proposal_cleared' => ['label' => 'Proposal Clearing Form', 'code' => '', 'phase' => 'Proposal',
                           'where' => 'Proposal card, once every requirement is approved', 'types' => ['pdf'],
                           'default' => ['proposal_cleared.pdf', 'proposal_cleared.pdf']],
-        'stat_form' => ['label' => 'Statistical Treatment payment form', 'code' => 'RDC Form 011', 'phase' => 'Statistics',
-                          'where' => 'Statistics card — "Proceed to Finance Office"', 'types' => ['pdf', 'jpg', 'jpeg', 'png'],
-                          'default' => ['dashboards/downloads/rdc.jpg', 'dashboards/downloads/rdc.jpg']],
+        // 2026-10-16: the clean PDF of Form 11 replaced the phone photo (dashboards/downloads/rdc.jpg)
+        // as the shipped default. Students print it ahead (optional) so the office only signs.
+        'stat_form' => ['label' => 'Statistical Treatment Form', 'code' => 'RDC Form 011', 'phase' => 'Statistics',
+                          'where' => 'Statistics card — "Go to the RDC Office" and "Pay at the Finance Office"', 'types' => ['pdf', 'jpg', 'jpeg', 'png'],
+                          'default' => ['stat_form.pdf', 'stat_form.pdf']],
         'mom' => ['label' => 'Minutes of the Proposal Defense', 'code' => '', 'phase' => 'Final',
                           'where' => 'Final card — the Minutes requirement', 'types' => ['pdf'],
                           'default' => ['mom.pdf', 'mom.pdf']],

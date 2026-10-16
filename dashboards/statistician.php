@@ -137,7 +137,7 @@ $stats_checklist_pending = $pdo->query("
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
     ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-    WHERE up.verification_status = 'Pending' AND up.item_id IN (30,31,32,33,34,35)
+    WHERE up.verification_status = 'Pending' AND up.item_id IN (30,31,32,34,35)
 ")->fetchColumn();
 
 // form_stat_treatment isn't versioned like uploads, so no dedup subquery is needed here.
@@ -150,7 +150,7 @@ $sb_stmt = $pdo->prepare("
     SELECT COUNT(*) FROM form_stat_treatment f
     JOIN users u ON u.user_id = f.user_id
     WHERE f.status = 'Phase 4: Payment Verification'
-      AND EXISTS (SELECT 1 FROM uploads up WHERE up.user_id = f.user_id AND up.item_id IN (36, 37))
+      AND EXISTS (SELECT 1 FROM uploads up WHERE up.user_id = f.user_id AND up.item_id = 37)
       AND $sb_sql
 ");
 $sb_stmt->execute($sb_params);
@@ -165,7 +165,7 @@ $stats_release_pending = $sr_stmt->fetchColumn();
 
 // The Pipeline's badge is its own 'Your move' band — counted from the rows it renders, not
 // a parallel query, so the number on the nav and the number on the screen are one thing.
-$sp_you = sp_counts(sp_rows($pdo, $sb_sql, $sb_params))['you'];
+$sp_you = sp_counts(sp_rows($pdo, $sb_sql, $sb_params, 'Statistician'))['you'];
 
 // Manuscript's four desks. Statistician has full parity with Coordinator/Director on phase=plag,
 // so it shows the same four badges. Counted off the phase ladder — see nav_badge_lib.php.

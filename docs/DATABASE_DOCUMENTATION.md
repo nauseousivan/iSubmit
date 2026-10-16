@@ -53,21 +53,27 @@ drafts do not accumulate.
 One row per research group's Statistical Treatment request (keyed to the group leader's `user_id`).
 - **`form_id`** (INT, PK)
 - **`user_id`** (INT) - The group leader (effective user id).
-- **`status`** (VARCHAR 255) - The 7-phase workflow state. Valid values:
-  `Phase 1: Pending Coded Data` → `Phase 1: Coded Data Review` → (`Phase 1: Coded Data Rejected`) →
-  `Phase 2: Form Download` → `Phase 4: Payment Verification` → `Phase 5: Registered` →
-  `Phase 6: Under Review` / `Phase 6: Revision Requested` → `Phase 7: Statistical Treatment` →
-  `Phase 7: Completed`. (Was an ENUM of the old 4-step flow; migrated 2026-07-07.)
-- **`formatted_control_no`** (VARCHAR) - Official control number `STAT-{YEAR}-{SCHOOL}-{DEPT}-{SEQ}`;
-  the Statistician enters only the sequence at registration, the system builds and stores the full string.
+- **`status`** (VARCHAR 255) - The workflow state (flow of 2026-10-16, migration
+  `2026-10-16_stats_flow_secretary.sql`). Valid values:
+  `Phase 1: Pending Coded Data` (uploading the five requirements) → `Phase 1: Coded Data Review` (all five in,
+  Statistician checking) → (`Phase 1: Coded Data Rejected`) → `Phase 2: Form Download` (approved; waiting on the
+  Secretary for the number) → `Phase 7: Statistical Treatment` (issuing the number starts it; payment is on
+  paper, no receipt step) → `Phase 7: Completed`. `Phase 3: Control Number Issued` / `Phase 4: Payment
+  Verification` are no longer written (the receipt step was dropped the same day). The fix-it loop after treatment uses `Phase 6: Revision Requested` / `Phase 6: Under Review`.
+  `Phase 5: Registered` is legacy only (paid under the old flow, still owing requirements).
+- **`formatted_control_no`** (VARCHAR) - Official control number `STAT-{YEAR}-{SCHOOL}-{COURSE}-{SEQ}`, issued by the
+  Secretary — the sequence is pre-filled with the next number and she may edit it (duplicates refused); **`control_number_seq`** holds a numeric sequence (per prefix, counted across live and
+  archive). Numbers issued before 2026-10-16 were typed by hand and have no seq.
+- **`main_or_number`** (VARCHAR) - legacy (the old Form 011 form handler); the 2026-10-16 flow records no OR number.
 - **`file_coded_data`** / **`result_file`** (VARCHAR 255) - Latest coded-data upload path and the final
   results file released by the Statistician (written by the `upload_stat_result` action).
 - **`statistician_remarks`** (TEXT), **`date_submitted`** / **`date_released`** (TIMESTAMP).
 
-Statistics checklist items (form_id 3): `30` Initial Coded Data, `31–35` deliverables (SOP, Questionnaire,
-Final Coded Data, Communication Letter, MOM), `36` Validated RDC Form No. 011, `37` Official Receipt
-(items 36/37 accept image scans). Their uploads follow the same version-row lifecycle as proposals, and
-deleting a pending draft rewinds `form_stat_treatment.status` to the matching earlier phase.
+Statistics checklist items (form_id 3): the five requirements `30` Coded Data in Excel, `31` SOP, `32` Questionnaire,
+`34` Communication Letter, `35` MOM (uploaded together in step 1). Retired 2026-10-16: `33` Final Coded Data,
+`36` Validated RDC Form No. 011 and `37` Official Receipt (payment is handled on paper; issuing the control number
+starts the treatment). Their old rows stay as history. Uploads follow the same version-row lifecycle as proposals; every upload, delete and review of the
+five re-derives `form_stat_treatment.status` through `sp_sync_reqs()` (`stats_pipeline_lib.php`).
 
 ### `plagiarism_checks`
 One row per research group's plagiarism control-number bookkeeping (keyed to the leader's `user_id`).

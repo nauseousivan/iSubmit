@@ -175,16 +175,19 @@ $stats_phase = getStatsPhaseStatus($pdo, $effective_user_id);
 // mid-workflow "Registered" (control number issued, just needs more uploads) red like a revision.
 // Fields: [pct, chip-class, chip-icon, chip-label, footer-tone, footer-full (desktop), footer-short (phone)]
 $stats_phase_meta = [
-    'Phase 1: Pending Coded Data'    => [0,   '',              '',               '',             'tone-default',  'Upload coded data to begin',    'Upload data'],
-    'Phase 1: Coded Data Review'     => [15,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Coded data under review',       'Under review'],
-    'Phase 1: Coded Data Rejected'   => [15,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise coded data',             'Revise data'],
-    'Phase 2: Form Download'         => [30,  'chip-pending',  'clock',          'Pending',      'tone-default',  'Submit payment proof',          'Submit payment'],
-    'Phase 4: Payment Verification'  => [45,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Payment under review',          'Under review'],
-    'Phase 5: Registered'            => [55,  'chip-pending',  'clock',          'In Progress',  'tone-default',  'Upload remaining requirements', 'Upload files'],
-    'Phase 6: Revision Requested'    => [80,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise a requirement',          'Revise file'],
-    'Phase 6: Under Review'          => [80,  'chip-review',   'beaker',         'Reviewed',     'tone-review',   'Requirements under review',     'Under review'],
-    'Phase 7: Statistical Treatment' => [92,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Statistical treatment ongoing', 'Processing'],
-    'Phase 7: Completed'             => [100, 'chip-approved', 'check-circle-2', 'Completed',    'tone-approved', 'Results released',              'Results released'],
+    // 2026-10-16 flow: five requirements -> the Secretary issues the number (= treatment starts;
+    // payment is on paper, no receipt step). Phase 3/4 are no longer written; Phase 5 is legacy.
+    'Phase 1: Pending Coded Data'    => [0,   '',              '',               '',             'tone-default',  'Upload the five requirements',   'Upload files'],
+    'Phase 1: Coded Data Review'     => [15,  'chip-review',   'clock',          'Under Review', 'tone-review',   'Requirements under review',      'Under review'],
+    'Phase 1: Coded Data Rejected'   => [15,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Fix the requirements sent back', 'Fix files'],
+    'Phase 2: Form Download'         => [35,  'chip-pending',  'hash',           'Approved',     'tone-default',  'Get Form 11 at the RDC office',  'Go to RDC'],
+    'Phase 3: Control Number Issued' => [85,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Statistical treatment ongoing',  'Processing'],
+    'Phase 4: Payment Verification'  => [85,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Statistical treatment ongoing',  'Processing'],
+    'Phase 5: Registered'            => [70,  'chip-pending',  'clock',          'In Progress',  'tone-default',  'Upload remaining requirements',  'Upload files'],
+    'Phase 6: Revision Requested'    => [85,  'chip-revision', 'alert-circle',   'Revision',     'tone-default',  'Revise a requirement',           'Revise file'],
+    'Phase 6: Under Review'          => [85,  'chip-review',   'beaker',         'Reviewed',     'tone-review',   'Revised files under review',     'Under review'],
+    'Phase 7: Statistical Treatment' => [85,  'chip-review',   'beaker',         'Processing',   'tone-review',   'Statistical treatment ongoing',  'Processing'],
+    'Phase 7: Completed'             => [100, 'chip-approved', 'check-circle-2', 'Completed',    'tone-approved', 'Results released',               'Results released'],
 ];
 $sm = $stats_phase_meta[$stats_phase['status']] ?? $stats_phase_meta['Phase 1: Pending Coded Data'];
 $stats_progress     = $sm[0];

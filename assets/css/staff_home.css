@@ -347,6 +347,9 @@ body.sh-shell:not(.theme-dark) .sh-when-dark, body.sh-shell.theme-dark .sh-when-
 .sb-pill.back i { background: #fca5a5; color: #7f1d1d; }
 .sb-pill.done { background: #bbf7d0; color: #14532d; }
 .sb-pill.done i { background: #fff; color: #14532d; }
+/* The OTHER office desk's move (2026-10-16: Statistician <-> Secretary). */
+.sb-pill.office { background: rgba(255, 255, 255, .2); color: #fff; border-color: rgba(255, 255, 255, .35); }
+.sb-pill.office i { background: #fff; color: var(--sh-hero-a); }
 .sb-pill:hover { filter: brightness(1.07); }
 .sb-more { background: none; border: 0; color: rgba(255, 255, 255, .8); font: inherit; font-size: 11px; font-weight: 700; cursor: pointer; }
 .sb-legend { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 16px; font-size: 11.5px; color: rgba(255, 255, 255, .8); }
@@ -356,6 +359,7 @@ body.sh-shell:not(.theme-dark) .sh-when-dark, body.sh-shell.theme-dark .sh-when-
 .sb-legend i.them { border: 1.5px solid #fcd34d; }
 .sb-legend i.back { background: #fca5a5; }
 .sb-legend i.done { background: #86efac; }
+.sb-legend i.office { background: rgba(255, 255, 255, .45); }
 @media (max-width: 760px) {
     .sb-cols { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 16px; }
     .sb-cols.sb-cols-4 { grid-template-columns: repeat(2, minmax(0, 1fr)); }

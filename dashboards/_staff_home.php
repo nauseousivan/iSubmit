@@ -117,12 +117,15 @@ foreach (sh_workflow_keys($sh_role) as $k) if ($sh_phase_n[$k] > $sh_phase_n[$sh
 [$sb_sql, $sb_params] = [$sh_sc_sql, $sh_sc_params];
 // Only a rail with a Statistics / Plagiarism hub draws these boards (the Focal Person's and the
 // Admin's have neither), so only such a rail pays for their queries.
-$sb_rows   = isset($sh_model['stats']) ? sp_rows($pdo, $sb_sql, $sb_params) : [];
+$sb_rows   = isset($sh_model['stats']) ? sp_rows($pdo, $sb_sql, $sb_params, $sh_role) : [];
 $sb_stages = sp_stages();
 $sb_cols   = array_fill(0, count($sb_stages), []);
 foreach ($sb_rows as $r) $sb_cols[(int)$r['at']][] = $r;
 $sb_you    = count(array_filter($sb_rows, fn($r) => $r['owner'] === 'you'));
-$sb_mine   = $sh_role === 'Statistician';
+// Two desks act on this ladder (2026-10-16): the Statistician and the Secretary (a Research
+// Director). For either, 'you' is their own desk and 'office' the other one; everyone else reads.
+$sb_mine   = sp_actor_of($sh_role) !== '';
+$sb_other  = sp_actor_name(sp_actor_of($sh_role) === 'stat' ? 'sec' : 'stat');
 // ---- the Plagiarism board: every notified group, one pill each, in the column of its step.
 // Same scope as everything else here; pp_step() decides column and tone (plag_pipeline_lib.php).
 $pb_rows = isset($sh_model['plag']) ? pp_rows($pdo, $sh_sc_sql, $sh_sc_params) : [];
@@ -427,13 +430,13 @@ function sh_act_row(array $a): void
                     <div class="sb-top">
                         <div>
                             <h2>Every request, at a glance</h2>
-                            <p>Each circle is one group. Solid ones are waiting on <?= $sb_mine ? 'you' : 'the statistician' ?>.</p>
+                            <p>Each circle is one group. Solid ones are waiting on <?= $sb_mine ? 'you' : 'the office' ?>.</p>
                         </div>
                         <?php if ($sb_you): ?>
-                            <button type="button" class="sb-need" onclick="shOpenProgress('')"><?= $sb_you ?> <?= $sb_mine ? 'need you' : 'with the statistician' ?> <i data-lucide="chevron-right"></i></button>
+                            <button type="button" class="sb-need" onclick="shOpenProgress('')"><?= $sb_you ?> <?= $sb_mine ? 'need you' : 'with the office' ?> <i data-lucide="chevron-right"></i></button>
                         <?php endif; ?>
                     </div>
-                    <div class="sb-cols">
+                    <div class="sb-cols sb-cols-<?= count($sb_stages) ?>">
                         <?php foreach ($sb_stages as $si => $st): $list = $sb_cols[$si]; ?>
                             <div class="sb-col">
                                 <span class="sb-n"><?= count($list) ?></span>
@@ -453,7 +456,8 @@ function sh_act_row(array $a): void
                         <?php endforeach; ?>
                     </div>
                     <div class="sb-legend">
-                        <span><i class="you"></i><?= $sb_mine ? 'Your move' : 'With the statistician' ?></span>
+                        <span><i class="you"></i><?= $sb_mine ? 'Your move' : 'With the office' ?></span>
+                        <?php if ($sb_mine): ?><span><i class="office"></i>With <?= $sb_other ?></span><?php endif; ?>
                         <span><i class="them"></i>Waiting on the group</span>
                         <span><i class="back"></i>Sent back</span>
                         <span><i class="done"></i>Released</span>

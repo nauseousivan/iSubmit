@@ -89,7 +89,7 @@ $pending_counts = $pdo->query("
     SELECT
         SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16,17) THEN 1 ELSE 0 END) as proposal_pending,
         SUM(CASE WHEN up.item_id IN (20,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
-        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats_pending
+        SUM(CASE WHEN up.item_id IN (30,31,32,34,35) THEN 1 ELSE 0 END) as stats_pending
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date
@@ -116,6 +116,11 @@ require_once __DIR__ . '/plag_pipeline_lib.php';   // pp_badge_counts() — the 
 $pp_step_n = pp_badge_counts($pdo, (string)$_SESSION['role'], (int)$_SESSION['user_id']);
 $plag_counts = rd_plag_badge_counts($pdo);
 $pending_counts['plag_pending'] = $plag_counts['review'];
+
+// The Secretary's Statistics step (2026-10-16): numbers to issue + payments to confirm. Same rows
+// as the Progress screen's 'Your move' band, so the rail and the page cannot disagree.
+require_once __DIR__ . '/stats_pipeline_lib.php';
+$pending_counts['pipeline'] = sp_counts(sp_rows($pdo, '1', [], 'Research Director'))['you'];
 
 
 ?>
@@ -151,6 +156,7 @@ $pending_counts['plag_pending'] = $plag_counts['review'];
             'proposal'           => (int)($pending_counts['proposal_pending'] ?? 0),
             'final'              => (int)($pending_counts['final_pending'] ?? 0),
             'stats'              => (int)($pending_counts['stats_pending'] ?? 0),
+            'pipeline'           => (int)$pending_counts['pipeline'],
             'plag'               => (int)$plag_counts['review'],
             'plag_release'       => (int)$plag_counts['release'],
             'plag_pay'           => (int)$plag_counts['payment'],

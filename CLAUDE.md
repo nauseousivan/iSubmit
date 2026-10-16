@@ -27,8 +27,8 @@ School research submission + approval portal. Students upload research documents
     `sh_model()` is the ONE list of destinations — rail badges, cards and the live refresh all read
     it; add a step there, never as markup. The hero holds the ONE live mascot (`assets/mascot/mascot.php`,
     bound by id) — never include it twice, never call `coverEyes()` outside a password field. **ALL staff shells are on it** (Focal Person too, 2026-10-01);
-    `_master_overview.php` is included by none of them. Statistician's rail is Home · Statistics ·
-    Plagiarism · Workspace (`sh_model($role)` / `sh_workflow_keys($role)` branch on the role).
+    `_master_overview.php` is included by none of them. Statistician's rail is Home · Statistics · Workspace
+    (no Plagiarism since 2026-10-16 — the user: she does not handle it) (`sh_model($role)` / `sh_workflow_keys($role)` branch on the role).
     **Everything on the home is `aa_scope_sql`'d** (`$sh_sc_sql`: groups, activity, board, History
     panel) and `group_profile_data.php` refuses out-of-scope ids — so is the Coordinator's document
     badge, in BOTH `coordinator.php` and `nav_badge_counts.php`. On the Statistics hub, History is
@@ -87,25 +87,35 @@ School research submission + approval portal. Students upload research documents
   section in ALL THREE staff shells.** In Director/Coordinator that section sits between Proposal
   and Final (the office sequence: Final waits on stats), never after Plagiarism. Items read **Progress · Requirements · History in all three shells**; the
   history log is institution-scoped via `aa_scope_sql()` in `$hist_where`. The nav says Progress, not Pipeline, and Requirements, not
-  Clearance - plain words, not build metaphors. **Band labels are role-aware**: every action on
-  that screen is Statistician-only, so Coordinator and Director see "With the statistician /
-  Waiting on the group" and a read-only note per row. Never label it "Your move" for them. One row per
-  request carrying a six-node spine (Coded · Pay · Reg · Reqs · Treat · Done), banded by WHOSE
-  MOVE it is. `stats_pipeline_lib.php` owns the model: `sp_position()` maps a status to a stage
-  AND an owner ('you' / 'them' / 'done'). **The two "sent back" statuses are not stages** —
+  Clearance - plain words, not build metaphors.
+  **THE STATS FLOW (2026-10-16, from the RDC office with Form 11):** (1) the group uploads FIVE
+  requirements (`SP_REQ_ITEMS` = 30 coded data in Excel, 31 SOP, 32 questionnaire, 34 letter, 35 MOM)
+  and the Statistician checks them; (2) the **SECRETARY** (a Research Director) issues the control
+  number — the sequence is PRE-FILLED with the next one but SHE MAY EDIT IT (prefix fixed; a number
+  another group holds is refused; empty = the automatic one). **Issuing IS her last step: `Phase 2` ->
+  `Phase 7: Statistical Treatment`.** It shows on the student's card; the Secretary usually writes it on
+  the paper Form 11 (student copies it only if blank); they pay at Finance and bring the form back — on
+  PAPER: there is NO receipt upload and NO confirm step (the user dropped both, 2026-10-16; OR number
+  too). (3) treat -> release. 33, 36 and the receipt 37 are RETIRED; `Phase 3`/`Phase 4` are no longer
+  written (mapped to treatment for any old row). **`sp_sync_reqs()` is THE one rule** for a status while the five are
+  checked — the upload, delete and review handlers all call it; never re-inline a transition.
+  **Two desks, so bands are role-relative**: `sp_position()` gives `owner` + `actor` ('stat'/'sec');
+  `sp_rows(..., $viewerRole)` turns the other desk's rows into `office` ("With the Secretary" /
+  "With the Statistician"). Readers (Coordinator) see "With the office". Always pass the role, or the
+  Statistician's badge counts the Secretary's work. Four-node spine (Reqs · No. · Treat · Done),
+  banded by WHOSE MOVE it is. **The two "sent back" statuses are not stages** —
   they are the same stage with a verdict, so they keep their position and carry a flag; do not
   give them a column. Ages run from the LAST THING THAT HAPPENED, never `date_submitted`.
-  **`sp_control_prefix()` is the single source of the control-number prefix** — the composer
-  previews with it and `acknowledge_payment` mints with it. Never inline a second copy: a
-  preview that drifts from the mint is worse than no preview. **Registration has TWO doors**
-  (Progress composer; approving receipt 37 in the drawer) and ONE body, `sp_register_payment()`.
-  The old Payment and Release
-  **The Payment and Release desks are RETIRED** (2026-09-27) - markup, queries, CSS and JS all
+  **`sp_next_control_no()` is the single source of the number** (prefix `sp_control_prefix()` +
+  sequence from `control_number_seq`, live AND archive): Progress previews with it and
+  `sp_issue_control_no()` mints with it under a lock. Never inline a second copy: a preview that
+  drifts from the mint is worse than no preview. Pre-2026-10-16 numbers were typed by hand and carry
+  no seq. **The Payment and Release desks are RETIRED** (2026-09-27) - markup, queries, CSS and JS all
   deleted. `view=payments` and `view=release` REDIRECT to the pipeline rather than 404: the
   Director dock and old bookmarks still point at them. `phase=plag&view=payments` is a different
-  desk and is untouched. The Reg stage shows the two payment documents inline.
+  desk and is untouched.
   **Treat is a VERDICT** (`upload_stat_result` + `verdict=release|revise`): revise reopens the ticked
-  deliverables (31-35) and drops to `Phase 6: Revision Requested` - no new status, the checklist loop
+  requirements (the five) and drops to `Phase 6: Revision Requested` - no new status, the checklist loop
   returns it to Treat. **Stats is paid ONCE: a send-back must never touch the payment phases.**
   Release REPLACES `statistician_remarks` with its note. Released rows are correctable
   (`update_stat_result`).
@@ -114,8 +124,8 @@ School research submission + approval portal. Students upload research documents
   never by an empty department — empty still means SEES NOTHING, as it does for a Coordinator, or
   one blank column would mean opposite things for two roles. `aa_school_scope_of()` resolves it and
   is the ONLY place that grants the escape; a Coordinator never gets it. Scoping is enforced in
-  BOTH places as always: `aa_scope_sql()` hides, `aa_may_touch_student()` refuses. **`acknowledge_payment`,
-  `upload_stat_result` and park/nudge/unpark take `student_id` from the POST** — they resolve the
+  BOTH places as always: `aa_scope_sql()` hides, `aa_may_touch_student()` refuses. **`issue_control_no` /
+  `confirm_payment`, `upload_stat_result` and park/nudge/unpark take `student_id` from the POST** — they resolve the
   owner from `form_id` and guard; do not add a fourth that skips it. **Known gap:**
   The Director sets it in `admin_accounts.php`: picking Statistician reveals the same
   institution field a Coordinator gets, plus an **Admin - both institutions** option only she
@@ -360,7 +370,7 @@ School research submission + approval portal. Students upload research documents
   defaults per MCNP/ISAP; `form_templates` = her uploads, versioned). A new form = a new catalogue slot, never a
   hardcoded link. Final
   requirements **20, 22, 23, 24, 25, 26, 27** — SEVEN, all in one grid (20 = Form 002 and 22 =
-  Minutes are ordinary requirements now, NOT an application stage; 21 retired), stats 30–37,
+  Minutes are ordinary requirements now, NOT an application stage; 21 retired), stats 30–37 (the live set is 30/31/32/34/35 + receipt 37; 33/36 retired),
   plagiarism manuscript = **4**, plagiarism Turnitin report = **40**
   (staff-uploaded only, never through the student upload flow — one new `uploads` row per Accept/
   Revise/Replace decision, giving the report full version history same as any other document).

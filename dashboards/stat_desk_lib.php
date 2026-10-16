@@ -12,11 +12,15 @@
 //
 // Read by module_statistics.php (to show the QR) and stat_desk.php (the page the QR opens).
 
+require_once __DIR__ . '/stats_pipeline_lib.php';   // SP_REQ_ITEMS / SP_PHASE1 / SP_LOOP
+
 /**
  * What is waiting for the statistician's in-person check, or null when nothing is.
- *   stage 'coded'        — the initial coded data (item 30), while the request is in Coded Data Review
- *   stage 'deliverables' — the five requirements after payment (31-35), once ALL five are uploaded,
- *                          none is still flagged for revision, and at least one is pending
+ *   stage 'coded'        — STEP 1 (2026-10-16): the five requirements (SP_REQ_ITEMS) checked before
+ *                          the Secretary issues the number. The key kept its old name; stat_desk.php reads it.
+ *   stage 'deliverables' — the same five in the fix-it loop after treatment (or legacy, paid under the
+ *                          old flow).
+ * Either way: ALL five uploaded, none still flagged for revision, and at least one pending.
  * ids are the latest upload ids that are still Pending — exactly what a confirm will approve.
  */
 function sd_pending(PDO $pdo, int $owner): ?array
@@ -28,23 +32,21 @@ function sd_pending(PDO $pdo, int $owner): ?array
     $latest = $pdo->prepare("
         SELECT u.item_id, u.upload_id, u.verification_status
         FROM uploads u
-        JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id BETWEEN 30 AND 35 GROUP BY item_id) l
+        JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (" . implode(',', SP_REQ_ITEMS) . ") GROUP BY item_id) l
           ON l.max_id = u.upload_id");
     $latest->execute([$owner]);
     $by = [];
     foreach ($latest->fetchAll(PDO::FETCH_ASSOC) as $r) $by[(int)$r['item_id']] = $r;
 
-    if ($status === 'Phase 1: Coded Data Review' && isset($by[30]) && $by[30]['verification_status'] === 'Pending') {
-        return ['stage' => 'coded', 'ids' => [(int)$by[30]['upload_id']]];
-    }
-    if (in_array($status, ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'], true)) {
+    $phase1 = in_array($status, SP_PHASE1, true);
+    if ($phase1 || in_array($status, SP_LOOP, true)) {
         $ids = [];
-        foreach ([31, 32, 33, 34, 35] as $i) {
+        foreach (SP_REQ_ITEMS as $i) {
             if (!isset($by[$i]) || $by[$i]['verification_status'] === 'Revision Requested') return null;   // not ready yet
             if ($by[$i]['verification_status'] === 'Pending') $ids[] = (int)$by[$i]['upload_id'];
         }
         sort($ids);   // the QR and the scan page compare SORTED id lists
-        return $ids ? ['stage' => 'deliverables', 'ids' => $ids] : null;
+        return $ids ? ['stage' => $phase1 ? 'coded' : 'deliverables', 'ids' => $ids] : null;
     }
     return null;
 }

@@ -225,8 +225,8 @@ $message_type = $_GET['type'] ?? '';
                      collects, not a requirement they upload: the signature happens at the
                      defense itself, which is outside this system. -->
                 <div style="display:flex; gap:8px;">
-                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'final_cleared', (int)$effective_user_id) ?>', 'Defense Checklist (Form 005)')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="clipboard-check" style="width:14px;height:14px;"></i> Form 005</button>
-                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'endorsement') ?>', 'Adviser Endorsement (Form 006)')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="file-signature" style="width:14px;height:14px;"></i> Form 006</button>
+                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'final_cleared', (int)$effective_user_id) ?>', '<?= rd_form_title('final_cleared') ?>')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="clipboard-check" style="width:14px;height:14px;"></i> Form 005</button>
+                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'endorsement') ?>', '<?= rd_form_title('endorsement') ?>')" class="btn btn-outline" style="flex:1; padding: 8px 10px; font-size: 11.5px;"><i data-lucide="file-signature" style="width:14px;height:14px;"></i> Form 006</button>
                 </div>
             </div>
         <?php else: ?>
@@ -285,7 +285,10 @@ $message_type = $_GET['type'] ?? '';
     // Numbered "how-to" per requirement. 22-27 came back out of the Schedule panel when Final
     // flattened to one grid, so these are the same lists defense_lib.php used to render there.
     $item_steps = [
-        20 => ['Download the blank form below', 'Fill it out completely',
+        20 => rd_form_fillable($pdo, 'application', rd_user_institution($pdo, (int)$effective_user_id))
+              ? ['Download the form below — your group\'s details are already filled in', 'Print it and check it; write in anything left blank',
+                 'Have it signed by your research teacher and adviser', 'Capture a photo or scan it', 'Upload it using the button below']
+              : ['Download the blank form below', 'Fill it out completely',
                'Have it signed by your research teacher and adviser',
                'Capture a photo or scan it', 'Upload it using the button below'],
         22 => ['Present and defend your proposal first', 'Your teacher writes the minutes during it',
@@ -305,8 +308,8 @@ $message_type = $_GET['type'] ?? '';
     // no download button — one used to point at placeholder.pdf, which was a copy of the adviser
     // endorsement form.
     $item_forms = [
-        20 => [df_application_form($pdo, (int)$effective_user_id), 'Application for Research Defense (Form 002)'],   // MCNP or ISAP's own
-        22 => [rd_form_url($pdo, 'mom', (int)$effective_user_id), 'Minutes of the Proposal Defense'],
+        20 => [df_application_form($pdo, (int)$effective_user_id, 'final'), rd_form_title('application')],   // MCNP or ISAP's own
+        22 => [rd_form_url($pdo, 'mom', (int)$effective_user_id), rd_form_title('mom')],
     ];
     ?>
     <?php // Every requirement is open from the start; the Schedule pill stays a greyed-out
@@ -399,7 +402,7 @@ $message_type = $_GET['type'] ?? '';
                         <!-- Download button -->
                         <?php if (isset($item_forms[$item['item_id']])): [$ff_path, $ff_label] = $item_forms[$item['item_id']]; ?>
                             <div style="margin-bottom:14px;">
-                                <button onclick="openDownloadModal('<?= htmlspecialchars($ff_path) ?>', '<?= htmlspecialchars($ff_label) ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                <button onclick="openDownloadModal('<?= htmlspecialchars($ff_path) ?>', '<?= htmlspecialchars($ff_label) ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> <?= rd_form_btn_label($ff_path) ?></button>
                             </div>
                         <?php endif; ?>
 

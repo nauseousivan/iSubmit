@@ -6,6 +6,10 @@
 //   restore  make an earlier upload the current one again
 //   builtin  go back to the file that ships with the system for that school
 // Nothing is ever deleted: a form a student already downloaded is still on the server.
+//
+// A WORD (.docx) upload (2026-10-17) is a MASTER: it goes to forms/templates/ (never served), its
+// {{TAGS}} are filled in for each student at download (config/form_fill.php), and a blank PDF of it is
+// made next to the other uploads for the front page and as the fallback.
 
 require_once '../config/db.php';
 
@@ -47,13 +51,31 @@ if ($action === 'upload') {
     if (!in_array($ext, $types, true)) fm_finish('This form takes ' . strtoupper(implode(', ', $types)) . ' files only.', 'error', $slot);
     // Check what the file IS, not what it is called.
     $head = (string)file_get_contents($f['tmp_name'], false, null, 0, 8);
-    $ok = $ext === 'pdf' ? strncmp($head, '%PDF-', 5) === 0 : (@getimagesize($f['tmp_name']) !== false);
+    if ($ext === 'docx') {
+        $zz = class_exists('ZipArchive') ? new ZipArchive() : null;
+        $ok = $zz && strncmp($head, "PK\x03\x04", 4) === 0 && $zz->open($f['tmp_name']) === true && $zz->locateName('word/document.xml') !== false;
+        if ($zz && $ok) $zz->close();
+        if (!class_exists('ZipArchive')) fm_finish('The server cannot read Word files yet (PHP zip extension is off).', 'error', $slot);
+    } else {
+        $ok = $ext === 'pdf' ? strncmp($head, '%PDF-', 5) === 0 : (@getimagesize($f['tmp_name']) !== false);
+    }
     if (!$ok) fm_finish('That file does not look like a real ' . strtoupper($ext) . '. Export it again and retry.', 'error', $slot);
 
-    $dir = dirname(__DIR__) . '/' . RD_FORMS_DIR;
+    // A Word master is kept out of reach (forms/templates/ denies every request); everything else is public.
+    $dir = dirname(__DIR__) . '/' . ($ext === 'docx' ? RD_TEMPLATES_DIR : RD_FORMS_DIR);
     if (!is_dir($dir) && !mkdir($dir, 0755, true)) fm_finish('The forms folder could not be created on the server.', 'error', $slot);
     $name = $slot . '_' . strtolower($who) . '_' . (new DateTime('now', new DateTimeZone('Asia/Manila')))->format('Ymd_His') . '_' . bin2hex(random_bytes(3)) . '.' . ($ext === 'jpeg' ? 'jpg' : $ext);
     if (!move_uploaded_file($f['tmp_name'], $dir . '/' . $name)) fm_finish('The file could not be saved on the server.', 'error', $slot);
+    $stored = ($ext === 'docx' ? RD_TEMPLATES_DIR : RD_FORMS_DIR) . '/' . $name;
+    $tagNote = '';
+    if ($ext === 'docx') {
+        $tags = rd_docx_tags($dir . '/' . $name);
+        $blankPdf = rd_docx_blank_pdf($dir . '/' . $name, dirname(__DIR__) . '/' . RD_FORMS_DIR);
+        $tagNote = $tags
+            ? ' It fills in ' . count($tags) . ' detail' . (count($tags) === 1 ? '' : 's') . ' for each student: ' . implode(', ', $tags) . '.'
+            : ' No {{TAGS}} were found in it, so students get it blank.';
+        if (!$blankPdf) $tagNote .= ' (No blank PDF could be made on this server, so the front page keeps the previous blank.)';
+    }
 
     $note = mb_substr(trim((string)($_POST['note'] ?? '')), 0, 200);
     $orig = mb_substr(basename((string)$f['name']), 0, 255);
@@ -63,10 +85,10 @@ if ($action === 'upload') {
                           VALUES (?, ?, ?, ?, ?, ?, 1, ?)");
     foreach ($targets as $inst) {
         $off->execute([$slot, $inst]);
-        $ins->execute([$slot, $inst, RD_FORMS_DIR . '/' . $name, $orig, (int)$f['size'], $note !== '' ? $note : null, $actor]);
+        $ins->execute([$slot, $inst, $stored, $orig, (int)$f['size'], $note !== '' ? $note : null, $actor]);
     }
     $pdo->commit();
-    fm_finish($label . ' updated for ' . ($who === 'BOTH' ? 'both schools' : $who) . '. Students get the new file from now on.', 'success', $slot);
+    fm_finish($label . ' updated for ' . ($who === 'BOTH' ? 'both schools' : $who) . '. Students get the new file from now on.' . $tagNote, 'success', $slot);
 }
 
 if ($action === 'restore') {

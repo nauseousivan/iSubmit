@@ -1,0 +1,3 @@
+# forms/templates/ — the Word MASTERS the system fills in (2026-10-17). Never served directly: a
+# student only ever receives the filled PDF (dashboards/form_download.php). Deny everything.
+Require all denied

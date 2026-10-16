@@ -47,9 +47,12 @@ config/brevo_secret.php
 config/google_secret.php
 
 # Blank forms the Admin uploads at runtime (Admin -> System -> Forms) — data, like uploads/.
-# The shipped defaults live at the root / dashboards/downloads and ARE tracked.
+# The shipped defaults live in forms/blank (PDF) and forms/templates (Word) and ARE tracked.
 forms/*
 !forms/.htaccess
+# ...but the forms that SHIP with the system are code (2026-10-17): blank PDFs + Word masters.
+!forms/blank/
+!forms/templates/
 
 # Thesis figures, diagrams and screenshots (paper material, not the app; screenshots show real accounts)
 docs/diagrams/

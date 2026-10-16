@@ -368,7 +368,16 @@ School research submission + approval portal. Students upload research documents
   approval clear Final's phase-1 gate. **BLANK FORMS are the Admin's** (Admin → System → Forms): every student
   download goes through `rd_form_url($pdo, $slot, $uid)` (`config/forms.php`: the ONE catalogue of slots + shipped
   defaults per MCNP/ISAP; `form_templates` = her uploads, versioned). A new form = a new catalogue slot, never a
-  hardcoded link. Final
+  hardcoded link. **AUTO-FILL (2026-10-17):** the Word MASTER of a form (`forms/templates/*.docx`, never served —
+  its .htaccess denies all) carries `{{TAGS}}`; `rd_form_url()` then points at `dashboards/form_download.php`,
+  which fills them from `rd_form_values()` (`form_fill_lib.php`, the ONE tag list — keep `rd_form_tag_help()` in
+  step) and converts with LibreOffice (`config/form_fill.php`, own small engine: needs only PHP zip, NOT PHPWord).
+  **A student only ever gets a PDF**: no tags / no LibreOffice / a failed conversion = the blank PDF
+  (`forms/blank/`, named `RDC-Form-0XX_Title_INST.pdf`). Labels come from the catalogue via `rd_form_title()`,
+  buttons via `rd_form_btn_label()`. A school without its own master borrows ISAP's ONLY if it also shares ISAP's blank
+  (MCNP has its own letterhead for 004/006: it keeps its blank). Check a master with LibreOffice, not Word: it is
+  what prints the PDF (one-page fit, clipped text boxes).
+  Final
   requirements **20, 22, 23, 24, 25, 26, 27** — SEVEN, all in one grid (20 = Form 002 and 22 =
   Minutes are ordinary requirements now, NOT an application stage; 21 retired), stats 30–37 (the live set is 30/31/32/34/35 + receipt 37; 33/36 retired),
   plagiarism manuscript = **4**, plagiarism Turnitin report = **40**

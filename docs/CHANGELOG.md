@@ -5,6 +5,41 @@ All notable changes to the `iSubmit` project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Forms fill themselves in (2026-10-17).** The RDC's Word files are now the masters
+  (`forms/templates/`). Their blanks carry `{{TAGS}}` (`{{COURSE}}`, `{{MEMBER_1}}`,
+  `{{CONTROL_NO}}`...). When a student downloads the form, `dashboards/form_download.php` fills in
+  their group's details and hands back a PDF, converted by LibreOffice on the server.
+  - **Only ever a PDF:** students never get a Word file, because Word prints differently on every
+    device. With no tags, no LibreOffice or a failed conversion, they get the blank PDF as before.
+  - **Forms with tags so far:** **Form 011** (Statistical Treatment), **Form 002** (Application for
+    Defense, ISAP and MCNP: a check mark ✓ in the Proposal or Final box, depending on where it was
+    downloaded, and the Designation column left empty), **Form 004** (Letter of Assignment as an
+    Adviser) and **Form 006** (Endorsement from the Adviser).
+  - **Proponents on one line:** on 004 and 006, the members are one comma-separated line
+    (`{{MEMBERS}}`). A box that held empty lines for handwriting lost one, so a two-line title or name
+    list keeps the form on ONE page (checked with six long names).
+  - **MCNP has its own letterhead for 004 and 006** but no Word master yet. A school borrows ISAP's
+    master only when it also shares ISAP's blank, so MCNP keeps its own blank instead of getting a
+    filled ISAP form.
+  - **Not filled on purpose:** Form 003 (the Capsule Proposal, which groups type into), Form 005 (only
+    the office's ticks) and Form 008 (the panel's rubric).
+  - **LibreOffice fixes in the masters**, so the PDF matches Word: the empty paragraph after a final
+    table is made 1pt tall (it was spilling onto a blank page 2), the too-small 'Sincerely,' and
+    'Research Director' boxes on 004 are made big enough, and 004's dashed Conforme outline was
+    redrawn as one stroke (LibreOffice drew a diagonal through it).
+    The defense date is deliberately NOT filled; the office writes it. Buttons say "Download Pre-filled
+    Form" when the form is auto-filled (`rd_form_btn_label()`), and "Download Blank Form" otherwise.
+  - **When the school changes a form:** the office edits the Word file and keeps the tags, then the
+    Admin uploads it in Admin → Forms. Word uploads are now accepted there. The screen shows which
+    tags it found, lets her try it with any group, and lists every tag available.
+  - **Engine:** our own small one (`config/form_fill.php`). It needs only PHP's zip extension and
+    copes with tags Word splits across formatting. The tag values are in `dashboards/form_fill_lib.php`.
+  - **Files tidied:** the blank PDFs moved from the project root into `forms/blank/`, named
+    `RDC-Form-0XX_Title_ISAP|MCNP.pdf`. Every form label now carries its RDC number, read from the
+    forms themselves. Two duplicates were removed: the root `plag_form.pdf` and the old phone photo
+    `rdc.jpg`.
+  - **Server needs (deploy):** PHP zip, plus LibreOffice and the fonts the forms use (Arial,
+    Tahoma, Georgia). Without them nothing breaks; downloads simply stay blank.
 - **Join a group by QR (2026-10-07).** On Research Group (`dashboards/members.php`) a leader can open "Or let them
   scan a QR" under the email invite. Teammates scan it and sign up on the new `auth/join.php` with name, School ID,
   email and password — NO emailed code, since the leader showing the QR in person is the check. They are created

@@ -162,10 +162,11 @@ function df_is_mcnp(PDO $pdo, int $userId): bool
     return rd_user_institution($pdo, $userId) === 'MCNP';
 }
 
-/** Form 002, the Application for Research Defense, for this student's school. */
-function df_application_form(PDO $pdo, int $userId): string
+/** Form 002, the Application for Research Defense, for this student's school. $phase ('proposal' /
+ *  'final') ticks the right Type-of-Defense box when the form is filled in (config/form_fill.php). */
+function df_application_form(PDO $pdo, int $userId, string $phase = ''): string
 {
-    return rd_form_url($pdo, 'application', $userId);
+    return rd_form_url($pdo, 'application', $userId, '../', $phase !== '' ? ['phase' => $phase] : []);
 }
 
 /** Any blank in the catalogue (endorsement, assigned_adviser, mom, ...) for this student's school. */
@@ -589,7 +590,7 @@ function df_stage_bundle(PDO $pdo, int $effectiveUserId, string $phase): array
     // were handed an adviser endorsement form.)
     $forms = [
         12 => df_institution_form($pdo, $effectiveUserId, 'endorsement'),   // proposal: adviser endorsement, the group's institution's
-        20 => df_application_form($pdo, $effectiveUserId),  // final: Form 002, the group's own institution's
+        20 => df_application_form($pdo, $effectiveUserId, 'final'),  // final: Form 002, the group's own institution's
         22 => rd_form_url($pdo, 'mom', $effectiveUserId),               // final: Minutes of the Proposal Defense
     ];
     // Numbered how-to per document — same shape as the requirement cards' $item_steps lists.
@@ -597,7 +598,10 @@ function df_stage_bundle(PDO $pdo, int $effectiveUserId, string $phase): array
     $steps = [
         12 => ['Download the endorsement form below', 'Have your research adviser sign it',
                'Capture a photo or scan it', 'Upload it using the button below'],
-        20 => ['Download the blank Form 002 below', 'Fill it out completely',
+        20 => rd_form_fillable($pdo, 'application', rd_user_institution($pdo, (int)$effectiveUserId))
+              ? ['Download Form 002 below — your group\'s details are already filled in', 'Print it and check it; write in anything left blank',
+                 'Have it signed by your research teacher and adviser', 'Capture a photo or scan it', 'Upload it using the button below']
+              : ['Download the blank Form 002 below', 'Fill it out completely',
                'Have it signed by your research teacher and adviser', 'Capture a photo or scan it',
                'Upload it using the button below'],
         22 => ['Present and defend your proposal first', 'Your teacher writes the minutes during it',

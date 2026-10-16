@@ -11,6 +11,8 @@ $u_data = $stmt_leader_check->fetch();
 $leader_id_for_current_user = $u_data['leader_id'];
 $effective_user_id = $leader_id_for_current_user ?? $user_id;
 
+require_once __DIR__ . '/stats_pipeline_lib.php';   // SP_REQ_ITEMS — the five requirements (2026-10-16)
+
 // Fetch state
 $stmt_form = $pdo->prepare("SELECT * FROM form_stat_treatment WHERE user_id = ? ORDER BY date_submitted DESC LIMIT 1");
 $stmt_form->execute([$effective_user_id]);
@@ -27,7 +29,7 @@ $result_file = $stats_data['result_file'] ?? '';
 $from_treatment = false;
 if ($stats_status === 'Phase 6: Revision Requested' && $stats_data) {
     $ft = $pdo->prepare("SELECT (SELECT MAX(created_at) FROM activity_logs WHERE user_id = ? AND title = 'Statistical Treatment: Revision Needed')
-                             >= (SELECT MAX(verified_at) FROM uploads WHERE user_id = ? AND item_id IN (31,32,33,34,35) AND verification_status = 'Revision Requested')");
+                             >= (SELECT MAX(verified_at) FROM uploads WHERE user_id = ? AND item_id IN (" . implode(',', SP_REQ_ITEMS) . ") AND verification_status = 'Revision Requested')");
     $ft->execute([$effective_user_id, $effective_user_id]);
     $from_treatment = (bool)$ft->fetchColumn();
 }
@@ -65,12 +67,15 @@ foreach ($checklist_items as $item) {
     }
 }
 
-// Determine current step (1-4)
+// Determine current step (1-4). 2026-10-16 flow, with the RDC office: (1) the five requirements,
+// (2) control number from the Secretary + payment at Finance, (3) treatment (incl. the fix-it loop,
+// and legacy groups who paid under the old flow), (4) release.
 $current_step = 1;
-if (in_array($stats_status, ['Phase 1: Pending Coded Data', 'Phase 1: Coded Data Review', 'Phase 1: Coded Data Rejected'])) { $current_step = 1; }
-elseif (in_array($stats_status, ['Phase 2: Form Download', 'Phase 4: Payment Verification'])) { $current_step = 2; }
-elseif (in_array($stats_status, ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'])) { $current_step = 3; }
-elseif (in_array($stats_status, ['Phase 7: Statistical Treatment', 'Phase 7: Completed'])) { $current_step = 4; }
+if (in_array($stats_status, SP_PHASE1, true)) { $current_step = 1; }
+elseif ($stats_status === 'Phase 2: Form Download') { $current_step = 2; }
+// Phase 3/4 are no longer written (receipt step dropped 2026-10-16); an old row there is in treatment.
+elseif (in_array($stats_status, array_merge(SP_LOOP, ['Phase 3: Control Number Issued', 'Phase 4: Payment Verification', 'Phase 7: Statistical Treatment']), true)) { $current_step = 3; }
+elseif ($stats_status === 'Phase 7: Completed') { $current_step = 4; }
 
 // DESK QR (2026-10-01): what is waiting for the statistician's in-person check, and the signed
 // link the QR carries. Null when nothing is — the card then shows no QR. See stat_desk_lib.php.
@@ -80,11 +85,13 @@ $sd_url = $sd ? sd_url((int)$effective_user_id, $sd['ids']) : '';
 $sd_dept = (string)$pdo->query("SELECT department FROM users WHERE user_id = " . (int)$effective_user_id)->fetchColumn();
 $sd_inst = (stripos($sd_dept, 'International') !== false) ? 'ISAP' : 'MCNP';
 
-// Count uploaded deliverables for step 3 (Items 31, 32, 33, 34, 35)
-$deliverable_count = 0;
-foreach ([31,32,33,34,35] as $did) {
+// How many of the five are uploaded / approved (the progress strip on steps 1 and 3).
+$deliverable_count = 0; $req_ok = 0;
+foreach (SP_REQ_ITEMS as $did) {
     if (isset($uploads[$did]['upload_id'])) $deliverable_count++;
+    if (($uploads[$did]['verification_status'] ?? '') === 'Approved') $req_ok++;
 }
+$req_total = count(SP_REQ_ITEMS);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -383,6 +390,13 @@ foreach ([31,32,33,34,35] as $did) {
         }
 
         .remarks-inline strong { color: #78350f; }
+
+        /* The control number the Secretary issued (2026-10-16) — big enough to copy onto Form 11. */
+        .cn-callout { display: inline-flex; flex-direction: column; gap: 2px; margin: 4px 0 12px;
+            padding: 10px 16px; border-radius: var(--radius-sm); border: 1.5px dashed var(--gold);
+            background: var(--gold-soft); }
+        .cn-callout small { font-size: 10.5px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase; color: #92400e; }
+        .cn-callout b { font-family: var(--mono); font-size: 18px; font-weight: 800; color: var(--text, #0f172a); letter-spacing: .02em; user-select: all; }
 
         .btn-inline {
             display: inline-flex;
@@ -803,9 +817,9 @@ foreach ([31,32,33,34,35] as $did) {
             if ($current_step >= 4) $step_progress = 100;
 
             $steps = [
-                ['num' => 1, 'label' => 'Data Upload', 'icon' => 'upload-cloud'],
-                ['num' => 2, 'label' => 'Finance Payment', 'icon' => 'wallet'],
-                ['num' => 3, 'label' => 'Requirements', 'icon' => 'file-stack'],
+                ['num' => 1, 'label' => 'Requirements', 'icon' => 'file-stack'],
+                ['num' => 2, 'label' => 'Control Number', 'icon' => 'hash'],
+                ['num' => 3, 'label' => 'Treatment', 'icon' => 'beaker'],
                 ['num' => 4, 'label' => 'Release', 'icon' => 'award'],
             ];
             ?>
@@ -835,8 +849,14 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="alert-circle" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3>Step 1: Initial Coded Data</h3>
-                    <p>Upload your <strong>Initial Coded Data (Excel)</strong> for the Statistician to verify. Once approved, you'll be directed to proceed with the Finance Office.</p>
+                    <h3>Step 1: <?= $stats_status === 'Phase 1: Coded Data Rejected' ? 'Fix the Requirements Sent Back' : 'Submit Your Requirements' ?></h3>
+                    <p>Upload the <strong>five requirements</strong> below: Coded Data in Excel, Statement of the Problem, Sample Questionnaire, Approved Communication Letter and Minutes of the Meeting. The Statistician checks them. Once all five are approved, you go to the <strong>RDC office</strong> for your control number.</p>
+                    <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
+                        <div style="flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;">
+                            <div style="width: <?= ($deliverable_count / $req_total) * 100 ?>%; height: 100%; background: var(--emerald); border-radius: 3px;"></div>
+                        </div>
+                        <span style="font-size: 11px; font-weight: 700; color: var(--emerald);"><?= $deliverable_count ?>/<?= $req_total ?> uploaded</span>
+                    </div>
                     <?php if ($remarks): ?>
                         <div class="remarks-inline">
                             <strong>Statistician Remarks:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
@@ -850,42 +870,27 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="clock" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3>Step 1: Data Under Verification</h3>
-                    <p>Your initial coded data has been submitted and is currently <strong>being verified</strong> by the Research Statistician. You will receive a notification once verified.</p>
+                    <h3>Step 1: Requirements Being Checked</h3>
+                    <p>All five requirements are in and the Research Statistician is <strong>checking them</strong> (<?= $req_ok ?>/<?= $req_total ?> approved so far). You can also bring them to her office. You will be notified once they are approved.</p>
                 </div>
             </div>
         <?php elseif ($stats_status === 'Phase 2: Form Download'): ?>
-            <div class="step-alert gold animate-in delay-2">
+            <div class="step-alert success animate-in delay-2">
                 <div class="step-alert-icon">
-                    <i data-lucide="wallet" style="width:22px; height:22px;"></i>
+                    <i data-lucide="map-pin" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
                     <div class="step-alert-head">
-                        <h3>Step 2: Proceed to Finance Office</h3>
+                        <h3>Step 2: Go to the RDC Office</h3>
                         <a href="<?= htmlspecialchars(rd_form_url($pdo, 'stat_form', (int)$effective_user_id)) ?>" target="_blank" class="step-alert-dl">
-                            <i data-lucide="download" style="width:14px; height:14px;"></i> RDC Form 011
+                            <i data-lucide="download" style="width:14px; height:14px;"></i> RDC Form 11
                         </a>
                     </div>
-                    <p>Your initial data has been <strong>approved</strong>! Please follow these exact steps:<br><br>
-                    1. <strong>Print and fill out</strong> the Statistical Treatment Form (RDC Form No. 011). You can download it if you don't have it yet.<br>
-                    2. <strong>Proceed to the Finance Office</strong> to pay the processing fee.<br>
-                    3. Get the form <strong>Validated</strong> and secure your <strong>Official Receipt</strong>.<br>
-                    4. <strong>Upload both documents below</strong> — or present your Official Receipt physically at the Research Office and the Statistician will register you directly.</p>
-                    <?php if ($remarks): ?>
-                        <div class="remarks-inline">
-                            <strong>Statistician Remarks:</strong> <?= nl2br(htmlspecialchars($remarks)) ?>
-                        </div>
-                    <?php endif; ?>
-                </div>
-            </div>
-        <?php elseif ($stats_status === 'Phase 4: Payment Verification'): ?>
-            <div class="step-alert info animate-in delay-2">
-                <div class="step-alert-icon">
-                    <i data-lucide="clock" style="width:22px; height:22px;"></i>
-                </div>
-                <div class="step-alert-body">
-                    <h3>Step 2: Payment Verification</h3>
-                    <p>Your payment documents have been submitted and are currently <strong>being verified</strong> by the Statistician. Please wait while your Official Control Number is registered.</p>
+                    <p>All five requirements are <strong>approved</strong>! Next:<br><br>
+                    1. <strong>Optional, saves time:</strong> download <strong>RDC Form 11</strong> (Statistical Treatment Form), print it and fill in your part (research title, proponents, course, contact details). Leave the control number and the signatures blank.<br>
+                    2. <strong>Go to the RDC office.</strong> The Secretary issues your <strong>control number</strong> and the Statistician signs the form. No printed copy? The office gives you one.<br>
+                    3. <strong>Pay at the Finance Office</strong> and bring Form 11 back to the RDC office. You keep the Student's Copy.<br>
+                    Your control number will <strong>appear here</strong> the moment it is issued, and your statistical treatment starts.</p>
                 </div>
             </div>
         <?php elseif (in_array($stats_status, ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'])): ?>
@@ -894,13 +899,13 @@ foreach ([31,32,33,34,35] as $did) {
                     <i data-lucide="<?= $stats_status === 'Phase 6: Revision Requested' ? 'alert-circle' : 'check-circle-2' ?>" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3><?= $from_treatment ? 'Revision Needed After Statistical Treatment' : ('Step 3: ' . ($stats_status === 'Phase 6: Revision Requested' ? 'Revision Needed on a Requirement' : 'Upload Remaining Requirements')) ?></h3>
+                    <h3><?= $from_treatment ? 'Revision Needed After Statistical Treatment' : ($stats_status === 'Phase 6: Revision Requested' ? 'Revision Needed on a Requirement' : ($stats_status === 'Phase 6: Under Review' ? 'Revised Requirements Being Checked' : 'Upload Your Remaining Requirements')) ?></h3>
                     <p><?php if ($from_treatment): ?>
                         While treating your data, the Statistician found something that needs fixing. Read the note on each <strong>flagged card</strong> below and re-upload it. Once it is approved, your treatment continues. <strong>No additional payment is needed.</strong>
                     <?php elseif ($stats_status === 'Phase 6: Revision Requested'): ?>
                         The Statistician requested a <strong>revision</strong> on one or more of your requirements. Check the remarks on the flagged card below and re-upload the corrected file.
                     <?php else: ?>
-                        Your payment is verified and your Official Control Number has been registered. You may now upload the remaining deliverables below.
+                        Your payment is confirmed. Upload the requirements below that are still missing; once all five are approved, your statistical treatment starts.
                     <?php endif; ?>
                     <?php if ($control_no): ?>
                         Your Control Number is: <strong style="font-family: var(--mono);"><?= htmlspecialchars($control_no) ?></strong>
@@ -921,21 +926,25 @@ foreach ([31,32,33,34,35] as $did) {
                     <?php if ($deliverable_count > 0): ?>
                         <div style="margin-top: 12px; display: flex; align-items: center; gap: 8px;">
                             <div style="flex: 1; height: 6px; background: #e5e7eb; border-radius: 3px; overflow: hidden;">
-                                <div style="width: <?= ($deliverable_count / 5) * 100 ?>%; height: 100%; background: var(--emerald); border-radius: 3px; transition: width 0.5s ease;"></div>
+                                <div style="width: <?= ($req_ok / $req_total) * 100 ?>%; height: 100%; background: var(--emerald); border-radius: 3px; transition: width 0.5s ease;"></div>
                             </div>
-                            <span style="font-size: 11px; font-weight: 700; color: var(--emerald);"><?= $deliverable_count ?>/5</span>
+                            <span style="font-size: 11px; font-weight: 700; color: var(--emerald);"><?= $req_ok ?>/<?= $req_total ?> approved</span>
                         </div>
                     <?php endif; ?>
                 </div>
             </div>
-        <?php elseif ($stats_status === 'Phase 7: Statistical Treatment'): ?>
+        <?php elseif (in_array($stats_status, ['Phase 7: Statistical Treatment', 'Phase 3: Control Number Issued', 'Phase 4: Payment Verification'], true)): ?>
             <div class="step-alert info animate-in delay-2">
                 <div class="step-alert-icon">
                     <i data-lucide="loader" style="width:22px; height:22px;"></i>
                 </div>
                 <div class="step-alert-body">
-                    <h3>Step 4: Under Statistical Treatment</h3>
-                    <p>All of your requirements have been <strong>approved</strong>. The Research Statistician is now processing your data. Your final results will appear here once released — you will also be notified in your activity feed.</p>
+                    <h3>Step 3: Under Statistical Treatment</h3>
+                    <?php if ($control_no): ?>
+                        <div class="cn-callout"><small>Your control number</small><b><?= htmlspecialchars($control_no) ?></b></div>
+                    <?php endif; ?>
+                    <p>Your requirements are <strong>approved</strong> and your control number is issued. The Research Statistician is now processing your data. Your final results will appear here once released — you will also be notified in your activity feed.</p>
+                    <p style="margin-top:8px;">Not paid yet? <strong>Pay at the Finance Office</strong> and bring Form 11 back to the RDC office. The Secretary usually writes the number on it; if the space is blank, copy it exactly.</p>
                 </div>
             </div>
         <?php elseif ($stats_status === 'Phase 7: Completed'): ?>
@@ -970,8 +979,8 @@ foreach ([31,32,33,34,35] as $did) {
                     <h3><?= $sd['stage'] === 'coded' ? 'Going to the statistician\'s office?' : 'Bring your requirements to the statistician' ?></h3>
                     <ol class="sd-steps">
                         <?php if ($sd['stage'] === 'coded'): ?>
-                            <li>Go through your coded data with the <strong><?= $sd_inst ?> statistician</strong>.</li>
-                            <li>If everything is right, she <strong>scans this code</strong> and your coded data is approved. Then pay at the <strong>Finance Office</strong>.</li>
+                            <li>Go through your five requirements with the <strong><?= $sd_inst ?> statistician</strong>.</li>
+                            <li>If everything is right, she <strong>scans this code</strong> and your requirements are approved. Then go to the <strong>RDC office</strong> for your control number.</li>
                             <li>If something needs fixing, fix it and upload it again here. A new code appears.</li>
                         <?php else: ?>
                             <li>Go through your requirements with the <strong><?= $sd_inst ?> statistician</strong>.</li>
@@ -988,7 +997,7 @@ foreach ([31,32,33,34,35] as $did) {
             <div class="sd-big" id="sdBig" hidden onclick="sdBig(false)">
                 <div class="sd-big-box" onclick="event.stopPropagation()">
                     <div id="sdQrBig"></div>
-                    <b><?= $sd['stage'] === 'coded' ? 'Coded data check' : 'Requirements check' ?></b>
+                    <b><?= $sd['stage'] === 'coded' ? 'Requirements check' : 'Revised requirements check' ?></b>
                     <span>For the <?= $sd_inst ?> statistician to scan</span>
                     <button type="button" class="btn-inline primary" onclick="sdBig(false)" style="margin-top:14px;">Done</button>
                 </div>
@@ -1008,11 +1017,9 @@ foreach ([31,32,33,34,35] as $did) {
         // Filter checklist items based on current step
         $visible_items = [];
         foreach ($checklist_items as $item) {
-            if ($current_step == 1 && $item['item_id'] == 30) {
-                $visible_items[] = $item;
-            } elseif ($current_step == 2 && in_array($item['item_id'], [36, 37])) {
-                $visible_items[] = $item;
-            } elseif ($current_step >= 3 && in_array($item['item_id'], [31, 32, 33, 34, 35])) {
+            // Step 1 and the treatment stage: the five (no receipt any more — payment is on paper).
+            $iid = (int)$item['item_id'];
+            if (($current_step == 1 || $current_step == 3) && in_array($iid, SP_REQ_ITEMS, true)) {
                 $visible_items[] = $item;
             }
         }

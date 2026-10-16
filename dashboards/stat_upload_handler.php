@@ -44,8 +44,12 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         stat_redirect("Security token expired. Please refresh and try again.");
     }
 
+    require_once __DIR__ . '/stats_pipeline_lib.php';   // SP_REQ_ITEMS, sp_sync_reqs() — the one status rule
     $item_id = intval($_POST['item_id']);
-    $valid_items = [30, 31, 32, 33, 34, 35, 36, 37];
+    // (2026-10-16) The five requirements only. Retired: 33 (Final Coded Data — Form 11 lists one
+    // coded data), 36 (validated Form 011 — the paper stays at the RDC) and 37 (the receipt —
+    // payment is handled on paper; issuing the control number moves the request to treatment).
+    $valid_items = SP_REQ_ITEMS;
     if (!in_array($item_id, $valid_items)) {
         stat_redirect("Invalid requirement selection.");
     }
@@ -71,18 +75,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
     // Phase gate: each requirement is only submittable during its own phase,
     // mirroring the locked/unlocked cards in the student wizard.
-    $phase_gate = [
-        30 => ['Phase 1: Pending Coded Data', 'Phase 1: Coded Data Review', 'Phase 1: Coded Data Rejected'],
-        36 => ['Phase 2: Form Download', 'Phase 4: Payment Verification'],
-        37 => ['Phase 2: Form Download', 'Phase 4: Payment Verification'],
-        31 => ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'],
-        32 => ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'],
-        33 => ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'],
-        34 => ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'],
-        35 => ['Phase 5: Registered', 'Phase 6: Under Review', 'Phase 6: Revision Requested'],
-    ];
-    if (!in_array($current_status, $phase_gate[$item_id])) {
+    // The five are open in step 1 and in the fix-it loop after treatment (and for legacy groups
+    // that paid under the old flow).
+    $phase_gate = array_merge(SP_PHASE1, SP_LOOP);
+    if (!in_array($current_status, $phase_gate)) {
         stat_redirect("This requirement is not available at your current phase.");
+    }
+    // An APPROVED requirement is not re-uploaded (nothing would review it again); in the loop only
+    // the ones sent back, or still missing, are open.
+    $latest_now = latest_uploads_by_item($pdo, $effective_user_id, [$item_id]);
+    if (($latest_now[$item_id]['verification_status'] ?? '') === 'Approved') {
+        stat_redirect("That requirement is already approved.");
     }
 
     $control_no = $stats_data ? $stats_data['formatted_control_no'] : '';
@@ -134,41 +137,24 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
         }
     }
 
-    // Phase transitions on form_stat_treatment
-    if ($item_id == 30) {
-        if (!$stats_data) {
-            $stmt_group = $pdo->prepare("SELECT research_title, program, email FROM users WHERE user_id = ?");
-            $stmt_group->execute([$effective_user_id]);
-            $g = $stmt_group->fetch();
+    // Phase transitions on form_stat_treatment. The request is opened by the FIRST of the five,
+    // whichever it is (it used to be the coded data only).
+    if (!$stats_data) {
+        $stmt_group = $pdo->prepare("SELECT research_title, program, email FROM users WHERE user_id = ?");
+        $stmt_group->execute([$effective_user_id]);
+        $g = $stmt_group->fetch();
 
-            $stmt_new = $pdo->prepare("INSERT INTO form_stat_treatment (user_id, research_title, course, contact_email, file_coded_data, status) VALUES (?, ?, ?, ?, ?, 'Phase 1: Coded Data Review')");
-            $stmt_new->execute([$effective_user_id, $g['research_title'], $g['program'], $g['email'], $filepath]);
-        } else {
-            $stmt_upd_form = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 1: Coded Data Review', file_coded_data = ?, statistician_remarks = NULL WHERE user_id = ?");
-            $stmt_upd_form->execute([$filepath, $effective_user_id]);
-        }
-    } elseif (in_array($item_id, [36, 37])) {
-        // Move to Payment Verification once the LATEST version of both payment documents
-        // exists and neither is awaiting a fix (covers first submission and resubmissions).
-        $latest = latest_uploads_by_item($pdo, $effective_user_id, [36, 37]);
-        if (isset($latest[36], $latest[37])
-            && $latest[36]['verification_status'] !== 'Revision Requested'
-            && $latest[37]['verification_status'] !== 'Revision Requested'
-            && $current_status !== 'Phase 4: Payment Verification') {
-            $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 4: Payment Verification' WHERE user_id = ?")->execute([$effective_user_id]);
-        }
-    } elseif (in_array($item_id, [31, 32, 33, 34, 35])) {
-        // Move to Under Review once the LATEST version of all 5 deliverables exists
-        // and none is awaiting a fix.
-        $latest = latest_uploads_by_item($pdo, $effective_user_id, [31, 32, 33, 34, 35]);
-        $all_ready = count($latest) === 5;
-        foreach ($latest as $row) {
-            if ($row['verification_status'] === 'Revision Requested') { $all_ready = false; }
-        }
-        if ($all_ready && $current_status !== 'Phase 6: Under Review') {
-            $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 6: Under Review' WHERE user_id = ?")->execute([$effective_user_id]);
-        }
+        $stmt_new = $pdo->prepare("INSERT INTO form_stat_treatment (user_id, research_title, course, contact_email, file_coded_data, status) VALUES (?, ?, ?, ?, ?, 'Phase 1: Pending Coded Data')");
+        $stmt_new->execute([$effective_user_id, $g['research_title'], $g['program'], $g['email'], $item_id === 30 ? $filepath : null]);
+    } elseif ($item_id === 30) {
+        $pdo->prepare("UPDATE form_stat_treatment SET file_coded_data = ? WHERE user_id = ?")->execute([$filepath, $effective_user_id]);
     }
+    if (in_array($current_status, SP_PHASE1, true)) {
+        $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = NULL WHERE user_id = ? AND status = 'Phase 1: Coded Data Rejected'")
+            ->execute([$effective_user_id]);
+    }
+    // Pending -> Review once all five are in and none is waiting on a fix (step 1 and the loop).
+    sp_sync_reqs($pdo, (int)$effective_user_id);
 
     // Log to the group activity feed, linked to this upload version
     $item_name_stmt = $pdo->prepare("SELECT item_name FROM checklist_items WHERE item_id = ?");

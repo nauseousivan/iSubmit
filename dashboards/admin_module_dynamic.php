@@ -41,7 +41,8 @@ if ($_SESSION['role'] === 'Statistician' && !in_array($phase, ['stats', 'plag'],
 $phase_map = [
     'proposal' => ['title' => 'Proposal Defense Validations', 'items' => [17, 11, 13, 14, 15, 16, 12]],
     'final' => ['title' => 'Final Defense Validations', 'items' => [20, 22, 23, 24, 25, 26, 27]],
-    'stats' => ['title' => 'Statistics Clearances', 'items' => [30, 31, 32, 33, 34, 35, 36, 37]],
+    // 2026-10-16: the five requirements (33, 36 and the receipt 37 retired with the new flow).
+    'stats' => ['title' => 'Statistics Clearances', 'items' => [30, 31, 32, 34, 35]],
     'plag' => ['title' => 'Plagiarism Scan Clearances', 'items' => [4]],
 ];
 
@@ -191,6 +192,8 @@ $hist_actions = [
     'parked'   => ['label' => 'Parked',          'icon' => 'pause-circle','tone' => 'neutral'],
     'unparked' => ['label' => 'Un-parked',       'icon' => 'play-circle', 'tone' => 'neutral'],
     'nudged'   => ['label' => 'Reminder sent',   'icon' => 'bell-ring',   'tone' => 'neutral'],
+    // The Secretary issuing a control number (2026-10-16) — an office step, not a payment verdict.
+    'issued'   => ['label' => 'Number issued',   'icon' => 'hash',        'tone' => 'neutral'],
 ];
 
 // History filters (month/year) + CSV export. Parsed here — before any HTML output — so the
@@ -371,7 +374,7 @@ function applyReviewDecision(PDO $pdo, array $ctx)
     }
 
     // ---- Statistical treatment consequences (items 30-37) --------------------------------
-    if (in_array($item_id, [30, 31, 32, 33, 34, 35, 36, 37])) {
+    if (in_array($item_id, array_merge(SP_REQ_ITEMS, [SP_RECEIPT_ITEM]), true)) {
         $f_stmt = $pdo->prepare("SELECT * FROM form_stat_treatment WHERE user_id = ? ORDER BY date_submitted DESC LIMIT 1");
         $f_stmt->execute([$student_user_id]);
         $f_data = $f_stmt->fetch();
@@ -379,39 +382,28 @@ function applyReviewDecision(PDO $pdo, array $ctx)
         if ($f_data) {
             $form_id = $f_data['form_id'];
 
-            if ($item_id === 30) {
-                // Initial Data Approval -> Move to Phase 2 Form Download
-                $new_state = ($upload_status === 'Approved') ? 'Phase 2: Form Download' : (($upload_status === 'Revision Requested' || $upload_status === 'revision') ? 'Phase 1: Coded Data Rejected' : 'Phase 1: Pending Coded Data');
-                $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = ?, statistician_remarks = ? WHERE form_id = ?");
-                $upd_stmt->execute([$new_state, $remarks, $form_id]);
-            } elseif (in_array($item_id, [31, 32, 33, 34, 35])) {
-                if ($upload_status === 'Revision Requested') {
-                    // Flag the whole request so the student sees the revision alert
-                    $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 6: Revision Requested', statistician_remarks = ? WHERE form_id = ?");
-                    $upd_stmt->execute([$remarks, $form_id]);
-                } else {
-                    // All 5 approved (checking the LATEST version of each item, since older
-                    // reviewed versions remain as history) -> move into processing, not Completed;
-                    // the request completes when the statistician releases the result file.
-                    $stmt_latest = $pdo->prepare("SELECT COUNT(*) FROM uploads u
-                        INNER JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (31,32,33,34,35) GROUP BY item_id) latest
-                        ON latest.max_id = u.upload_id
-                        WHERE u.verification_status = 'Approved'");
-                    $stmt_latest->execute([$student_user_id]);
-                    if ($stmt_latest->fetchColumn() == 5) {
-                        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 7: Statistical Treatment', statistician_remarks = ? WHERE form_id = ?");
-                        $upd_stmt->execute([$remarks, $form_id]);
-                    } else {
-                        $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?");
-                        $upd_stmt->execute([$remarks, $form_id]);
-                    }
+            if (in_array($item_id, SP_REQ_ITEMS, true)) {
+                // (2026-10-16) THE FIVE REQUIREMENTS — one rule, sp_sync_reqs(), shared with the
+                // student's upload handler: all five Approved moves step 1 on to the Secretary
+                // (or, in the fix-it loop after treatment, back to Treatment); any one sent back
+                // flags the request. The remark is kept for the student's alert either way.
+                // Only a decision WITH a note replaces the request's note: approving one file
+                // silently must not blank the reason another one was sent back.
+                if (trim((string)$remarks) !== '') {
+                    $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?")->execute([$remarks, $form_id]);
                 }
-            } elseif (in_array($item_id, [36, 37])) {
+                // Sending one back DURING treatment drops the request into the fix-it loop (as the
+                // "Needs revision" verdict does); it never touches the payment phases.
+                if ($upload_status === 'Revision Requested' && $f_data['status'] === 'Phase 7: Statistical Treatment') {
+                    $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 6: Revision Requested' WHERE form_id = ?")->execute([$form_id]);
+                }
+                sp_sync_reqs($pdo, (int)$student_user_id);
+            } elseif ($item_id === SP_RECEIPT_ITEM) {
                 $pdo->prepare("UPDATE form_stat_treatment SET statistician_remarks = ? WHERE form_id = ?")->execute([$remarks, $form_id]);
                 if ($upload_status === 'Revision Requested') {
-                    // Rejected payment document: send the group back to Phase 2 so the
-                    // upload cards unlock and they can submit a corrected file.
-                    $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 2: Form Download' WHERE form_id = ? AND status = 'Phase 4: Payment Verification'")->execute([$form_id]);
+                    // Rejected receipt: back to "pay and upload", where the receipt card unlocks
+                    // again. The control number stays — it is on their Form 11 already.
+                    $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 3: Control Number Issued' WHERE form_id = ? AND status = 'Phase 4: Payment Verification'")->execute([$form_id]);
 
                     // Audit trail: who rejected which payment document, and why.
                     $pdo->prepare("INSERT INTO payment_logs (form_id, student_id, actor_id, action, item_id, remarks, created_at) VALUES (?, ?, ?, 'rejected', ?, ?, CURRENT_TIMESTAMP)")
@@ -539,36 +531,16 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
             "decision" => $decision_string,
         ];
     }
-    // THE SECOND DOOR TO REGISTRATION. Approving the Official Receipt of a group still awaiting
-    // registration IS registering it: the drawer asks for the control number (prefix pre-typed)
-    // and the same sp_register_payment() the Progress composer uses mints it. A send-back needs no
-    // number. Refused, not just hidden, without one — an approved receipt with no number would
-    // leave the group stuck at Phase 4 looking finished.
-    $cn_form = null;
-    $cn_seq  = trim($_POST['control_no'] ?? '');
-    if ($target_item_id === 37 && $status === 'Approved' && $role === 'Statistician') {
-        $cn_q = $pdo->prepare("SELECT form_id FROM form_stat_treatment WHERE user_id = ?
-                               AND status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')
-                               ORDER BY date_submitted DESC LIMIT 1");
-        $cn_q->execute([(int)$student_user_id]);
-        $cn_form = $cn_q->fetchColumn() ?: null;
-    }
-
-    if ($cn_form && $cn_seq === '') {
-        $message = "Type the control number to approve the Official Receipt — approving it registers the payment.";
-        redirectToGroupWorkspace($message);
+    // THE RECEIPT IS RETIRED (2026-10-16): no upload, no confirm — issuing the control number moves
+    // a request to treatment. An old receipt row is history; approving one here is refused.
+    if ($target_item_id === SP_RECEIPT_ITEM && $status === 'Approved') {
+        redirectToGroupWorkspace("Receipts are no longer checked in iSubmit — payment is handled on paper at the RDC office.");
     } else {
         $outcome = applyReviewDecision($pdo, $review_ctx);   // scope-checked in there
 
         $message = "Review saved.";
         if ($outcome["cascaded"]) {
             $message .= " Milestone items 13, 15, and 16 have been auto-cleared and locked.";
-        }
-        if ($cn_form) {
-            $minted = sp_register_payment($pdo, $cn_form, (int)$student_user_id, $cn_seq);
-            $message = $minted
-                ? "Receipt approved and payment registered. Control No: $minted"
-                : "Receipt approved, but the request was no longer awaiting registration.";
         }
         redirectToGroupWorkspace($message);
     }
@@ -593,7 +565,8 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === '
     // Items that can never be cleared by a checkbox:
     //   4 - Plagiarism, decided only via the dedicated clearance section (needs a Turnitin report).
     //  13/15/16 - cascade children, auto-cleared when 14 is approved.
-    $bulk_blocked_items = [4, 13, 15, 16];
+    //  37 - the Official Receipt, confirmed only by the Secretary on Progress (with the OR number).
+    $bulk_blocked_items = [4, 13, 15, 16, SP_RECEIPT_ITEM];
 
     // Anything still in flight is actionable by any reviewing role. 'Under Review' only appears on
     // rows written before the endorsement chain was removed, and must stay decidable.
@@ -665,8 +638,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === '
 // is still exactly where it was in the workflow, it has just left this screen's active lanes.
 if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])
     && in_array($_POST['action_type'], ['park_payment', 'unpark_payment', 'nudge_payment'], true)) {
-    if ($role !== 'Statistician') {
-        $message = "Only the Statistician can manage the payment queue.";
+    // 2026-10-16: payment is the Secretary's step now (a Research Director account), so she may
+    // send the reminder too.
+    if (!in_array($role, ['Statistician', 'Research Director'], true)) {
+        $message = "Only the Statistician or the Secretary can manage payments.";
     } elseif (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
         $message = "Security token mismatch. Please try again.";
     } else {
@@ -678,7 +653,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])
         // the table rather than the form post so a tampered field cannot log against someone else.
         $pk_row = $pdo->prepare("SELECT f.form_id, f.user_id, f.status, u.research_group_name
                                  FROM form_stat_treatment f JOIN users u ON u.user_id = f.user_id
-                                 WHERE f.form_id = ? AND f.status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')");
+                                 WHERE f.form_id = ? AND f.status IN ('Phase 3: Control Number Issued', 'Phase 4: Payment Verification')");
         $pk_row->execute([$pk_form]);
         $pk_row = $pk_row->fetch(PDO::FETCH_ASSOC);
 
@@ -701,10 +676,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])
                         'Your payment is still outstanding',
                         array_filter([
                             'The Research Office has not yet recorded a payment for your statistical '
-                                . 'treatment request, so your control number cannot be issued yet.',
-                            'Settle it at the Finance Office, then upload the validated Form 011 and the '
-                                . 'Official Receipt in your Statistics card — or present the receipt at the '
-                                . 'Research Office and it will be recorded for you.',
+                                . 'treatment request, so the treatment cannot start yet.',
+                            'Bring Form 11 (with your control number written on it) to the Finance Office, '
+                                . 'pay, then upload the Official Receipt in your Statistics card and bring the '
+                                . 'form back to the RDC office.',
                             $pk_note,
                         ])
                     )
@@ -726,93 +701,82 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type'])
 }
 
 /**
- * Register a statistics payment: mint the control number, move the request to Phase 5, clear the
- * pending payment documents, rename them, log, and mail the group. ONE implementation for both
- * doors — the Progress composer (acknowledge_payment) and approving the Official Receipt in the
- * review drawer (verify_upload, item 37). Returns the minted number, or null when the request is
- * not awaiting registration (already registered, or not at Phase 2/4). Caller has already
- * checked role, CSRF and institution scope.
+ * THE SECRETARY'S STEP (2026-10-16, with the RDC office and Form 11).
+ *
+ * The office runs this on paper: once the statistician has checked the five requirements, the
+ * Secretary writes a control number on Form 11, the statistician signs "Issued by", the student
+ * fills it in, pays at Finance and brings the form back. The system records ONE thing of that:
+ * the control number. Issuing it moves the request straight to treatment (Phase 2 -> Phase 7);
+ * there is no receipt upload and no confirm step (the user dropped both, 2026-10-16).
+ *
+ * $seq_input: the sequence part as the Secretary left it. The screen PRE-FILLS the next number
+ * (sp_next_control_no()) but she may change it — the office may already have written one on the
+ * paper; empty means the automatic one. The prefix (STAT-year-institution-course-) is never hers
+ * to change, and a number another group holds is refused.
+ *
+ * Research Director only (that role IS the Secretary in code), scope-checked by the caller, and
+ * guarded on the status so a double click cannot run it twice. Returns ['no' => the full number]
+ * or ['err' => why it was refused].
  */
-function sp_register_payment(PDO $pdo, $form_id, int $student_id, string $sequence_no): ?string
+function sp_issue_control_no(PDO $pdo, int $form_id, int $student_id, string $seq_input = ''): array
 {
-    $sequence_no = trim($sequence_no);
-    if ($sequence_no === '') return null;
+    $prog = $pdo->prepare("SELECT program FROM users WHERE user_id = ?");
+    $prog->execute([$student_id]);
+    $program = (string)($prog->fetchColumn() ?: '');
 
-    // Get student department and program to auto-generate prefix
-    $stmt_s = $pdo->prepare("SELECT department, program FROM users WHERE user_id = ?");
-    $stmt_s->execute([$student_id]);
-    $s_info = $stmt_s->fetch();
-
-    // The prefix she does not choose — year, institution, course code — comes from
-    // sp_control_prefix(), the same function the composer previews with. Two copies of
-    // this would drift, and a wrong preview of a permanent identifier is worse than none.
-    $full_control_no = sp_control_prefix($s_info['program'] ?? '')
-                     . str_pad($sequence_no, 3, "0", STR_PAD_LEFT);
-
-    // Only registrable while awaiting/verifying payment (guards double registration)
-    $upd_stmt = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 5: Registered', formatted_control_no = ?
-                               WHERE form_id = ? AND status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification')");
-    $upd_stmt->execute([$full_control_no, $form_id]);
-
-    if ($upd_stmt->rowCount() > 0) {
-        // Payment documents uploaded in-system are implicitly verified by registering
-        $pdo->prepare("UPDATE uploads SET verification_status = 'Approved', remarks = 'Verified during official registration.'
-                       WHERE user_id = ? AND item_id IN (36, 37) AND verification_status = 'Pending'")
-            ->execute([$student_id]);
-
-        // Auto-rename the LATEST upload of each processed document to the official
-        // control-number format. Older reviewed versions stay untouched as history
-        // (renaming them too would collide on identical target filenames).
-        $rename_labels = [30 => 'InitialData', 36 => 'ValidatedForm', 37 => 'Receipt'];
-        $stmt_up = $pdo->prepare("SELECT u.upload_id, u.item_id, u.file_path FROM uploads u
-            INNER JOIN (SELECT item_id, MAX(upload_id) AS max_id FROM uploads WHERE user_id = ? AND item_id IN (30, 36, 37) GROUP BY item_id) latest
-            ON latest.max_id = u.upload_id");
-        $stmt_up->execute([$student_id]);
-
-        foreach ($stmt_up->fetchAll() as $up) {
-            $old_path = $up['file_path'];
-            if (!file_exists($old_path)) continue;
-            $ext = pathinfo($old_path, PATHINFO_EXTENSION);
-            $new_filename = $full_control_no . "_" . $rename_labels[$up['item_id']] . "." . $ext;
-            $new_path = dirname($old_path) . '/' . $new_filename;
-
-            if ($old_path !== $new_path && rename($old_path, $new_path)) {
-                $pdo->prepare("UPDATE uploads SET file_path = ?, original_filename = ? WHERE upload_id = ?")
-                    ->execute([$new_path, $new_filename, $up['upload_id']]);
-                if ((int)$up['item_id'] === 30) {
-                    $pdo->prepare("UPDATE form_stat_treatment SET file_coded_data = ? WHERE form_id = ?")
-                        ->execute([$new_path, $form_id]);
-                }
-            }
-        }
-
-        // Notify student
-        $log_stmt = $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Payment Acknowledged (Registered)', ?, 'success', CURRENT_TIMESTAMP)");
-        $log_stmt->execute([$student_id, "Your statistical treatment payment has been acknowledged. Your Control Number is: $full_control_no. You may now upload the remaining deliverables in Phase 6."]);
-
-        // Audit trail: who registered this payment, when, and under what control number.
-        $pdo->prepare("INSERT INTO payment_logs (form_id, student_id, actor_id, action, control_no, created_at) VALUES (?, ?, ?, 'accepted', ?, CURRENT_TIMESTAMP)")
-            ->execute([$form_id, $student_id, $_SESSION['user_id'], $full_control_no]);
-
-        // Same milestone as the plagiarism one: the number they will be asked to quote.
-        sendGroupEmail(
-            $pdo,
-            (int)$student_id,
-            'Statistical treatment payment verified — ' . $full_control_no,
-            rd_mail_html(
-                'Your payment has been verified',
-                [
-                    'The statistician has recorded your statistical treatment payment. This is your '
-                        . 'official control number — keep it, you will be asked for it.',
-                    'You may now upload your remaining deliverables in the Statistics card.',
-                ],
-                $full_control_no
-            )
-        );
-
-        return $full_control_no;
+    $seq_input = strtoupper(trim($seq_input));
+    // Letters, digits and dashes only (the user's call, 2026-10-16): the number also goes into
+    // upload file names, and symbols there are trouble.
+    if ($seq_input !== '' && !preg_match('/^[A-Z0-9-]{1,20}$/', $seq_input)) {
+        return ['err' => 'The number may use only letters, digits and dashes (up to 20).'];
     }
-    return null;
+
+    $pdo->beginTransaction();
+    try {
+        [$seq, $full] = sp_next_control_no($pdo, $program, true);
+        if ($seq_input !== '') {
+            // Digits are padded like the auto number (7 -> 007) and still count for the next one.
+            $seq  = ctype_digit($seq_input) ? (int)$seq_input : null;
+            $full = sp_control_prefix($program) . (ctype_digit($seq_input) ? str_pad($seq_input, 3, '0', STR_PAD_LEFT) : $seq_input);
+        }
+        // A control number belongs to ONE group, live or archived.
+        $dup = $pdo->prepare("SELECT (SELECT COUNT(*) FROM form_stat_treatment WHERE formatted_control_no = ? AND form_id <> ?)
+                                    + (SELECT COUNT(*) FROM form_stat_treatment_archive WHERE formatted_control_no = ?)");
+        $dup->execute([$full, $form_id, $full]);
+        if ((int)$dup->fetchColumn() > 0) { $pdo->rollBack(); return ['err' => "$full is already used by another group. Pick another number."]; }
+
+        $upd = $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 7: Statistical Treatment',
+                                     formatted_control_no = ?, control_number_seq = ?, statistician_remarks = NULL
+                              WHERE form_id = ? AND status = 'Phase 2: Form Download'");
+        $upd->execute([$full, $seq, $form_id]);
+        if ($upd->rowCount() === 0) { $pdo->rollBack(); return ['err' => 'This request is not waiting for a control number (it may already have one).']; }
+        $pdo->prepare("INSERT INTO payment_logs (form_id, student_id, actor_id, action, control_no, created_at) VALUES (?, ?, ?, 'issued', ?, CURRENT_TIMESTAMP)")
+            ->execute([$form_id, $student_id, $_SESSION['user_id'], $full]);
+        $pdo->commit();
+    } catch (Throwable $e) {
+        if ($pdo->inTransaction()) $pdo->rollBack();
+        throw $e;
+    }
+
+    $pdo->prepare("INSERT INTO activity_logs (user_id, title, description, status_type, created_at) VALUES (?, 'Control number issued', ?, 'success', CURRENT_TIMESTAMP)")
+        ->execute([$student_id, "Your control number is $full. Check that it is on your Form 11 (the Secretary usually writes it; if the space is blank, copy it exactly), pay at the Finance Office and bring the form back to the RDC office. Your statistical treatment is next."]);
+
+    sendGroupEmail(
+        $pdo,
+        $student_id,
+        'Your statistics control number — ' . $full,
+        rd_mail_html(
+            'Your control number has been issued',
+            [
+                'The Research Office has issued the control number for your statistical treatment. '
+                    . 'The Secretary usually writes it on your Form 11; if the space is blank, copy it exactly as shown.',
+                'Pay at the Finance Office and bring the form back to the RDC office. The statistician '
+                    . 'treats your data next; you will be told when the results are released.',
+            ],
+            $full
+        )
+    );
+    return ['no' => $full];
 }
 
 // ── NUDGE FOCAL / REMIND GROUP (Checklist, 2026-09-29) ─────────────────────────────────────────
@@ -864,35 +828,27 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && in_array($_POST['action_type'] ?? '
     }
 }
 
-// Handle Statistician Acknowledging Payment (Phase 5 Transition)
-// Hybrid flow: works from Phase 4 (payment documents uploaded in-system) AND from
-// Phase 2 (receipt presented physically at the Research Office, nothing uploaded).
-if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_POST['action_type'] === 'acknowledge_payment') {
-    if ($role === 'Statistician') {
-        if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
-            exit('Invalid security token. Please refresh and try again.');
-        }
-        $form_id = $_POST['form_id'];
-        $sequence_no = trim($_POST['control_no']);
-
-        // SCOPE. A Statistician is institution-scoped now (see AA_SCOPED_ROLES), so the row
-        // has to be refused, not merely hidden: $student_id arrives in the POST and a crafted
-        // one would otherwise reach another institution's group. Resolved from form_id as well,
-        // so the id acted on is the one the table says owns that request.
+// THE SECRETARY'S STEP (2026-10-16) — issue the control number; that moves the request to
+// treatment. Research Director only: that role IS the Secretary in code (Lea; Ryan holds it too,
+// the known cost of having no separate role). student_id is never taken from the POST: it is
+// resolved from form_id and scope-checked, as every statistics write here is.
+if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['action_type'] ?? '') === 'issue_control_no') {
+    if ($role !== 'Research Director') {
+        $message = "Only the Secretary issues control numbers.";
+    } elseif (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'] ?? '', $_POST['csrf_token'])) {
+        exit('Invalid security token. Please refresh and try again.');
+    } else {
+        $form_id = (int)($_POST['form_id'] ?? 0);
         $sc_owner = $pdo->prepare("SELECT user_id FROM form_stat_treatment WHERE form_id = ?");
         $sc_owner->execute([$form_id]);
         $sc_owner = (int)($sc_owner->fetchColumn() ?: 0);
         if (!$sc_owner || !aa_may_touch_student($pdo, $role, (int)($_SESSION['user_id'] ?? 0), $sc_owner)) {
             exit('Access Denied');
         }
-        $student_id = $sc_owner;
-
-        $full_control_no = sp_register_payment($pdo, $form_id, (int)$student_id, $sequence_no);
-        if ($full_control_no !== null) {
-            $message = "Payment acknowledged and Registered successfully! Generated Control No: $full_control_no";
-        } else {
-            $message = "This request is not awaiting registration (it may already be registered).";
-        }
+        $iss = sp_issue_control_no($pdo, $form_id, $sc_owner, (string)($_POST['control_seq'] ?? ''));
+        $message = isset($iss['no'])
+            ? "Control number issued: {$iss['no']}. It shows on their Statistics card, and the request is now with the statistician for treatment."
+            : $iss['err'];
     }
 }
 
@@ -927,7 +883,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action_type']) && $_P
             // (applyReviewDecision: all five Approved -> Phase 7). Statistics is paid ONCE, so this
             // never touches the payment phases.
             $rev_note  = trim($_POST['revision_note'] ?? '');
-            $rev_items = array_values(array_intersect([31, 32, 33, 34, 35], array_map('intval', (array)($_POST['items'] ?? []))));
+            $rev_items = array_values(array_intersect(SP_REQ_ITEMS, array_map('intval', (array)($_POST['items'] ?? []))));
             $item_note = (array)($_POST['item_note'] ?? []);
 
             $chk = $pdo->prepare("SELECT 1 FROM form_stat_treatment WHERE form_id = ? AND status = 'Phase 7: Statistical Treatment'");
@@ -1653,7 +1609,8 @@ $use_group_inbox = ($phase === 'proposal' || $phase === 'final'
 $use_group_workspace = $use_group_inbox;
 $group_inbox_items = $current_phase['items'];
 if ($phase === 'stats') {
-    $group_inbox_items = array_values(array_diff($group_inbox_items, [36, 37]));
+    // The receipt is the Secretary's, confirmed on Progress — not a requirement to review here.
+    $group_inbox_items = array_values(array_diff($group_inbox_items, [SP_RECEIPT_ITEM]));
 }
 
 $submissions_by_group = [];
@@ -2352,7 +2309,12 @@ if ($phase === 'plag' && $plag_view === 'release') {
             right: 50%; left: -50%; background: var(--line); }
         .sp-node.done + .sp-node.done::before,
         .sp-node.done + .sp-node.you::before,
-        .sp-node.done + .sp-node.them::before { background: var(--success); }
+        .sp-node.done + .sp-node.them::before,
+        .sp-node.done + .sp-node.office::before { background: var(--success); }
+        /* The OTHER office desk's move (2026-10-16: Statistician <-> Secretary) — the accent, calm. */
+        .sp-node.office .sp-dot { background: var(--accent); border-color: var(--accent); }
+        .sp-node.office .sp-lab { color: var(--accent); }
+        .sp-cn-next { color: var(--ink); padding-right: 12px; }
         .sp-dot { width: 13px; height: 13px; border-radius: 50%; position: relative; z-index: 1;
             background: var(--surface); border: 2px solid var(--line); }
         .sp-node.done .sp-dot { background: var(--success); border-color: var(--success); }
@@ -4274,7 +4236,7 @@ if ($phase === 'plag' && $plag_view === 'release') {
 
             <?php if ($phase === 'stats' && $stats_view === 'pipeline'):
                 $sp_stages = sp_stages();
-                $sp_rows   = sp_rows($pdo, $fp_scope_sql, $fp_scope_params);
+                $sp_rows   = sp_rows($pdo, $fp_scope_sql, $fp_scope_params, $role);
                 // The toolbar above already searches; honour it here rather than adding a box.
                 if ($search_query !== '' || $selected_department !== '' || $selected_program !== '') {
                     $sp_rows = array_values(array_filter($sp_rows, function ($r) use ($search_query, $selected_department, $selected_program) {
@@ -4289,17 +4251,23 @@ if ($phase === 'plag' && $plag_view === 'release') {
                 $sp_counts   = sp_counts($sp_rows);
                 $sp_filtered = ($search_query !== '' || $selected_department !== '' || $selected_program !== '');
                 // Open on the band with work in it.
-                $sp_open = $sp_counts['you'] ? 'you' : ($sp_counts['them'] ? 'them' : 'done');
-                $sp_mine  = ($role === 'Statistician');
-                // The five deliverables she can reopen from the Treat stage's "Needs revision".
-                $sp_deliv = $sp_mine
-                    ? $pdo->query("SELECT item_id, item_name FROM checklist_items WHERE item_id IN (31,32,33,34,35) ORDER BY item_id")->fetchAll(PDO::FETCH_KEY_PAIR)
+                $sp_open = $sp_counts['you'] ? 'you' : ($sp_counts['office'] ? 'office' : ($sp_counts['them'] ? 'them' : 'done'));
+                // Two desks act on this ladder (2026-10-16): the Statistician (requirements,
+                // treatment) and the Secretary (control number, payment). Everyone else reads.
+                $sp_me    = sp_actor_of($role);
+                $sp_mine  = ($sp_me !== '');
+                $sp_other = $sp_me === 'stat' ? 'sec' : 'stat';
+                // The five requirements she can reopen from the Treat stage's "Needs revision".
+                $sp_deliv = $sp_me === 'stat'
+                    ? $pdo->query("SELECT item_id, item_name FROM checklist_items WHERE item_id IN (" . implode(',', SP_REQ_ITEMS) . ") ORDER BY item_id")->fetchAll(PDO::FETCH_KEY_PAIR)
                     : [];
                 $sp_bands = [
-                    'you'  => [$sp_mine ? 'Your move'       : 'With the statistician', $sp_counts['you']],
-                    'them' => [$sp_mine ? 'Waiting on them' : 'Waiting on the group',  $sp_counts['them']],
-                    'done' => ['Released',                                             $sp_counts['done']],
+                    'you'    => [$sp_mine ? 'Your move' : 'With the office', $sp_counts['you']],
+                    'office' => ['With ' . sp_actor_name($sp_other),         $sp_counts['office']],
+                    'them'   => [$sp_mine ? 'Waiting on them' : 'Waiting on the group', $sp_counts['them']],
+                    'done'   => ['Released',                                 $sp_counts['done']],
                 ];
+                if (!$sp_mine) unset($sp_bands['office']);   // a reader has no "other desk"
                 // The hero: how much is on her desk, the one that has waited longest, and a small
                 // bar per stage of what is waiting on HER (Done shows what has been released).
                 $spx_you = array_values(array_filter($sp_rows, fn($r) => $r['owner'] === 'you'));
@@ -4329,17 +4297,17 @@ if ($phase === 'plag' && $plag_view === 'release') {
                 <section class="spx-hero">
                     <div class="spx-hero-copy">
                         <?php if ($spx_old): ?>
-                            <h2><?= count($spx_you) ?> request<?= count($spx_you) === 1 ? '' : 's' ?> <?= $sp_mine ? (count($spx_you) === 1 ? 'needs you' : 'need you') : (count($spx_you) === 1 ? 'is with the statistician' : 'are with the statistician') ?></h2>
+                            <h2><?= count($spx_you) ?> request<?= count($spx_you) === 1 ? '' : 's' ?> <?= $sp_mine ? (count($spx_you) === 1 ? 'needs you' : 'need you') : (count($spx_you) === 1 ? 'is with the office' : 'are with the office') ?></h2>
                             <p>The oldest is <b><?= htmlspecialchars($spx_old['research_group_name']) ?></b>. It has waited
                                <?= $spx_old['days'] ?> day<?= $spx_old['days'] === 1 ? '' : 's' ?> to <?= htmlspecialchars(lcfirst($spx_old['do'])) ?>.</p>
                             <button type="button" class="spx-go" onclick="spxStart('sp<?= (int)$spx_old['form_id'] ?>')"><?= $sp_mine ? 'Start with the oldest' : 'See the oldest' ?> <i data-lucide="arrow-right"></i></button>
                         <?php else: ?>
-                            <h2><?= $sp_mine ? 'Nothing is waiting on you' : 'Nothing is with the statistician' ?></h2>
-                            <p>Every request is either with its group or already released.</p>
+                            <h2><?= $sp_mine ? 'Nothing is waiting on you' : 'Nothing is with the office' ?></h2>
+                            <p><?= $sp_mine && $sp_counts['office'] ? 'The rest are with ' . sp_actor_name($sp_other) . ', with their group, or already released.' : 'Every request is either with its group or already released.' ?></p>
                         <?php endif; ?>
                     </div>
-                    <div class="spx-chart" aria-label="Waiting on <?= $sp_mine ? 'you' : 'the statistician' ?>, by stage">
-                        <small>Waiting on <?= $sp_mine ? 'you' : 'the statistician' ?>, by stage (Done shows released)</small>
+                    <div class="spx-chart" aria-label="Waiting on <?= $sp_mine ? 'you' : 'the office' ?>, by stage">
+                        <small>Waiting on <?= $sp_mine ? 'you' : 'the office' ?>, by stage (Done shows released)</small>
                         <div class="spx-bars">
                             <?php foreach ($sp_stages as $si => $st): $v = $spx_bar[$si]; $last = $si === count($sp_stages) - 1; ?>
                                 <div class="spx-bar<?= $last ? ' done' : '' ?>">
@@ -4436,13 +4404,13 @@ if ($phase === 'plag' && $plag_view === 'release') {
                                 <span><i data-lucide="building-2"></i><?= htmlspecialchars($r['department']) ?></span>
                                 <?php if (!empty($r['email'])): ?><span><i data-lucide="mail"></i><?= htmlspecialchars($r['email']) ?></span><?php endif; ?>
                                 <span><i data-lucide="calendar"></i>Requested <?= date('M j, Y', strtotime($r['date_submitted'])) ?></span>
-                                <?php if ($r['at'] >= 3): ?><span><i data-lucide="check-check"></i><?= (int)$r['reqs_ok'] ?>/5 deliverables approved</span><?php endif; ?>
+                                <span><i data-lucide="check-check"></i><?= (int)$r['reqs_ok'] ?>/<?= count(SP_REQ_ITEMS) ?> requirements approved</span>
                                 <?php if ($r['date_released']): ?><span><i data-lucide="package-check"></i>Released <?= date('M j, Y', strtotime($r['date_released'])) ?></span><?php endif; ?>
                             </div>
                             <?php if (!empty($r['research_title'])): ?>
                                 <div class="pl-note"><i data-lucide="book-open"></i><?= htmlspecialchars($r['research_title']) ?></div>
                             <?php endif; ?>
-                            <?php if ($r['at'] === 5 && !empty($r['result_file'])): ?>
+                            <?php if ($r['owner'] === 'done' && !empty($r['result_file'])): ?>
                                 <div class="sp-released">
                                     <a class="pay-btn-ghost" href="<?= htmlspecialchars($r['result_file']) ?>" target="_blank" rel="noopener"><i data-lucide="download"></i> Released file</a>
                                     <?php if (!empty($r['statistician_remarks'])): ?>
@@ -4451,65 +4419,49 @@ if ($phase === 'plag' && $plag_view === 'release') {
                                 </div>
                             <?php endif; ?>
 
-                            <?php if ($role !== 'Statistician'): ?>
-                                <div class="pay-readonly-note"><i data-lucide="lock" style="width:12px;height:12px;"></i> Acting on a request is handled by the Statistician.</div>
+                            <?php
+                            // WHO ACTS HERE (2026-10-16). Two desks: the Statistician checks the
+                            // requirements and treats; the Secretary issues the number and confirms
+                            // the payment. A row on the OTHER desk, or any row for a reader, says
+                            // whose it is instead of offering a button that would be refused.
+                            $sp_status = $r['status'];
+                            $sp_here   = ($r['owner'] === 'you' && $sp_mine);
+                            ?>
+                            <?php if (!$sp_mine && $r['owner'] !== 'done'): ?>
+                                <div class="pay-readonly-note"><i data-lucide="lock" style="width:12px;height:12px;"></i>
+                                    <?= $r['actor'] !== '' ? 'This step is handled by ' . sp_actor_name($r['actor']) . '.' : 'Waiting on the group.' ?></div>
 
-                            <?php elseif ($r['owner'] === 'you' && $r['at'] === 2): ?>
-                                <?php // WHAT SHE IS TRUSTING. The number is permanent, so the two
-                                      // documents behind it belong above the box that mints it —
-                                      // registering blind is the one thing the old payment desk did
-                                      // better, and this screen replaces that desk. ?>
-                                <div class="pl-docs-row">
-                                    <?php foreach ([36 => 'Validated Form', 37 => 'Official Receipt'] as $d_id => $d_label): ?>
-                                        <?php if (isset($r['pay_docs'][$d_id])):
-                                            $d = $r['pay_docs'][$d_id];
-                                            $d_modal = [
-                                                'upload_id' => $d['upload_id'],
-                                                'student_user_id' => $r['user_id'],
-                                                'research_group_name' => $r['research_group_name'],
-                                                'file_path' => $d['file_path'],
-                                                'original_filename' => $d['original_filename'],
-                                                'verification_status' => $d['verification_status'],
-                                                'remarks' => $d['remarks'],
-                                                'form_008_data' => null,
-                                            ];
-                                            $d_pill = strtolower($d['verification_status']) === 'revision requested' ? 'revision'
-                                                    : (strtolower($d['verification_status']) === 'approved' ? 'approved' : 'review');
-                                        ?>
-                                            <button type="button" class="pay-doc-chip" onclick='openDocumentModal(<?= htmlspecialchars(json_encode($d_modal), ENT_QUOTES) ?>, "<?= htmlspecialchars($d_label, ENT_QUOTES) ?>", <?= $d_id ?>)'>
-                                                <i data-lucide="eye"></i> <?= $d_label ?>
-                                                <span class="status-pill <?= $d_pill ?>" style="font-size:8px; padding:1px 6px;"><?= htmlspecialchars($d['verification_status']) ?></span>
-                                            </button>
-                                        <?php else: ?>
-                                            <span class="pay-doc-missing"><i data-lucide="file-x"></i><?= $d_label ?>: not uploaded</span>
-                                        <?php endif; ?>
-                                    <?php endforeach; ?>
-                                    <?php if (!$r['pay_docs']): ?>
-                                        <span class="pay-doc-missing"><i data-lucide="hand-coins"></i>Nothing uploaded &mdash; paid at the Research Office</span>
-                                    <?php endif; ?>
-                                </div>
+                            <?php elseif ($r['owner'] === 'office'): ?>
+                                <div class="pay-readonly-note"><i data-lucide="user-round" style="width:12px;height:12px;"></i> With <?= sp_actor_name($r['actor']) ?>: <?= htmlspecialchars(lcfirst($r['do'])) ?>.</div>
 
-                                <?php // THE COMPOSER. She supplies the sequence; the rest is derived
-                                      // from the group's course. Previewing it matters because the
-                                      // number is permanent and she used to only see it afterwards. ?>
+                            <?php elseif ($sp_here && $sp_status === 'Phase 2: Form Download'): ?>
+                                <?php // ISSUE THE NUMBER. The prefix is fixed (sp_control_prefix()); the
+                                      // sequence is PRE-FILLED with the next one (sp_next_control_no(), the
+                                      // same function the handler counts with) but she may change it — the
+                                      // office may have written one on the paper already. A number another
+                                      // group holds is refused by the handler.
+                                      [$sp_seq] = sp_next_control_no($pdo, $r['program']);
+                                      $sp_pre   = sp_control_prefix($r['program']);
+                                      $sp_seq   = str_pad((string)$sp_seq, 3, '0', STR_PAD_LEFT); ?>
                                 <div class="spx-label">Issue the control number</div>
-                                <form method="POST" class="sp-act sp-reg">
-                                    <input type="hidden" name="action_type" value="acknowledge_payment">
+                                <form method="POST" class="sp-act sp-reg" onsubmit="return spIssueCheck(this, <?= htmlspecialchars(json_encode((string)$r['research_group_name']), ENT_QUOTES) ?>)">
+                                    <input type="hidden" name="action_type" value="issue_control_no">
                                     <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
                                     <input type="hidden" name="form_id" value="<?= $r['form_id'] ?>">
                                     <div class="sp-cn-build">
-                                        <span class="sp-cn-fixed"><?= htmlspecialchars(sp_control_prefix($r['program'])) ?></span>
-                                        <input type="text" name="control_no" class="sp-cn-seq cn-wide" placeholder="CU88759938" required
-                                               autocomplete="off" oninput="spPreview(this)"
-                                               data-prefix="<?= htmlspecialchars(sp_control_prefix($r['program']), ENT_QUOTES) ?>">
+                                        <span class="sp-cn-fixed"><?= htmlspecialchars($sp_pre) ?></span>
+                                        <input type="text" name="control_seq" class="sp-cn-seq" value="<?= htmlspecialchars($sp_seq) ?>" placeholder="<?= htmlspecialchars($sp_seq) ?>" maxlength="20"
+                                               pattern="[A-Za-z0-9\-]{1,20}" title="Letters, digits and dashes only (no spaces or symbols)" autocomplete="off" data-prefix="<?= htmlspecialchars($sp_pre, ENT_QUOTES) ?>"
+                                               data-auto="<?= htmlspecialchars($sp_seq, ENT_QUOTES) ?>"
+                                               oninput="spIssuePreview(this)" aria-label="Sequence number">
                                     </div>
                                     <button type="submit" class="btn-update" style="background: var(--warning);"><i data-lucide="badge-check" style="width:14px;height:14px;"></i> Issue number</button>
-                                    <p class="sp-cn-out">Will issue <b>&mdash;</b><span class="sp-cn-hint">The control number is printed on the Official Receipt.</span></p>
+                                    <p class="sp-cn-out">Will issue <b><?= htmlspecialchars($sp_pre . $sp_seq) ?></b><span class="sp-cn-hint">The next number for this course is filled in. Change it if a different number was already written on their Form 11; leave it empty to use the automatic one. It shows on their Statistics card right away, and the request goes to the statistician for treatment.</span></p>
                                 </form>
 
-                            <?php elseif ($r['owner'] === 'you' && $r['at'] === 4): ?>
+                            <?php elseif ($sp_here && $sp_status === 'Phase 7: Statistical Treatment'): ?>
                                 <?php // A VERDICT, like the Turnitin desk: release, or send back. Send
-                                      // back reopens the deliverables she ticks (each with its own
+                                      // back reopens the requirements she ticks (each with its own
                                       // optional note) — the group never pays again for it. ?>
                                 <form method="POST" enctype="multipart/form-data" class="sp-rel" onsubmit="return spRelCheck(this)">
                                     <input type="hidden" name="action_type" value="upload_stat_result">
@@ -4540,7 +4492,7 @@ if ($phase === 'plag' && $plag_view === 'release') {
                                     <p class="sp-hint sp-file-hint" hidden>Attaching the treated file is optional here.</p>
                                 </form>
 
-                            <?php elseif ($r['at'] === 5): ?>
+                            <?php elseif ($r['owner'] === 'done' && $sp_me === 'stat'): ?>
                                 <?php // Released is not sealed: a wrong file or a note worth rewording is
                                       // corrected here, and the group is told. ?>
                                 <details class="sp-fix">
@@ -4558,22 +4510,13 @@ if ($phase === 'plag' && $plag_view === 'release') {
                                     </form>
                                 </details>
 
-                            <?php elseif ($r['owner'] === 'you'): ?>
+                            <?php elseif ($sp_here): ?>
                                 <?php // Reviewing documents is the Checklist's job; sending her there
                                       // with the group already picked beats rebuilding it here. ?>
                                 <a class="pay-btn-ghost" href="admin_module_dynamic.php?phase=stats&view=checklist&search=<?= urlencode($r['research_group_name']) ?>">
                                     <i data-lucide="list-checks"></i> Open the checklist for this group
                                 </a>
 
-                            <?php elseif ($r['at'] === 1): ?>
-                                <div class="pl-acts">
-                                    <form method="POST" style="display:contents;">
-                                        <input type="hidden" name="action_type" value="nudge_payment">
-                                        <input type="hidden" name="csrf_token" value="<?= htmlspecialchars($_SESSION['csrf_token'] ?? '') ?>">
-                                        <input type="hidden" name="form_id" value="<?= $r['form_id'] ?>">
-                                        <button type="submit" class="pay-btn-ghost"><i data-lucide="bell-ring"></i> Send a reminder</button>
-                                    </form>
-                                </div>
                             <?php endif; ?>
                         </div>
                     </div>
@@ -6362,18 +6305,6 @@ if ($phase === 'plag' && $plag_view === 'release') {
                             <option value="Revision Requested">Reject / Request Revision</option>
                         </select>
 
-                        <?php // Shown only for an Official Receipt (37) being APPROVED for a group not yet
-                              // registered — see cnDrawer(). Approving it registers the payment. ?>
-                        <div id="modalCnBox" class="modal-cn" hidden>
-                            <label style="font-size:11px; font-weight:bold; color:var(--muted); text-transform:uppercase; margin-top:4px;">Control Number</label>
-                            <div class="sp-cn-build">
-                                <span class="sp-cn-fixed" id="modalCnPrefix"></span>
-                                <input type="text" name="control_no" id="modal_control_no" class="sp-cn-seq cn-wide"
-                                       placeholder="CU88759938" autocomplete="off" oninput="spPreview(this)" data-prefix="">
-                            </div>
-                            <p class="sp-cn-out">Will issue <b>&mdash;</b><span class="sp-cn-hint">The control number is printed on the Official Receipt.</span></p>
-                        </div>
-
                         <label class="dv-lab" for="modal_remarks">Note to the group <span>(optional)</span></label>
                         <textarea name="remarks" id="modal_remarks" rows="4" placeholder="Anything they should know"></textarea>
 
@@ -7077,13 +7008,20 @@ if ($phase === 'plag' && $plag_view === 'release') {
             return true;
         }
 
-        // The sequence is padded to three the same way the handler pads it, so the preview is
-        // the string that will actually be minted rather than an approximation of it.
-        function spPreview(input) {
+        // The control number preview: the fixed prefix + her sequence, padded like the handler
+        // pads digits (7 -> 007), so what she reads is what will be issued.
+        function spIssueFull(input) {
+            // Empty = the automatic number (the handler does the same).
+            var raw = input.value.trim().toUpperCase() || input.getAttribute('data-auto');
+            return input.getAttribute('data-prefix') + (/^\d+$/.test(raw) && raw.length < 3 ? raw.padStart(3, '0') : raw);
+        }
+        function spIssuePreview(input) {
             var out = input.closest('form').querySelector('.sp-cn-out b');
-            if (!out) return;
-            var raw = input.value.trim();
-            out.textContent = raw === '' ? '—' : input.getAttribute('data-prefix') + (raw.length < 3 ? raw.padStart(3, '0') : raw);
+            if (out) out.textContent = spIssueFull(input);
+        }
+        function spIssueCheck(f, group) {
+            var input = f.querySelector('input[name=control_seq]');
+            return confirm('Issue ' + spIssueFull(input) + ' to ' + group + '? It shows on their card and the request goes to treatment.');
         }
         function toggleReq(id, headerEl) {
             const body = document.getElementById('body-' + id);
@@ -7250,36 +7188,9 @@ if ($phase === 'plag' && $plag_view === 'release') {
             dvPaint();
         }
 
-        // Groups still awaiting registration -> their control-number prefix (same
-        // sp_control_prefix() the handler mints with). Statistician only; scoped like every list.
-        const SP_CN = <?php
-            $sp_cn_map = [];
-            if ($role === 'Statistician' && $phase === 'stats') {
-                $cn_q = $pdo->prepare("SELECT f.user_id, u.program FROM form_stat_treatment f JOIN users u ON u.user_id = f.user_id
-                                       WHERE f.status IN ('Phase 2: Form Download', 'Phase 4: Payment Verification') AND $fp_scope_sql");
-                $cn_q->execute($fp_scope_params);
-                foreach ($cn_q->fetchAll(PDO::FETCH_ASSOC) as $cn_r) $sp_cn_map[(string)$cn_r['user_id']] = sp_control_prefix($cn_r['program']);
-            }
-            echo json_encode((object)$sp_cn_map);
-        ?>;
-
-        // Approving an Official Receipt (37) for an unregistered group registers it, so the drawer
-        // asks for the number then — and only then. Revise hides it again.
-        function cnDrawer() {
-            const box = document.getElementById('modalCnBox');
-            if (!box) return;
-            const input  = document.getElementById('modal_control_no');
-            const item   = parseInt(document.getElementById('modal_target_item_id').value, 10);
-            const prefix = SP_CN[document.getElementById('modal_student_id').value];
-            const show   = item === 37 && prefix !== undefined && document.getElementById('modal_status').value === 'Approved';
-            box.hidden = !show;
-            input.required = show;
-            if (prefix !== undefined) {
-                document.getElementById('modalCnPrefix').textContent = prefix;
-                input.setAttribute('data-prefix', prefix);
-            }
-            spPreview(input);
-        }
+        // (2026-10-16) The drawer no longer registers payments: the Secretary confirms them on
+        // Progress with the OR number, and approving a receipt here is refused server-side.
+        function cnDrawer() {}
 
         // Lightweight scan viewer for the plagiarism payment desk. Deliberately not the review
         // modal — a payment document is decided by the Register / Send back buttons beside it,

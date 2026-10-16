@@ -70,7 +70,7 @@ if ($grp) {
         else                                                                $screen = 'replaced';
     }
 }
-$stage  = ($files && (int)$files[0]['item_id'] === 30) ? 'coded' : 'deliverables';
+$stage  = $pending['stage'] ?? (($files && (int)$files[0]['item_id'] === 30) ? 'coded' : 'deliverables');
 $h      = fn($v) => htmlspecialchars((string)$v, ENT_QUOTES, 'UTF-8');
 $tag    = $grp ? aa_school_tag((string)$grp['department']) : '';
 $gname  = $grp ? ($grp['research_group_name'] ?: 'Research group') : '';
@@ -137,8 +137,8 @@ $back   = rd_home_for($role) ?: 'student.php';
     <a class="sd-brand" href="<?= $h($back) ?>"><img src="../assets/images/mascot.png" alt=""><span><b>iSubmit</b><small>Statistics desk</small></span></a>
 
     <?php if (in_array($screen, ['confirm', 'readonly'], true)): ?>
-        <div class="sd-eyebrow"><?= $stage === 'coded' ? 'Step 1 · Coded data check' : 'Step 3 · Requirements check' ?></div>
-        <h1 class="sd-title"><?= $stage === 'coded' ? 'Approve the coded data?' : 'Approve the requirements?' ?></h1>
+        <div class="sd-eyebrow"><?= $stage === 'coded' ? 'Step 1 · Requirements check' : 'Revised requirements check' ?></div>
+        <h1 class="sd-title"><?= $stage === 'coded' ? 'Approve the requirements?' : 'Approve the revised requirements?' ?></h1>
         <div class="sd-card">
             <div class="sd-grp">
                 <span class="sd-av"><?= $h(mb_strtoupper(mb_substr($gname, 0, 1))) ?></span>
@@ -164,11 +164,11 @@ $back   = rd_home_for($role) ?: 'student.php';
                     <input type="hidden" name="remarks" value="Checked in person at the statistician's office.">
                     <?php foreach ($ids as $id): ?><input type="hidden" name="upload_ids[]" value="<?= (int)$id ?>"><?php endforeach; ?>
                     <button type="submit" class="sd-go"><i data-lucide="check"></i>
-                        <?= $stage === 'coded' ? 'Approve coded data' : 'Approve ' . (count($ids) === 1 ? 'this requirement' : 'these ' . count($ids) . ' requirements') ?></button>
+                        <?= 'Approve ' . (count($ids) === 1 ? 'this requirement' : 'these ' . count($ids) . ' requirements') ?></button>
                 </form>
                 <p class="sd-note"><?= $stage === 'coded'
-                    ? 'Once approved, the group is told to proceed to the Finance Office.'
-                    : (count($ids) === count($files) && count($ids) >= 1 ? 'When all five are approved, the request moves to statistical treatment.' : '') ?>
+                    ? 'When all five are approved, the group goes to the Secretary for their control number and Form 11.'
+                    : 'When all five are approved, the request goes back to statistical treatment.' ?>
                     Something needs fixing? Don't approve. Tell the group what to change; they upload it again and bring a new code.</p>
             <?php else: ?>
                 <p class="sd-note"><b>Only the statistician confirms this.</b> You are seeing it read-only.</p>

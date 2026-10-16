@@ -308,21 +308,21 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST' && isset($_POST['action']) && $_POST['
 
         // Stats module: removing a pending draft must also rewind the group's phase so the
         // statistician queue does not keep a phantom "waiting for review" state.
+        // (2026-10-16) The five requirements re-derive their status through sp_sync_reqs(), the
+        // same rule the upload and review handlers use; deleting the receipt hands the request
+        // back to the "pay and upload" step.
         $deleted_item_id = (int)$upload_data['item_id'];
-        if (in_array($deleted_item_id, [30, 31, 32, 33, 34, 35, 36, 37], true)) {
+        require_once __DIR__ . '/stats_pipeline_lib.php';
+        if (in_array($deleted_item_id, SP_REQ_ITEMS, true)) {
             if ($deleted_item_id === 30) {
-                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 1: Pending Coded Data', file_coded_data = NULL
-                               WHERE user_id = ? AND status = 'Phase 1: Coded Data Review'")
-                    ->execute([$effective_user_id]);
-            } elseif (in_array($deleted_item_id, [36, 37], true)) {
-                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 2: Form Download'
-                               WHERE user_id = ? AND status = 'Phase 4: Payment Verification'")
-                    ->execute([$effective_user_id]);
-            } else { // deliverables 31-35
-                $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 5: Registered'
-                               WHERE user_id = ? AND status = 'Phase 6: Under Review'")
-                    ->execute([$effective_user_id]);
+                $pdo->prepare("UPDATE form_stat_treatment SET file_coded_data = NULL WHERE user_id = ? AND status IN ('"
+                              . implode("','", SP_PHASE1) . "')")->execute([$effective_user_id]);
             }
+            sp_sync_reqs($pdo, (int)$effective_user_id);
+        } elseif ($deleted_item_id === SP_RECEIPT_ITEM) {
+            $pdo->prepare("UPDATE form_stat_treatment SET status = 'Phase 3: Control Number Issued'
+                           WHERE user_id = ? AND status = 'Phase 4: Payment Verification'")
+                ->execute([$effective_user_id]);
         }
 
         // Insert log action to group activities feed (using activity_logs)

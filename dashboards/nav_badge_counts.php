@@ -48,7 +48,7 @@ if ($role === 'Statistician') {
         INNER JOIN (
             SELECT user_id, item_id, MAX(uploaded_at) AS max_date FROM uploads GROUP BY user_id, item_id
         ) latest ON up.user_id = latest.user_id AND up.item_id = latest.item_id AND up.uploaded_at = latest.max_date
-        WHERE up.verification_status = 'Pending' AND up.item_id IN (30,31,32,33,34,35)
+        WHERE up.verification_status = 'Pending' AND up.item_id IN (30,31,32,34,35)
     ")->fetchColumn();
 
     // Only what the desk can actually act on — see the Ready lane in admin_module_dynamic.php.
@@ -60,7 +60,7 @@ if ($role === 'Statistician') {
         SELECT COUNT(*) FROM form_stat_treatment f
         JOIN users u ON u.user_id = f.user_id
         WHERE f.status = 'Phase 4: Payment Verification'
-          AND EXISTS (SELECT 1 FROM uploads up WHERE up.user_id = f.user_id AND up.item_id IN (36, 37))
+          AND EXISTS (SELECT 1 FROM uploads up WHERE up.user_id = f.user_id AND up.item_id = 37)
           AND $sb_sql
     ");
     $sb_stmt->execute($sb_params);
@@ -79,7 +79,7 @@ if ($role === 'Statistician') {
     // renders so the dock and the page can never disagree. 'payment'/'release' are kept for
     // now: the desks are retired but other shells still read those keys.
     require_once __DIR__ . '/stats_pipeline_lib.php';
-    $pipeline_you = sp_counts(sp_rows($pdo, $sb_sql, $sb_params))['you'];
+    $pipeline_you = sp_counts(sp_rows($pdo, $sb_sql, $sb_params, $role))['you'];
     echo json_encode([
         'checklist' => $stats_checklist_pending,
         'pipeline' => $pipeline_you,
@@ -106,7 +106,7 @@ $counts = $pdo->prepare("
     SELECT
         SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16,17) THEN 1 ELSE 0 END) as proposal,
         SUM(CASE WHEN up.item_id IN (20,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final,
-        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats
+        SUM(CASE WHEN up.item_id IN (30,31,32,34,35) THEN 1 ELSE 0 END) as stats
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date
@@ -128,7 +128,14 @@ $schedule_pending_proposal = fp_schedule_badge($pdo, $role, 'proposal', $nb_scho
 $approvals_proposal = fp_approvals_badge($pdo, $role, "proposal", $nb_school);
 $approvals_final    = fp_approvals_badge($pdo, $role, "final", $nb_school);
 
+// The Secretary's own Statistics step (2026-10-16): issue numbers, confirm payments — the
+// 'Your move' band of Progress for a Research Director, counted from the rows that screen renders.
+require_once __DIR__ . '/stats_pipeline_lib.php';
+$pipeline_you = $role === 'Research Director'
+    ? sp_counts(sp_rows($pdo, $nb_sc_sql, $nb_sc_params, $role))['you'] : 0;
+
 echo json_encode([
+    'pipeline' => $pipeline_you,
     'approvals_proposal' => $approvals_proposal,
     'approvals_final' => $approvals_final,
     'proposal' => (int) ($row['proposal'] ?? 0),

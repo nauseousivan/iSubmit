@@ -150,7 +150,7 @@ $pending_counts = $pdo->prepare("
     SELECT
         SUM(CASE WHEN up.item_id IN (11,12,13,14,15,16,17) THEN 1 ELSE 0 END) as proposal_pending,
         SUM(CASE WHEN up.item_id IN (20,22,23,24,25,26,27) THEN 1 ELSE 0 END) as final_pending,
-        SUM(CASE WHEN up.item_id IN (30,31,32,33,34,35,36,37) THEN 1 ELSE 0 END) as stats_pending
+        SUM(CASE WHEN up.item_id IN (30,31,32,34,35) THEN 1 ELSE 0 END) as stats_pending
     FROM uploads up
     INNER JOIN (
         SELECT user_id, item_id, MAX(uploaded_at) AS max_date

@@ -16,6 +16,41 @@ All notable changes to the `iSubmit` project will be documented in this file.
   sends the code.
 
 ### Changed
+- **Statistics now follows the RDC office's real flow (2026-10-16, with Form 11).**
+  1. **Requirements first.** The group uploads all five at the start (Coded Data in Excel, SOP,
+     Questionnaire, Communication Letter, MOM) and the Statistician checks them. The old
+     "upload five deliverables after paying" step is gone. Retired: 33 (Final Coded Data) and
+     36 (validated Form 011 upload).
+  2. **The Secretary issues the control number.** The sequence is pre-filled with the next
+     number per course and year (`STAT-2026-ISAP-IT-001`), but she can edit it in case the office
+     already wrote one on the paper. The prefix stays fixed, and a number another group holds is
+     refused. The Statistician no longer issues numbers. It shows on the student's
+     card. The Secretary usually writes it on the paper Form 11, and the student copies it only if
+     the space is blank.
+  3. **Issuing the number starts the treatment.** Payment is handled on paper: they pay at
+     Finance and bring Form 11 back to the RDC. There is no receipt upload, no confirm step and
+     no OR number (all three dropped the same day). The receipt (37) is retired.
+  4. **Treatment and release** are unchanged. A send-back still never touches payment.
+  - **Code:** one status rule `sp_sync_reqs()` and the Secretary's `sp_issue_control_no()`
+    (handler `issue_control_no`, Research Director only). Progress bands are now per desk
+    ("With the Secretary" / "With the Statistician"), and the spine has 4 steps. The Secretary
+    gets a Progress badge on her rail. The drawer's control-number box was removed.
+  - **Student card:** new steps Requirements → Control Number → Treatment → Release. The control
+    number is shown big on the Treatment step, with a pay-and-bring-the-form-back reminder. The
+    desk QR covers the five.
+  - **Migration:** `database/migrations/2026-10-16_stats_flow_secretary.sql` (applied). It
+    renamed item 30 to "Coded Data in Excel" and moved 5 requests that only had the coded data
+    approved back to step 1. Groups already paid under the old flow (`Phase 5`) keep going as
+    before.
+  - **RDC Form 11 download is back on the student card** (the "Go to the RDC Office" step), marked
+    optional. Students can print it and fill in their part ahead, so the Secretary and the
+    Statistician only sign. The shipped default is now the clean PDF (`stat_form.pdf`) instead of the
+    phone photo `dashboards/downloads/rdc.jpg`. The Admin can still replace it per institution.
+  - **The Statistician's rail no longer has Plagiarism** (Home · Statistics · Workspace). The user
+    says the statistician does not handle it. The plag screens still accept her role server-side.
+  - **Tested end to end** on QR Test Student (277): upload, send-back, approve, issue (straight to
+    treatment), and a refused receipt upload, plus refusals for the wrong role and double clicks. The test
+    data was restored afterwards.
 - **Ready for an online test host (2026-10-07).** `config/db.php` reads the server's database login from
   `config/db_local.php` (gitignored; template in `config/db_local.example.php`) and falls back to the XAMPP defaults;
   off localhost a failed connection shows a plain "temporarily unavailable" page instead of printing the DB host and

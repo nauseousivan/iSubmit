@@ -34,7 +34,7 @@ function sh_model(string $role): array
         ],
         'stats' => [
             'label' => 'Statistics', 'icon' => 'sigma',
-            'sub'   => 'Follow each request from coded data to released results.',
+            'sub'   => 'Follow each request from its five requirements to released results.',
             'steps' => [
                 ['key' => null, 'title' => 'Progress', 'icon' => 'git-commit-horizontal',
                  'url' => 'admin_module_dynamic.php?phase=stats&view=pipeline', 'win' => 'Progress',
@@ -112,20 +112,23 @@ function sh_model(string $role): array
         ],
     ];
 
-    // THE STATISTICIAN'S RAIL: Home · Statistics · Plagiarism · Workspace. Her Progress and
-    // Requirements carry her own queues (nav_badge_counts.php 'pipeline' / 'checklist'); on the
-    // Director's rail Progress is read-only, so it carries no count there. Plagiarism starts with
-    // Notify, as her old nav did. Analytics lives in her Workspace; she has no Calendar or Staff.
+    // THE STATISTICIAN'S RAIL: Home · Statistics · Workspace (Plagiarism removed 2026-10-16 — the
+    // user: the statistician does not handle it). Her Progress and Requirements carry her own
+    // queues (nav_badge_counts.php 'pipeline' / 'checklist'). Analytics lives in her Workspace;
+    // she has no Calendar or Staff.
+    // THE SECRETARY'S STEP (2026-10-16): on a Research Director's rail Progress carries her own
+    // queue too — control numbers to issue and payments to confirm (nav_badge_counts.php 'pipeline').
+    if ($role === 'Research Director') {
+        $m['stats']['steps'][0] = array_merge($m['stats']['steps'][0], ['key' => 'pipeline',
+            'zero' => 'No numbers or payments waiting', 'one' => '1 request waiting on you', 'many' => '{n} requests waiting on you']);
+    }
+
     if ($role === 'Statistician') {
         $m['stats']['steps'][0] = array_merge($m['stats']['steps'][0], ['key' => 'pipeline',
             'zero' => 'Nothing waiting on you', 'one' => '1 request waiting on you', 'many' => '{n} requests waiting on you']);
         $m['stats']['steps'][1]['key'] = 'checklist';
-        $plag = $m['plag'];
-        array_unshift($plag['steps'], $m['final']['steps'][3]);   // Notify
-        $plag['sub'] = 'Call for the manuscript, confirm it, log the payment, release the result.';
         return [
             'stats' => $m['stats'],
-            'plag'  => $plag,
             'workspace' => [
                 'label' => 'Workspace', 'icon' => 'layout-grid',
                 'sub'   => 'Messages, numbers and your own settings.',
@@ -268,7 +271,7 @@ function sh_workflow_keys(string $role = ''): array
 {
     if ($role === 'Admin') return ['accounts'];
     if ($role === 'Focal Person') return ['proposal', 'final'];
-    return $role === 'Statistician' ? ['stats', 'plag'] : ['proposal', 'stats', 'final', 'plag'];
+    return $role === 'Statistician' ? ['stats'] : ['proposal', 'stats', 'final', 'plag'];
 }
 
 /** A step's live count, or 0. */

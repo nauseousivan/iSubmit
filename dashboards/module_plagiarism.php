@@ -324,7 +324,7 @@ $step_completed_4 = ($plag_phase === 'Phase 5: Cleared');
                         so the scan fee is paid again. Upload the NEW validated form and receipt below. Your control number stays the same.</div>
                 <?php endif; ?>
                 <p>Your manuscript has been <strong>received</strong>. Now follow these exact steps:<br><br>
-                1. <strong>Print and fill out</strong> the Plagiarism Scan Form (RDC Form No. 13). You can download it above.<br>
+                1. <strong>Print and fill out</strong> the Plagiarism Processing Form (RDC Form 013). You can download it above.<br>
                 2. <strong>Proceed to the Finance Office</strong> to pay the scan fee.<br>
                 3. Get the form <strong>Validated</strong> and secure your <strong>Official Receipt</strong>.<br>
                 4. <strong>Upload both documents below.</strong></p>

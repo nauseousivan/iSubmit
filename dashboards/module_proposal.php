@@ -220,7 +220,7 @@ $message_type = $_GET['type'] ?? '';
                 </div>
                 <p style="margin:0; font-size:11px; color:#065f46; font-family:'Inter', sans-serif; line-height: 1.25;">Every requirement for your proposal defense has been checked and approved. Download your clearing form below. Your Focal Person schedules your section; tap <strong>Schedule</strong> to see your date once it is published.</p>
                 <div style="display:flex; gap:8px; flex-wrap:wrap; width:100%;">
-                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_cleared', (int)$effective_user_id) ?>', 'Proposal Clearing Form')" class="btn" style="flex:1; min-width:140px; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Clearing Form</button>
+                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_cleared', (int)$effective_user_id) ?>', '<?= rd_form_title('proposal_cleared') ?>')" class="btn" style="flex:1; min-width:140px; justify-content: center; background:linear-gradient(135deg, #10b981 0%, #059669 100%); color:white; border:none; padding: 8px 12px; font-size: 12px; font-weight:600; font-family:'Inter', sans-serif; box-shadow: 0 4px 12px rgba(16,185,129,0.2);"><i data-lucide="download" style="width:14px;height:14px;"></i> Clearing Form</button>
                 </div>
             </div>
         <?php else: ?>
@@ -332,15 +332,15 @@ $message_type = $_GET['type'] ?? '';
                         </div>
 
                         <!-- Workflow steps -->
-                        <?php if ($item['item_id'] == 17): ?>
+                        <?php if ($item['item_id'] == 17): $f002_filled = rd_form_fillable($pdo, 'application', rd_user_institution($pdo, (int)$effective_user_id)); ?>
                             <div class="card-steps" style="background: #f8fafc; border-radius: 12px; padding: 0 12px; margin-bottom: 16px; border: 1px solid #f1f5f9;">
                                 <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
                                     <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">1</div>
-                                    Download the blank form below
+                                    <?= $f002_filled ? 'Download the form below — your group\'s details are already filled in' : 'Download the blank form below' ?>
                                 </div>
                                 <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
                                     <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">2</div>
-                                    Fill it out completely
+                                    <?= $f002_filled ? 'Print it and check it; write in anything left blank' : 'Fill it out completely' ?>
                                 </div>
                                 <div style="padding: 10px 0; border-bottom: 1px solid #f1f5f9; display: flex; align-items: center; gap: 12px; font-size: 13px; color: #334155;">
                                     <div style="background: #e2e8f0; width:22px; height:22px; border-radius: 50%; display:flex; align-items:center; justify-content:center; font-weight:600; font-size:11px; color:#475569; flex-shrink:0;">3</div>
@@ -407,15 +407,15 @@ $message_type = $_GET['type'] ?? '';
                         <?php if (in_array($item['item_id'], [11, 12, 13, 14, 17])): ?>
                             <div style="margin-bottom:14px;">
                                 <?php if ($item['item_id'] === 17): ?>
-                                    <button onclick="openDownloadModal('<?= df_application_form($pdo, (int)$effective_user_id) ?>', 'Application for Research Defense (Form 002)')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                    <?php $f17 = df_application_form($pdo, (int)$effective_user_id, 'proposal'); ?><button onclick="openDownloadModal('<?= $f17 ?>', '<?= rd_form_title('application') ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> <?= rd_form_btn_label($f17) ?></button>
                                 <?php elseif ($item['item_id'] === 11): ?>
-                                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'assigned_adviser') ?>', 'Assigned Adviser Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                    <?php $f11 = df_institution_form($pdo, (int)$effective_user_id, 'assigned_adviser'); ?><button onclick="openDownloadModal('<?= $f11 ?>', '<?= rd_form_title('assigned_adviser') ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> <?= rd_form_btn_label($f11) ?></button>
                                 <?php elseif ($item['item_id'] === 12): ?>
-                                    <button onclick="openDownloadModal('<?= df_institution_form($pdo, (int)$effective_user_id, 'endorsement') ?>', 'Endorsement Form')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Blank Form</button>
+                                    <?php $f12 = df_institution_form($pdo, (int)$effective_user_id, 'endorsement'); ?><button onclick="openDownloadModal('<?= $f12 ?>', '<?= rd_form_title('endorsement') ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> <?= rd_form_btn_label($f12) ?></button>
                                 <?php elseif ($item['item_id'] === 13): ?>
-                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_review', (int)$effective_user_id) ?>', 'Proposal Review Reference')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
+                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'proposal_review', (int)$effective_user_id) ?>', '<?= rd_form_title('proposal_review') ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Reference Form</button>
                                 <?php elseif ($item['item_id'] === 14): ?>
-                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'capsule_form', (int)$effective_user_id) ?>', 'Capsule Proposal Template')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
+                                    <button onclick="openDownloadModal('<?= rd_form_url($pdo, 'capsule_form', (int)$effective_user_id) ?>', '<?= rd_form_title('capsule_form') ?>')" class="btn btn-outline"><i data-lucide="download" style="width:18px;height:18px;"></i> Download Template</button>
                                 <?php endif; ?>
                             </div>
                         <?php endif; ?>

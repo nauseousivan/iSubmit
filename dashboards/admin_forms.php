@@ -11,6 +11,15 @@
 
 require_once '../config/db.php';
 if (empty($_SESSION['user_id']) || ($_SESSION['role'] ?? '') !== 'Admin') exit('Access Denied');
+require_once __DIR__ . '/form_fill_lib.php';   // rd_form_tag_help() — the tags a Word master may use (2026-10-17)
+
+// Groups to try a filled form with (Admin -> a form -> "Try it with a group"), per school.
+$fm_groups = ['MCNP' => [], 'ISAP' => []];
+foreach ($pdo->query("SELECT user_id, research_group_name, department FROM users
+                      WHERE role = 'Student' AND leader_id IS NULL AND research_group_name <> ''
+                      ORDER BY research_group_name LIMIT 400")->fetchAll(PDO::FETCH_ASSOC) as $g) {
+    $fm_groups[rd_institution_of((string)$g['department'])][] = $g;
+}
 
 $cat = rd_form_catalogue();
 $hist = [];
@@ -42,10 +51,14 @@ foreach ($cat as $slot => $c) {
             'size' => is_file($abs) ? $size(filesize($abs)) : 'missing',
             'url'  => '../' . $cur['path'] . ($cur['uploaded'] ? '?v=' . (int)$cur['row']['template_id'] : ''),
             'default' => basename($c['default'][$inst === 'MCNP' ? 0 : 1]),
+            // AUTO-FILL: the Word master this school is filled from, and the tags it carries.
+            'tpl'  => ($tpl = rd_form_template($pdo, $slot, $inst)),
+            'tags' => $tpl !== '' ? rd_docx_tags($root . '/' . $tpl) : [],
         ];
         if ($cur['uploaded']) $yours++;
     }
     $forms[$slot] = $c + ['sides' => $sides, 'same' => $sides['MCNP']['path'] === $sides['ISAP']['path'],
+                          'fills' => $sides['MCNP']['tags'] || $sides['ISAP']['tags'],
                           'phases' => array_map('trim', explode('·', $c['phase']))];
 }
 $phases = ['Proposal', 'Statistics', 'Final', 'Plagiarism'];
@@ -132,6 +145,23 @@ function fm_chip(array $s, string $who, callable $h): string
         .fm-form-t small { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; margin-top: 3px; }
         .fm-tag { font-size: 11px; font-weight: 700; padding: 1px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); }
         .fm-tag.code { background: color-mix(in srgb, var(--accent) 10%, var(--surface)); color: var(--accent); }
+        /* Auto-fill (2026-10-17) */
+        .fm-tag.fill { background: color-mix(in srgb, var(--success) 14%, var(--surface)); color: color-mix(in srgb, var(--success) 72%, var(--ink)); display: inline-flex; align-items: center; gap: 4px; }
+        .fm-tag.fill i, .fm-tag.fill svg { width: 11px; height: 11px; }
+        .fm-fill { display: flex; flex-direction: column; gap: 12px; }
+        .fm-fill-row { display: flex; flex-direction: column; gap: 4px; }
+        .fm-fill-row b { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); }
+        .fm-fill-row small { font-size: 11.5px; color: var(--muted); line-height: 1.5; font-family: 'JetBrains Mono', monospace; }
+        .fm-ok, .fm-off { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; }
+        .fm-ok { color: color-mix(in srgb, var(--success) 72%, var(--ink)); }
+        .fm-off { color: var(--ink); }
+        .fm-ok i, .fm-ok svg { width: 14px; height: 14px; }
+        .fm-try select { margin-top: 4px; width: 100%; padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); font: inherit; font-size: 13px; }
+        .fm-tags summary { cursor: pointer; font-size: 12.5px; font-weight: 700; color: var(--accent); }
+        .fm-tags p { font-size: 12px; color: var(--muted); margin: 8px 0; }
+        .fm-tags dl { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; margin: 0; font-size: 12px; }
+        .fm-tags dt { font-family: 'JetBrains Mono', monospace; color: var(--ink); white-space: nowrap; }
+        .fm-tags dd { margin: 0; color: var(--muted); }
         .fm-cell { min-width: 0; }
         .fm-cell.both { grid-column: span 2; }
         .fm-go { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; color: var(--muted); transition: background .15s, color .15s; }
@@ -264,7 +294,7 @@ function fm_chip(array $s, string $who, callable $h): string
                     <span class="fm-doc"><i data-lucide="file-text"></i></span>
                     <div class="fm-form-t">
                         <b><?= $h($f['label']) ?></b>
-                        <small><?php if ($f['code']): ?><span class="fm-tag code"><?= $h($f['code']) ?></span><?php endif; ?><?php foreach ($f['phases'] as $p): ?><span class="fm-tag"><?= $h($p) ?></span><?php endforeach; ?></small>
+                        <small><?php if ($f['code']): ?><span class="fm-tag code"><?= $h($f['code']) ?></span><?php endif; ?><?php foreach ($f['phases'] as $p): ?><span class="fm-tag"><?= $h($p) ?></span><?php endforeach; ?><?php if ($f['fills']): ?><span class="fm-tag fill" title="Filled in for each student"><i data-lucide="wand-2"></i> Auto-fill</span><?php endif; ?></small>
                     </div>
                 </div>
                 <?php if ($f['same']): ?>
@@ -298,6 +328,32 @@ function fm_chip(array $s, string $who, callable $h): string
                 <?php foreach ($f['same'] ? ['Both schools' => $f['sides']['MCNP']] : ['MCNP' => $f['sides']['MCNP'], 'ISAP' => $f['sides']['ISAP']] as $who => $s): ?>
                     <div class="fm-now-row"><?= fm_chip($s, $h($who), $h) ?><a class="fm-link" href="<?= $h($s['url']) ?>" target="_blank" rel="noopener"><i data-lucide="eye"></i> Preview</a></div>
                 <?php endforeach; ?>
+            </div>
+
+            <div class="fm-sec">Auto-fill</div>
+            <div class="fm-block fm-fill">
+                <?php foreach ($f['same'] && $f['sides']['MCNP']['tpl'] === $f['sides']['ISAP']['tpl'] ? ['Both schools' => 'ISAP'] : ['MCNP' => 'MCNP', 'ISAP' => 'ISAP'] as $who => $inst): $s = $f['sides'][$inst]; ?>
+                    <div class="fm-fill-row">
+                        <b><?= $h($who) ?></b>
+                        <?php if ($s['tags']): ?>
+                            <span class="fm-ok"><i data-lucide="wand-2"></i> Filled in for each student</span>
+                            <small><?= $h(implode(' · ', $s['tags'])) ?></small>
+                            <?php if ($fm_groups[$inst]): ?>
+                                <label class="fm-try"><select onchange="if(this.value)window.open('form_download.php?slot=<?= $h($slot) ?>&amp;group='+this.value,'_blank');this.value=''">
+                                    <option value="">Try it with a group…</option>
+                                    <?php foreach ($fm_groups[$inst] as $g): ?><option value="<?= (int)$g['user_id'] ?>"><?= $h($g['research_group_name']) ?></option><?php endforeach; ?>
+                                </select></label>
+                            <?php endif; ?>
+                        <?php else: ?>
+                            <span class="fm-off">Blank — students fill it in by hand</span>
+                            <small>Upload the Word file (.docx) with {{TAGS}} in its blanks to fill it in for each student.</small>
+                        <?php endif; ?>
+                    </div>
+                <?php endforeach; ?>
+                <details class="fm-tags"><summary>Tags you can use in the Word file</summary>
+                    <p>Type a tag where the blank is, exactly as shown, in the font the line should print in. Anything iSubmit does not know prints blank, for the office to write.</p>
+                    <dl><?php foreach (rd_form_tag_help() as $tag => $what): ?><dt>{{<?= $h($tag) ?>}}</dt><dd><?= $h($what) ?></dd><?php endforeach; ?></dl>
+                </details>
             </div>
 
             <div class="fm-sec">Upload a new version</div>

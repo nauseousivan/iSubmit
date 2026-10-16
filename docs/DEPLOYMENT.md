@@ -41,3 +41,35 @@ Set strict permissions to secure the server:
 ## 5. Security Hardening
 - **Disable Directory Browsing:** Add `Options -Indexes` to an `.htaccess` file in the root.
 - **Force HTTPS:** Add rewrite rules in `.htaccess` to force all traffic over SSL/TLS.
+
+## 6. Updating the live server (DigitalOcean, `/var/www/isubmit`)
+```bash
+cd /var/www/isubmit
+git pull origin main
+# then run any NEW file in database/migrations/ once (the release notes say which)
+```
+
+## 7. Form auto-fill — one-time server setup (2026-10-17)
+Forms whose Word master carries `{{TAGS}}` are filled in for each student and converted to PDF by
+LibreOffice. Until this is done nothing breaks — those downloads simply stay blank.
+
+```bash
+sudo apt update
+sudo apt install -y php-zip libreoffice-writer-nogui fontconfig
+# Arial + Georgia (Microsoft core fonts), accepting their licence without a prompt:
+echo ttf-mscorefonts-installer msttcorefonts/accepted-mscorefonts-eula select true | sudo debconf-set-selections
+sudo apt install -y ttf-mscorefonts-installer
+sudo systemctl restart apache2
+```
+
+**Tahoma** (used by several RDC forms) is not in that package. Copy it from a Windows PC
+(`C:\Windows\Fonts\tahoma.ttf` and `tahomabd.ttf`):
+```bash
+# on the Windows PC:
+scp C:\Windows\Fonts\tahoma.ttf C:\Windows\Fonts\tahomabd.ttf root@SERVER:/usr/local/share/fonts/
+# on the server:
+sudo fc-cache -f
+```
+
+Check: `php -m | grep zip` prints `zip`, and `soffice --version` prints a version. Then in
+Admin → Forms, open Form 011 and use **Try it with a group** — it should open a filled PDF.
